@@ -6,11 +6,11 @@ namespace ConfluencePageExporter.Commands;
 
 public class DownloadCommandHandler
 {
-    private readonly ILogger<Exporter> _logger;
+    private readonly ILoggerFactory _loggerFactory;
 
-    public DownloadCommandHandler(ILogger<Exporter> logger)
+    public DownloadCommandHandler(ILoggerFactory loggerFactory)
     {
-        _logger = logger;
+        _loggerFactory = loggerFactory;
     }
 
     public Command CreateCommand()
@@ -68,7 +68,14 @@ public class DownloadCommandHandler
                 return;
             }
 
-            var exporter = new Exporter(baseUrl, username, token, _logger, authType, dryRun);
+            var apiClient = new HttpClientConfluenceApiClient(
+                baseUrl, username, token,
+                _loggerFactory.CreateLogger<HttpClientConfluenceApiClient>(),
+                authType);
+            var service = new DownloadService(
+                apiClient,
+                _loggerFactory.CreateLogger<DownloadService>(),
+                dryRun);
 
             var pageIdentifier = !string.IsNullOrEmpty(pageId) ? $"ID '{pageId}'" : $"title '{pageTitle}'";
             Console.WriteLine($"Downloading page {pageIdentifier} from space '{spaceKey}'{(recursive ? " (recursive)" : "")}...");
@@ -77,7 +84,7 @@ public class DownloadCommandHandler
                 Console.WriteLine("DRY RUN MODE: No files will be written to disk.");
             }
 
-            await exporter.DownloadAsync(spaceKey, pageId, pageTitle, outputDir, recursive, overwriteStrategy);
+            await service.DownloadAsync(spaceKey, pageId, pageTitle, outputDir, recursive, overwriteStrategy);
             Console.WriteLine($"Download completed. Files saved to: {outputDir}");
         });
 

@@ -6,11 +6,11 @@ namespace ConfluencePageExporter.Commands;
 
 public class UploadCommandHandler
 {
-    private readonly ILogger<Exporter> _logger;
+    private readonly ILoggerFactory _loggerFactory;
 
-    public UploadCommandHandler(ILogger<Exporter> logger)
+    public UploadCommandHandler(ILoggerFactory loggerFactory)
     {
-        _logger = logger;
+        _loggerFactory = loggerFactory;
     }
 
     public Command CreateCommand()
@@ -61,7 +61,14 @@ public class UploadCommandHandler
                 return;
             }
 
-            var exporter = new Exporter(baseUrl, username, token, _logger, authType, dryRun);
+            var apiClient = new HttpClientConfluenceApiClient(
+                baseUrl, username, token,
+                _loggerFactory.CreateLogger<HttpClientConfluenceApiClient>(),
+                authType);
+            var service = new UploadService(
+                apiClient,
+                _loggerFactory.CreateLogger<UploadService>(),
+                dryRun);
 
             if (dryRun)
                 Console.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
@@ -69,7 +76,7 @@ public class UploadCommandHandler
             var desc = recursive ? " (recursive)" : "";
             Console.WriteLine($"Updating pages in space '{spaceKey}' from '{sourceDir}'{desc}...");
 
-            await exporter.UploadUpdateAsync(spaceKey, sourceDir, pageId, pageTitle, recursive, onError);
+            await service.UploadUpdateAsync(spaceKey, sourceDir, pageId, pageTitle, recursive, onError);
             Console.WriteLine("Upload update completed.");
         });
 
@@ -114,7 +121,14 @@ public class UploadCommandHandler
                 return;
             }
 
-            var exporter = new Exporter(baseUrl, username, token, _logger, authType, dryRun);
+            var apiClient = new HttpClientConfluenceApiClient(
+                baseUrl, username, token,
+                _loggerFactory.CreateLogger<HttpClientConfluenceApiClient>(),
+                authType);
+            var service = new UploadService(
+                apiClient,
+                _loggerFactory.CreateLogger<UploadService>(),
+                dryRun);
 
             if (dryRun)
                 Console.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
@@ -125,7 +139,7 @@ public class UploadCommandHandler
             var desc = recursive ? " (recursive)" : "";
             Console.WriteLine($"Creating pages in space '{spaceKey}' {parentDesc} from '{sourceDir}'{desc}...");
 
-            await exporter.UploadCreateAsync(spaceKey, sourceDir, parentId, parentTitle, recursive);
+            await service.UploadCreateAsync(spaceKey, sourceDir, parentId, parentTitle, recursive);
             Console.WriteLine("Upload create completed.");
         });
 

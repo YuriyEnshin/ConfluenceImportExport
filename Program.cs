@@ -2,31 +2,26 @@ using System.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ConfluencePageExporter.Commands;
-using ConfluencePageExporter.Services;
 
 class Program
 {
     static async Task<int> Main(string[] args)
     {
-        // Setup dependency injection for logging
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddLogging(builder => builder
             .AddConsole()
             .SetMinimumLevel(LogLevel.Debug));
         var serviceProvider = serviceCollection.BuildServiceProvider();
-        var logger = serviceProvider.GetService<ILogger<Exporter>>();
+        var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
 
-        // Create command handlers
-        var downloadHandler = new DownloadCommandHandler(logger!);
-        var uploadHandler = new UploadCommandHandler(logger!);
-        var compareHandler = new CompareCommandHandler(logger!);
+        var downloadHandler = new DownloadCommandHandler(loggerFactory);
+        var uploadHandler = new UploadCommandHandler(loggerFactory);
+        var compareHandler = new CompareCommandHandler(loggerFactory);
 
-        // Create commands using handlers
         var downloadCommand = downloadHandler.CreateCommand();
         var uploadCommand = uploadHandler.CreateCommand();
         var compareCommand = compareHandler.CreateCommand();
 
-        // Create root command with download and upload subcommands
         var rootCommand = new RootCommand(
             "Downloads Confluence pages to local files or uploads local files to Confluence.")
         {
@@ -63,7 +58,6 @@ class Program
             await parseResult.InvokeAsync();
         });
 
-        // Parse and invoke command
         var parseResult = rootCommand.Parse(args);
         return await parseResult.InvokeAsync();
     }

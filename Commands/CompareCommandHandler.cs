@@ -7,11 +7,11 @@ namespace ConfluencePageExporter.Commands;
 
 public class CompareCommandHandler
 {
-    private readonly ILogger<Exporter> _logger;
+    private readonly ILoggerFactory _loggerFactory;
 
-    public CompareCommandHandler(ILogger<Exporter> logger)
+    public CompareCommandHandler(ILoggerFactory loggerFactory)
     {
-        _logger = logger;
+        _loggerFactory = loggerFactory;
     }
 
     public Command CreateCommand()
@@ -65,11 +65,18 @@ public class CompareCommandHandler
                 return;
             }
 
-            var exporter = new Exporter(baseUrl, username, token, _logger, authType);
+            var apiClient = new HttpClientConfluenceApiClient(
+                baseUrl, username, token,
+                _loggerFactory.CreateLogger<HttpClientConfluenceApiClient>(),
+                authType);
+            var service = new CompareService(
+                apiClient,
+                _loggerFactory.CreateLogger<CompareService>());
+
             var pageIdentifier = !string.IsNullOrEmpty(pageId) ? $"ID '{pageId}'" : $"title '{pageTitle}'";
             Console.WriteLine($"Comparing page {pageIdentifier} in space '{spaceKey}' with local folder '{outputDir}'{(recursive ? " (recursive)" : "")}...");
 
-            var report = await exporter.CompareAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitle);
+            var report = await service.CompareAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitle);
             PrintReport(report);
         });
 
