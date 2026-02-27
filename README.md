@@ -1,34 +1,61 @@
 # Confluence Page Exporter
 
-Command-line utility for synchronizing Confluence pages with a local folder tree.
+Утилита командной строки для синхронизации страниц Confluence с локальной структурой папок.
 
-The tool supports:
+Инструмент поддерживает:
 
-- downloading pages from Confluence to disk (`download`)
-- uploading local pages back to Confluence (`upload update`, `upload create`)
-- comparing Confluence tree with local snapshot (`compare`)
+- выгрузку страниц из Confluence на диск (`download`)
+- загрузку локальных страниц обратно в Confluence (`upload update`, `upload create`)
+- сравнение дерева страниц в Confluence с локальным снимком (`compare`)
 
-## Key Features
+## Основные возможности
 
-- Page selection by `--page-id` or `--page-title`
-- Optional recursive processing (`--recursive`)
-- Local snapshot format:
-  - one folder per page (folder name = page title, sanitized for filesystem)
-  - `index.html` with page storage content
-  - attachments as separate files
-  - `.id<pageId>` marker file for stable page identity
-- Authentication modes:
+- Выбор страницы по `--page-id` или `--page-title`
+- Опциональная рекурсивная обработка (`--recursive`)
+- Формат локального снимка:
+  - одна папка на страницу (имя папки = заголовок страницы, с sanitization под файловую систему)
+  - файл `index.html` с контентом страницы в storage representation
+  - вложения как отдельные файлы
+  - файл-маркер `.id<pageId>` для стабильной идентификации страницы
+- Режимы аутентификации:
   - `--auth-type onprem`
   - `--auth-type cloud`
-- Dry-run support for operations where relevant
+- Поддержка dry-run там, где применимо
 
-## Build
+## Локальная структура хранения
+
+При выгрузке (`download`) страницы сохраняются в иерархию папок внутри `--output-dir`.
+Каждая папка страницы содержит контент, маркер идентификатора и вложения.
+
+```text
+<output-dir>/
+  Root Page/
+    index.html
+    .id12345
+    image.png
+    spec.pdf
+    Child Page A/
+      index.html
+      .id23456
+    Child Page B/
+      index.html
+      .id34567
+```
+
+Правила:
+
+- имя папки страницы = заголовок страницы в Confluence (с заменой недопустимых символов)
+- `index.html` содержит `body.storage.value`
+- файл `.id<pageId>` используется для стабильного сопоставления при `download`, `upload update` и `compare`
+- все файлы, кроме `index.html` и `.id*`, считаются вложениями страницы
+
+## Сборка
 
 ```bash
 dotnet build
 ```
 
-## Command Overview
+## Обзор команд
 
 ```text
 ConfluencePageExporter download ...
@@ -37,30 +64,30 @@ ConfluencePageExporter upload create ...
 ConfluencePageExporter compare ...
 ```
 
-## Download
+## Команда download
 
-Exports a Confluence page (or page subtree) to local disk.
+Выгружает страницу Confluence (или поддерево страниц) на локальный диск.
 
-### Download Parameters
+### Параметры download
 
-- `--base-url` (required)
-- `--username` (required)
-- `--token` (required)
-- `--space-key` (required)
-- `--page-id` or `--page-title` (exactly one required)
-- `--output-dir` (required)
-- `--recursive` (optional)
-- `--overwrite-strategy skip|overwrite|fail` (optional, default `fail`)
-- `--auth-type onprem|cloud` (optional, default `onprem`)
-- `--dry-run` (optional)
+- `--base-url` (обязательный)
+- `--username` (обязательный)
+- `--token` (обязательный)
+- `--space-key` (обязательный)
+- `--page-id` или `--page-title` (обязательно указать ровно один)
+- `--output-dir` (обязательный)
+- `--recursive` (опционально)
+- `--overwrite-strategy skip|overwrite|fail` (опционально, по умолчанию `fail`)
+- `--auth-type onprem|cloud` (опционально, по умолчанию `onprem`)
+- `--dry-run` (опционально)
 
-### Behavior Notes
+### Особенности поведения
 
-- If a page already exists locally by `.id<pageId>`, the tool can move/rename its folder to match the current Confluence hierarchy.
-- If local `index.html` content is unchanged, the file is not rewritten.
-- In dry-run mode, the full algorithm runs, but files and folders are not modified.
+- Если локальная страница уже существует по `.id<pageId>`, утилита может переименовать/переместить папку в соответствии с актуальной иерархией Confluence.
+- Если содержимое локального `index.html` не изменилось, файл не перезаписывается.
+- В dry-run выполняется полный алгоритм, но без фактических изменений файлов и папок.
 
-### Download Example
+### Пример download
 
 ```bash
 ConfluencePageExporter download \
@@ -73,32 +100,32 @@ ConfluencePageExporter download \
   --output-dir ./export
 ```
 
-## Upload Update
+## Команда upload update
 
-Updates existing Confluence page(s) from local folder content.
+Обновляет существующие страницы Confluence по локальному содержимому.
 
-### Upload Update Parameters
+### Параметры upload update
 
-- `--base-url` (required)
-- `--username` (required)
-- `--token` (required)
-- `--space-key` (required)
-- `--source-dir` (required)
-- `--page-id` or `--page-title` (optional, explicit root target)
-- `--recursive` (optional)
-- `--on-error abort|skip` (optional, default `abort`)
-- `--auth-type onprem|cloud` (optional, default `onprem`)
-- `--dry-run` (optional)
+- `--base-url` (обязательный)
+- `--username` (обязательный)
+- `--token` (обязательный)
+- `--space-key` (обязательный)
+- `--source-dir` (обязательный)
+- `--page-id` или `--page-title` (опционально, явное указание корневой страницы)
+- `--recursive` (опционально)
+- `--on-error abort|skip` (опционально, по умолчанию `abort`)
+- `--auth-type onprem|cloud` (опционально, по умолчанию `onprem`)
+- `--dry-run` (опционально)
 
-### Root Resolution Priority
+### Приоритет определения корневой страницы
 
-1. explicit `--page-id` / `--page-title`
-2. local `.id<pageId>` marker in source folder
-3. source folder name as page title
+1. Явно заданные `--page-id` / `--page-title`
+2. Локальный файл-маркер `.id<pageId>` в `source-dir`
+3. Имя папки `source-dir` как заголовок страницы
 
-If no page is found, update command fails for the root page.
+Если корневая страница не найдена, команда завершается ошибкой.
 
-### Upload Update Example
+### Пример upload update
 
 ```bash
 ConfluencePageExporter upload update \
@@ -110,23 +137,23 @@ ConfluencePageExporter upload update \
   --recursive
 ```
 
-## Upload Create
+## Команда upload create
 
-Creates new Confluence page(s) from local folder content.
+Создает новые страницы Confluence по локальному содержимому.
 
-### Upload Create Parameters
+### Параметры upload create
 
-- `--base-url` (required)
-- `--username` (required)
-- `--token` (required)
-- `--space-key` (required)
-- `--source-dir` (required)
-- `--parent-id` or `--parent-title` (optional)
-- `--recursive` (optional)
-- `--auth-type onprem|cloud` (optional, default `onprem`)
-- `--dry-run` (optional)
+- `--base-url` (обязательный)
+- `--username` (обязательный)
+- `--token` (обязательный)
+- `--space-key` (обязательный)
+- `--source-dir` (обязательный)
+- `--parent-id` или `--parent-title` (опционально)
+- `--recursive` (опционально)
+- `--auth-type onprem|cloud` (опционально, по умолчанию `onprem`)
+- `--dry-run` (опционально)
 
-### Upload Create Example
+### Пример upload create
 
 ```bash
 ConfluencePageExporter upload create \
@@ -139,35 +166,35 @@ ConfluencePageExporter upload create \
   --recursive
 ```
 
-## Compare
+## Команда compare
 
-Compares Confluence page tree with local snapshot and prints a report.
+Сравнивает дерево страниц в Confluence с локальным снимком и выводит отчет.
 
-### Compare Parameters
+### Параметры compare
 
-- `--base-url` (required)
-- `--username` (required)
-- `--token` (required)
-- `--space-key` (required)
-- `--page-id` or `--page-title` (exactly one required)
-- `--output-dir` (required)
-- `--recursive` (optional)
-- `--match-by-title` (optional)
-- `--auth-type onprem|cloud` (optional, default `onprem`)
+- `--base-url` (обязательный)
+- `--username` (обязательный)
+- `--token` (обязательный)
+- `--space-key` (обязательный)
+- `--page-id` или `--page-title` (обязательно указать ровно один)
+- `--output-dir` (обязательный)
+- `--recursive` (опционально)
+- `--match-by-title` (опционально)
+- `--auth-type onprem|cloud` (опционально, по умолчанию `onprem`)
 
-### Matching Strategy
+### Стратегия сопоставления
 
-- default: match local pages by `.id<pageId>`
-- with `--match-by-title`: if local `.id` is missing, try fallback matching by title/folder path
+- по умолчанию: сопоставление локальных страниц по `.id<pageId>`
+- с `--match-by-title`: если `.id` отсутствует, используется fallback-сопоставление по заголовкам/пути папок
 
-### Report Sections
+### Разделы отчета
 
-- pages added in Confluence
-- pages deleted in Confluence
-- pages renamed and/or moved in Confluence
-- pages with changed content
+- страницы, добавленные в Confluence
+- страницы, удаленные из Confluence
+- страницы, переименованные и/или перемещенные в Confluence
+- страницы с измененным контентом
 
-### Compare Example
+### Пример compare
 
 ```bash
 ConfluencePageExporter compare \

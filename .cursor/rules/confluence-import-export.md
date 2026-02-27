@@ -17,6 +17,8 @@ Required behavior:
 - Do not propose “quick fixes” without explaining risks
 - Follow established .NET best practices
 
+Generate all output documents and documentation in Russian. Rules and internal comments may remain in English.
+
 ---
 
 ## 2. Project Context
