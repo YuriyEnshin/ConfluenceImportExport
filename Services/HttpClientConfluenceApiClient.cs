@@ -18,14 +18,17 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
     private readonly string _baseUrl;
     private readonly ILogger<HttpClientConfluenceApiClient> _logger;
 
-    public HttpClientConfluenceApiClient(string baseUrl, string username, string authSecret, ILogger<HttpClientConfluenceApiClient> logger, string authType = "onprem")
+    public HttpClientConfluenceApiClient(string baseUrl, HttpClient httpClient, ILogger<HttpClientConfluenceApiClient> logger)
     {
         _baseUrl = baseUrl.EndsWith("/") ? baseUrl[..^1] : baseUrl;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+    }
 
-        _httpClient = new HttpClient();
-        
-        // Basic Auth works the same for both on-prem and cloud
+    public HttpClientConfluenceApiClient(string baseUrl, string username, string authSecret, ILogger<HttpClientConfluenceApiClient> logger, string authType = "onprem")
+        : this(baseUrl, new HttpClient(), logger)
+    {
+        // Basic Auth works the same for both on-prem and cloud.
         var credentials = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{username}:{authSecret}"));
         _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
     }

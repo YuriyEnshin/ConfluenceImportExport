@@ -17,7 +17,11 @@ Required behavior:
 - Do not propose “quick fixes” without explaining risks
 - Follow established .NET best practices
 
-Generate all output documents and documentation in Russian. Rules and internal comments may remain in English.
+Languages:
+
+- generate all output documents and documentation in Russian
+- generate all commit and PR messages in Russian
+- rules and internal comments may remain in English
 
 ---
 
