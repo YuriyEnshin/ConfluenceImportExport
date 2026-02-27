@@ -1,0 +1,104 @@
+############################
+# ОС
+############################
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+############################
+# Visual Studio
+############################
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+############################
+# Visual Studio Code
+############################
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+############################
+# Rider / JetBrains
+############################
+.idea/
+*.sln.iml
+
+############################
+# Build результаты
+############################
+bin/
+obj/
+out/
+
+############################
+# .NET
+############################
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+############################
+# NuGet
+############################
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+.nuget.props
+.nuget.targets
+
+############################
+# Logs
+############################
+*.log
+
+############################
+# Publish
+############################
+**/publish/
+**/Publish/
+
+############################
+# ASP.NET Core
+############################
+appsettings.Development.json
+appsettings.Local.json
+secrets.json
+
+############################
+# Environment files
+############################
+.env
+.env.*
+
+############################
+# Test results
+############################
+TestResults/
+coverage/
+coverage.cobertura.xml
+
+############################
+# Docker
+############################
+docker-compose.override.yml
+
+############################
+# ReSharper
+############################
+_ReSharper*/
+*.DotSettings.user
+
+############################
+# Backup / temp
+############################
+*.bak
+*.tmp
+*.swp
