@@ -59,7 +59,7 @@ public class UploadService
             _logger.LogWarning("Page with ID '{PageId}' from .id marker not found, falling back to title search", markerPageId);
         }
 
-        var folderName = Path.GetFileName(sourceDir);
+        var folderName = LocalStorageHelper.GetPageTitleFromDirectory(sourceDir);
         var foundByTitle = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName);
         if (foundByTitle != null)
             return foundByTitle;
@@ -71,7 +71,7 @@ public class UploadService
 
     private async Task ProcessChildForUpdate(string spaceKey, string childDir, string parentPageId, string onError)
     {
-        var folderName = Path.GetFileName(childDir);
+        var folderName = LocalStorageHelper.GetPageTitleFromDirectory(childDir);
         var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(childDir);
         string? resolvedPageId = null;
         bool shouldCreate = false;
@@ -178,7 +178,7 @@ public class UploadService
 
     private async Task<string?> CreatePageFromDirectory(string spaceKey, string pageDir, string? parentId)
     {
-        var title = Path.GetFileName(pageDir);
+        var title = LocalStorageHelper.GetPageTitleFromDirectory(pageDir);
         var content = await LocalStorageHelper.ReadPageContent(pageDir);
 
         var existingId = await _apiClient.FindPageByTitleAsync(spaceKey, null, title);
@@ -209,7 +209,7 @@ public class UploadService
 
     private async Task UpdatePageContentAndAttachments(string spaceKey, string pageId, string pageDir)
     {
-        var title = Path.GetFileName(pageDir);
+        var title = LocalStorageHelper.GetPageTitleFromDirectory(pageDir);
         var content = await LocalStorageHelper.ReadPageContent(pageDir);
 
         if (_dryRun)

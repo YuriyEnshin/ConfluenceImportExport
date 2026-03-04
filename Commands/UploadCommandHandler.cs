@@ -76,7 +76,7 @@ public class UploadCommandHandler
             var desc = recursive ? " (recursive)" : "";
             Console.WriteLine($"Updating pages in space '{spaceKey}' from '{sourceDir}'{desc}...");
 
-            await service.UploadUpdateAsync(spaceKey, sourceDir, pageId, pageTitle, recursive, onError);
+            await CommandInvocationHelper.RunAsync(() => service.UploadUpdateAsync(spaceKey, sourceDir, pageId, pageTitle, recursive, onError));
             Console.WriteLine("Upload update completed.");
         });
 
@@ -139,7 +139,7 @@ public class UploadCommandHandler
             var desc = recursive ? " (recursive)" : "";
             Console.WriteLine($"Creating pages in space '{spaceKey}' {parentDesc} from '{sourceDir}'{desc}...");
 
-            await service.UploadCreateAsync(spaceKey, sourceDir, parentId, parentTitle, recursive);
+            await CommandInvocationHelper.RunAsync(() => service.UploadCreateAsync(spaceKey, sourceDir, parentId, parentTitle, recursive));
             Console.WriteLine("Upload create completed.");
         });
 

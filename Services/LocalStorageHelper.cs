@@ -56,6 +56,17 @@ public static class LocalStorageHelper
         return Directory.Exists(pageDir) ? Directory.GetDirectories(pageDir) : [];
     }
 
+    /// <summary>
+    /// Returns the page title from a directory path (folder name).
+    /// Handles trailing directory separators that would cause Path.GetFileName to return empty.
+    /// </summary>
+    public static string GetPageTitleFromDirectory(string pageDir)
+    {
+        var normalized = Path.TrimEndingDirectorySeparator(pageDir);
+        var title = Path.GetFileName(normalized);
+        return string.IsNullOrEmpty(title) ? pageDir : title;
+    }
+
     public static void ValidateSourceDirectory(string sourceDir)
     {
         if (!Directory.Exists(sourceDir))
@@ -63,6 +74,10 @@ public static class LocalStorageHelper
 
         if (!File.Exists(Path.Combine(sourceDir, "index.html")))
             throw new FileNotFoundException($"No index.html found in source directory: {sourceDir}");
+
+        var title = GetPageTitleFromDirectory(sourceDir);
+        if (string.IsNullOrWhiteSpace(title))
+            throw new InvalidOperationException($"Source directory path yields an empty page title: {sourceDir}");
     }
 
     public static string NormalizeRelativePath(string path)

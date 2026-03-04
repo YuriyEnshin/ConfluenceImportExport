@@ -1,6 +1,7 @@
 using System.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using ConfluencePageExporter;
 using ConfluencePageExporter.Commands;
 
 class Program
@@ -59,6 +60,15 @@ class Program
         });
 
         var parseResult = rootCommand.Parse(args);
-        return await parseResult.InvokeAsync();
+        try
+        {
+            return await parseResult.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            var message = ExceptionHandling.GetUserFriendlyErrorMessage(ex);
+            await Console.Error.WriteLineAsync($"Error: {message}");
+            return 1;
+        }
     }
 }

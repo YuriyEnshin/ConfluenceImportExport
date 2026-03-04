@@ -76,7 +76,7 @@ public class CompareCommandHandler
             var pageIdentifier = !string.IsNullOrEmpty(pageId) ? $"ID '{pageId}'" : $"title '{pageTitle}'";
             Console.WriteLine($"Comparing page {pageIdentifier} in space '{spaceKey}' with local folder '{outputDir}'{(recursive ? " (recursive)" : "")}...");
 
-            var report = await service.CompareAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitle);
+            var report = await CommandInvocationHelper.RunAsync(() => service.CompareAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitle));
             PrintReport(report);
         });
 

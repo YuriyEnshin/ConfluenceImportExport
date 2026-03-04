@@ -84,7 +84,7 @@ public class DownloadCommandHandler
                 Console.WriteLine("DRY RUN MODE: No files will be written to disk.");
             }
 
-            await service.DownloadAsync(spaceKey, pageId, pageTitle, outputDir, recursive, overwriteStrategy);
+            await CommandInvocationHelper.RunAsync(() => service.DownloadAsync(spaceKey, pageId, pageTitle, outputDir, recursive, overwriteStrategy));
             Console.WriteLine($"Download completed. Files saved to: {outputDir}");
         });
 

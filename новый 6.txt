@@ -1,0 +1,48 @@
+PS D:\_src.inplat\PP.Project\docs\Confluence> D:\_src\ConfluencePageExporter\bin\Debug\net10.0\ConfluencePageExporter.exe upload create --base-url https://confluence-ff.inplatlabs.ru/ --username yuriy.enshin --token 9Ra-ebp-4Cc-xuG --space-key PP --auth-type onprem --source-dir ".\Архитектура Платёжной платформы\9. Архитектурные решения\PP-PRV ADR-001 Выбор Temporal\" --parent-id 310968972
+Creating pages in space 'PP' under parent ID '310968972' from '.\Архитектура Платёжной платформы\9. Архитектурные решения\PP-PRV ADR-001 Выбор Temporal\'...
+dbug: ConfluencePageExporter.Services.HttpClientConfluenceApiClient[0]
+      Searching for page with CQL query: space="PP" AND title=""
+dbug: ConfluencePageExporter.Services.HttpClientConfluenceApiClient[0]
+      URL: https://confluence-ff.inplatlabs.ru/rest/api/content/search?cql=space%3D%22PP%22%20AND%20title%3D%22%22&limit=10
+dbug: ConfluencePageExporter.Services.HttpClientConfluenceApiClient[0]
+      Search response content: {"results":[],"start":0,"limit":10,"size":0,"cqlQuery":"space=\"PP\" AND title=\"\"","searchDuration":31,"totalSize":0,"_links":{"self":"https://confluence-ff.inplatlabs.ru/rest/api/content/search?cql=space%3D%22PP%22%20AND%20title%3D%22%22","base":"https://confluence-ff.inplatlabs.ru","context":""}}
+dbug: ConfluencePageExporter.Services.HttpClientConfluenceApiClient[0]
+      No page found with title ''
+fail: ConfluencePageExporter.Services.HttpClientConfluenceApiClient[0]
+      Failed to create page ''. Status code: BadRequest, Error: {"statusCode":400,"data":{"authorized":true,"valid":false,"allowedInReadOnlyMode":true,"errors":[{"message":{"key":"You must specify a title for new content.","args":[]}}],"successful":false},"message":"Could not create content with type page","reason":"Bad Request"}
+fail: ConfluencePageExporter.Services.UploadService[0]
+      Failed to create page ''
+Upload create completed.
+
+
+PS D:\_src.inplat\PP.Project\docs\Confluence> D:\_src\ConfluencePageExporter\bin\Debug\net10.0\ConfluencePageExporter.exe upload update --base-url https://confluence-ff.inplatlabs.ru/ --username yuriy.enshin --token 9Ra-ebp-4Cc-xuG --space-key PP --auth-type onprem --source-dir ".\Архитектура Платёжной платформы\9. Архитектурные решения\PP-PRV ADR-001 Выбор Temporal\" --page-id 316309815
+Updating pages in space 'PP' from '.\Архитектура Платёжной платформы\9. Архитектурные решения\PP-PRV ADR-001 Выбор Temporal\'...
+Upload update completed.
+fail: ConfluencePageExporter.Services.HttpClientConfluenceApiClient[0]
+      Failed to update page '' (ID: 316309815). Status code: BadRequest, Error: {"statusCode":400,"data":{"authorized":true,"valid":false,"allowedInReadOnlyMode":true,"errors":[{"message":{"key":"You need to include the title to update a page.","args":[]}}],"successful":false},"message":"Could not update Content of type : class com.atlassian.confluence.pages.Page with id 316309815","reason":"Bad Request"}
+fail: ConfluencePageExporter.Services.UploadService[0]
+      Failed to update page 316309815 with title ''
+PS D:\_src.inplat\PP.Project\docs\Confluence> D:\_src\ConfluencePageExporter\bin\Debug\net10.0\ConfluencePageExporter.exe upload update --base-url https://confluence-ff.inplatlabs.ru/ --username yuriy.enshin --token 9Ra-ebp-4Cc-xuG --space-key PP --auth-type onprem --source-dir ".\Архитектура Платёжной платформы\9. Архитектурные решения\PP-PRV ADR-001 Выбор Temporal\"
+Updating pages in space 'PP' from '.\Архитектура Платёжной платформы\9. Архитектурные решения\PP-PRV ADR-001 Выбор Temporal\'...
+Upload update completed.
+
+
+fail: ConfluencePageExporter.Services.HttpClientConfluenceApiClient[0]
+      Failed to update page '' (ID: 316309815). Status code: BadRequest, Error: {"statusCode":400,"data":{"authorized":true,"valid":false,"allowedInReadOnlyMode":true,"errors":[{"message":{"key":"You need to include the title to update a page.","args":[]}}],"successful":false},"message":"Could not update Content of type : class com.atlassian.confluence.pages.Page with id 316309815","reason":"Bad Request"}
+fail: ConfluencePageExporter.Services.UploadService[0]
+      Failed to update page 316309815 with title ''
+PS D:\_src.inplat\PP.Project\docs\Confluence> D:\_src\ConfluencePageExporter\bin\Debug\net10.0\ConfluencePageExporter.exe upload update --base-url https://confluence-ff.inplatlabs.ru/ --username yuriy.enshin --token 9Ra-ebp-4Cc-xuG --space-key PP --auth-type onprem --source-dir ".\Архитектура Платёжной платформы\9. Архитектурные решения\PP-PRV ADR-001 Выбор Temporal\" --page-title "PP-PRV ADR-001 Выбор Temporal"
+Updating pages in space 'PP' from '.\Архитектура Платёжной платформы\9. Архитектурные решения\PP-PRV ADR-001 Выбор Temporal\'...
+dbug: ConfluencePageExporter.Services.HttpClientConfluenceApiClient[0]
+      Searching for page with CQL query: space="PP" AND title="PP-PRV ADR-001 Выбор Temporal"
+dbug: ConfluencePageExporter.Services.HttpClientConfluenceApiClient[0]
+      URL: https://confluence-ff.inplatlabs.ru/rest/api/content/search?cql=space%3D%22PP%22%20AND%20title%3D%22PP-PRV%20ADR-001%20%D0%92%D1%8B%D0%B1%D0%BE%D1%80%20Temporal%22&limit=10
+dbug: ConfluencePageExporter.Services.HttpClientConfluenceApiClient[0]
+      Search response content: {"results":[{"id":"316309815","type":"page","status":"current","title":"PP-PRV ADR-001 Выбор Temporal","restrictions":{},"_links":{"webui":"/pages/viewpage.action?pageId=316309815","tinyui":"/x/N4HaEg","self":"https://confluence-ff.inplatlabs.ru/rest/api/content/316309815"},"_expandable":{"container":"","metadata":"","extensions":"","operations":"","children":"","history":"/rest/api/content/316309815/history","ancestors":"","body":"","version":"","descendants":"","space":"/rest/api/space/PP"}}],"start":0,"limit":10,"size":1,"cqlQuery":"space=\"PP\" AND title=\"PP-PRV ADR-001 Выбор Temporal\"","searchDuration":26,"totalSize":1,"_links":{"self":"https://confluence-ff.inplatlabs.ru/rest/api/content/search?cql=space%3D%22PP%22%20AND%20title%3D%22PP-PRV%20ADR-001%20%D0%92%D1%8B%D0%B1%D0%BE%D1%80%20Temporal%22","base":"https://confluence-ff.inplatlabs.ru","context":""}}
+dbug: ConfluencePageExporter.Services.HttpClientConfluenceApiClient[0]
+      Found page with title 'PP-PRV ADR-001 Выбор Temporal' and ID 316309815
+fail: ConfluencePageExporter.Services.HttpClientConfluenceApiClient[0]
+      Failed to update page '' (ID: 316309815). Status code: BadRequest, Error: {"statusCode":400,"data":{"authorized":true,"valid":false,"allowedInReadOnlyMode":true,"errors":[{"message":{"key":"You need to include the title to update a page.","args":[]}}],"successful":false},"message":"Could not update Content of type : class com.atlassian.confluence.pages.Page with id 316309815","reason":"Bad Request"}
+fail: ConfluencePageExporter.Services.UploadService[0]
+      Failed to update page 316309815 with title ''
+Upload update completed.

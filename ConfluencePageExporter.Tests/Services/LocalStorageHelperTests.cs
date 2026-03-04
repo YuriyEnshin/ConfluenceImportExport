@@ -145,6 +145,39 @@ public class LocalStorageHelperTests
     }
 
     [Fact]
+    public void ValidateSourceDirectory_ShouldPass_WhenPathHasTrailingSeparator()
+    {
+        using var temp = new TempDirectoryScope();
+        var root = temp.CreateDirectory("PageName");
+        File.WriteAllText(Path.Combine(root, "index.html"), "<p>x</p>");
+        var pathWithTrailing = root + Path.DirectorySeparatorChar;
+
+        var act = () => LocalStorageHelper.ValidateSourceDirectory(pathWithTrailing);
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void GetPageTitleFromDirectory_ShouldReturnFolderName_WhenPathHasTrailingSeparator()
+    {
+        var path = "folder" + Path.DirectorySeparatorChar + "PageName" + Path.DirectorySeparatorChar;
+
+        var result = LocalStorageHelper.GetPageTitleFromDirectory(path);
+
+        result.Should().Be("PageName");
+    }
+
+    [Fact]
+    public void GetPageTitleFromDirectory_ShouldReturnFolderName_WhenPathHasNoTrailingSeparator()
+    {
+        var path = "folder" + Path.DirectorySeparatorChar + "PageName";
+
+        var result = LocalStorageHelper.GetPageTitleFromDirectory(path);
+
+        result.Should().Be("PageName");
+    }
+
+    [Fact]
     public void NormalizeRelativePath_ShouldUseForwardSlashes()
     {
         var input = $"one{Path.DirectorySeparatorChar}two{Path.AltDirectorySeparatorChar}three";
