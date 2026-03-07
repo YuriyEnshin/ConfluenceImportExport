@@ -15,7 +15,7 @@ public class UploadService
         _dryRun = dryRun;
     }
 
-    public async Task UploadUpdateAsync(string spaceKey, string sourceDir, string? explicitPageId, string? explicitPageTitle, bool recursive, string onError = "abort")
+    public async Task UploadUpdateAsync(string spaceKey, string sourceDir, string? explicitPageId, string? explicitPageTitle, bool recursive, string onError = "abort", bool movePages = false)
     {
         LocalStorageHelper.ValidateSourceDirectory(sourceDir);
 
@@ -27,7 +27,7 @@ public class UploadService
         {
             foreach (var childDir in LocalStorageHelper.GetPageSubdirectories(sourceDir))
             {
-                await ProcessChildForUpdate(spaceKey, childDir, rootPageId, onError);
+                await ProcessChildForUpdate(spaceKey, childDir, rootPageId, onError, movePages);
             }
         }
     }
@@ -69,11 +69,12 @@ public class UploadService
             "Specify --page-id or --page-title, or use 'upload create' for new pages.");
     }
 
-    private async Task ProcessChildForUpdate(string spaceKey, string childDir, string parentPageId, string onError)
+    private async Task ProcessChildForUpdate(string spaceKey, string childDir, string parentPageId, string onError, bool movePages = false)
     {
         var folderName = LocalStorageHelper.GetPageTitleFromDirectory(childDir);
         var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(childDir);
         string? resolvedPageId = null;
+        string? moveToParentId = null;
         bool shouldCreate = false;
 
         if (markerPageId != null)
@@ -84,6 +85,14 @@ public class UploadService
                 if (page.ParentId == parentPageId)
                 {
                     resolvedPageId = page.Id;
+                }
+                else if (movePages)
+                {
+                    _logger.LogInformation(
+                        "Page '{Title}' (ID: {PageId}) will be moved from parent {OldParent} to {NewParent}",
+                        page.Title, page.Id, page.ParentId, parentPageId);
+                    resolvedPageId = page.Id;
+                    moveToParentId = parentPageId;
                 }
                 else
                 {
@@ -109,13 +118,27 @@ public class UploadService
                 var foundGlobally = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName);
                 if (foundGlobally != null)
                 {
-                    var msg = $"Page '{folderName}' exists in space '{spaceKey}' but under a different parent";
-                    _logger.LogError("{Message}", msg);
-                    if (onError == "abort")
-                        throw new InvalidOperationException(msg);
-                    return;
+                    if (movePages)
+                    {
+                        _logger.LogInformation(
+                            "Page '{Title}' (ID: {PageId}) found in space but under a different parent, will be moved to parent {NewParent}",
+                            folderName, foundGlobally, parentPageId);
+                        resolvedPageId = foundGlobally;
+                        moveToParentId = parentPageId;
+                    }
+                    else
+                    {
+                        var msg = $"Page '{folderName}' exists in space '{spaceKey}' but under a different parent";
+                        _logger.LogError("{Message}", msg);
+                        if (onError == "abort")
+                            throw new InvalidOperationException(msg);
+                        return;
+                    }
                 }
-                shouldCreate = true;
+                else
+                {
+                    shouldCreate = true;
+                }
             }
         }
 
@@ -131,11 +154,11 @@ public class UploadService
         }
         else
         {
-            await UpdatePageContentAndAttachments(spaceKey, resolvedPageId!, childDir);
+            await UpdatePageContentAndAttachments(spaceKey, resolvedPageId!, childDir, moveToParentId);
 
             foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
             {
-                await ProcessChildForUpdate(spaceKey, grandchildDir, resolvedPageId!, onError);
+                await ProcessChildForUpdate(spaceKey, grandchildDir, resolvedPageId!, onError, movePages);
             }
         }
     }
@@ -207,14 +230,17 @@ public class UploadService
         return createdId;
     }
 
-    private async Task UpdatePageContentAndAttachments(string spaceKey, string pageId, string pageDir)
+    private async Task UpdatePageContentAndAttachments(string spaceKey, string pageId, string pageDir, string? moveToParentId = null)
     {
         var title = LocalStorageHelper.GetPageTitleFromDirectory(pageDir);
         var content = await LocalStorageHelper.ReadPageContent(pageDir);
 
         if (_dryRun)
         {
-            _logger.LogInformation("DRY RUN: Would update page {PageId} with title '{Title}'", pageId, title);
+            if (moveToParentId != null)
+                _logger.LogInformation("DRY RUN: Would move page {PageId} to parent {NewParent} and update with title '{Title}'", pageId, moveToParentId, title);
+            else
+                _logger.LogInformation("DRY RUN: Would update page {PageId} with title '{Title}'", pageId, title);
 
             var existingByTitle = await _apiClient.FindPageByTitleAsync(spaceKey, null, title);
             if (existingByTitle != null && existingByTitle != pageId)
@@ -227,14 +253,17 @@ public class UploadService
             return;
         }
 
-        var updatedId = await _apiClient.UpdatePageAsync(pageId, title, content, null);
+        var updatedId = await _apiClient.UpdatePageAsync(pageId, title, content, moveToParentId);
         if (updatedId == null)
         {
             _logger.LogError("Failed to update page {PageId} with title '{Title}'", pageId, title);
             return;
         }
 
-        _logger.LogInformation("Updated page {PageId} with title '{Title}'", pageId, title);
+        if (moveToParentId != null)
+            _logger.LogInformation("Moved and updated page {PageId} with title '{Title}' to parent {NewParent}", pageId, title, moveToParentId);
+        else
+            _logger.LogInformation("Updated page {PageId} with title '{Title}'", pageId, title);
         await UploadPageAttachments(pageId, pageDir);
     }
 

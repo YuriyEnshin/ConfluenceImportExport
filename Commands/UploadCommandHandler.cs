@@ -34,11 +34,12 @@ public class UploadCommandHandler
         var pageIdOption = CommandOptionsBuilder.CreateOptionalStringOption("--page-id", "Confluence page ID to update (mutually exclusive with --page-title)");
         var pageTitleOption = CommandOptionsBuilder.CreateOptionalStringOption("--page-title", "Confluence page title to update (mutually exclusive with --page-id)");
         var onErrorOption = CommandOptionsBuilder.CreateEnumOption("--on-error", "Behavior on conflict during recursive upload: 'abort' (default) or 'skip'", "abort", "skip");
+        var movePagesOption = CommandOptionsBuilder.CreateBoolOption("--move-pages", "Move pages in Confluence when their local position in the tree differs from the remote one");
 
         var command = new Command("update", "Update existing Confluence pages from local files")
         {
             baseUrlOption, usernameOption, tokenOption, spaceKeyOption, authTypeOption,
-            dryRunOption, sourceDirOption, recursiveOption, pageIdOption, pageTitleOption, onErrorOption
+            dryRunOption, sourceDirOption, recursiveOption, pageIdOption, pageTitleOption, onErrorOption, movePagesOption
         };
 
         command.SetAction(async (parseResult) =>
@@ -54,6 +55,7 @@ public class UploadCommandHandler
             var pageId = parseResult.GetValue(pageIdOption);
             var pageTitle = parseResult.GetValue(pageTitleOption);
             var onError = parseResult.GetValue(onErrorOption) ?? "abort";
+            var movePages = parseResult.GetValue(movePagesOption);
 
             if (!string.IsNullOrEmpty(pageId) && !string.IsNullOrEmpty(pageTitle))
             {
@@ -76,7 +78,7 @@ public class UploadCommandHandler
             var desc = recursive ? " (recursive)" : "";
             Console.WriteLine($"Updating pages in space '{spaceKey}' from '{sourceDir}'{desc}...");
 
-            await CommandInvocationHelper.RunAsync(() => service.UploadUpdateAsync(spaceKey, sourceDir, pageId, pageTitle, recursive, onError));
+            await CommandInvocationHelper.RunAsync(() => service.UploadUpdateAsync(spaceKey, sourceDir, pageId, pageTitle, recursive, onError, movePages));
             Console.WriteLine("Upload update completed.");
         });
 
