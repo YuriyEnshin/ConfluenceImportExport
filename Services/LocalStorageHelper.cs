@@ -23,6 +23,20 @@ public static class LocalStorageHelper
         return null;
     }
 
+    public static async Task WritePageIdMarkerAsync(string pageDir, string pageId)
+    {
+        if (!Directory.Exists(pageDir))
+            throw new DirectoryNotFoundException($"Page directory does not exist: {pageDir}");
+
+        foreach (var file in Directory.GetFiles(pageDir, ".id*"))
+        {
+            File.Delete(file);
+        }
+
+        var markerPath = Path.Combine(pageDir, $".id{pageId}");
+        await File.WriteAllTextAsync(markerPath, string.Empty);
+    }
+
     public static async Task<string> ReadPageContent(string pageDir)
     {
         var indexPath = Path.Combine(pageDir, "index.html");

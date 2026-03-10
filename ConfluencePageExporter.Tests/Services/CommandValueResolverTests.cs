@@ -64,4 +64,24 @@ public class CommandValueResolverTests
         fromPair.Should().Be("app.json");
         fromEquals.Should().Be("app.json");
     }
+
+    [Theory]
+    [InlineData("\"/tmp/My Project\"", "/tmp/My Project")]
+    [InlineData("'/tmp/My Project'", "/tmp/My Project")]
+    [InlineData("/tmp/My\\ New\\ Project", "/tmp/My New Project")]
+    [InlineData("  \"/tmp/A B\"  ", "/tmp/A B")]
+    public void NormalizePathInput_ShouldNormalizeQuotesAndEscapedSpaces(string input, string expected)
+    {
+        var normalized = CommandValueResolver.NormalizePathInput(input);
+
+        normalized.Should().Be(expected);
+    }
+
+    [Fact]
+    public void ExtractConfigPathFromArgs_ShouldNormalizePathValue()
+    {
+        var value = CommandValueResolver.ExtractConfigPathFromArgs(["--config", "\"/tmp/My\\ Config.json\""]);
+
+        value.Should().Be("/tmp/My Config.json");
+    }
 }

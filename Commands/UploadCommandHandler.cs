@@ -68,7 +68,7 @@ public class UploadCommandHandler
                 "onprem",
                 "cloud");
             var dryRun = CommandValueResolver.ResolveBool(parseResult, dryRunOption, defaults.DryRun);
-            var sourceDir = CommandValueResolver.ResolveRequiredString(parseResult, sourceDirOption, updateDefaults.SourceDir, "--source-dir");
+            var sourceDir = CommandValueResolver.ResolveRequiredPath(parseResult, sourceDirOption, updateDefaults.SourceDir, "--source-dir");
             var recursive = CommandValueResolver.ResolveBool(parseResult, recursiveOption, updateDefaults.Recursive ?? defaults.Recursive);
             var pageId = CommandValueResolver.ResolveOptionalString(parseResult, pageIdOption, updateDefaults.PageId);
             var pageTitle = CommandValueResolver.ResolveOptionalString(parseResult, pageTitleOption, updateDefaults.PageTitle);
@@ -152,7 +152,7 @@ public class UploadCommandHandler
                 "onprem",
                 "cloud");
             var dryRun = CommandValueResolver.ResolveBool(parseResult, dryRunOption, defaults.DryRun);
-            var sourceDir = CommandValueResolver.ResolveRequiredString(parseResult, sourceDirOption, createDefaults.SourceDir, "--source-dir");
+            var sourceDir = CommandValueResolver.ResolveRequiredPath(parseResult, sourceDirOption, createDefaults.SourceDir, "--source-dir");
             var recursive = CommandValueResolver.ResolveBool(parseResult, recursiveOption, createDefaults.Recursive ?? defaults.Recursive);
             var parentId = CommandValueResolver.ResolveOptionalString(parseResult, parentIdOption, createDefaults.ParentId);
             var parentTitle = CommandValueResolver.ResolveOptionalString(parseResult, parentTitleOption, createDefaults.ParentTitle);

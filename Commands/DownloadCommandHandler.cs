@@ -60,7 +60,7 @@ public class DownloadCommandHandler
             var spaceKey = CommandValueResolver.ResolveRequiredString(parseResult, spaceKeyOption, defaults.SpaceKey, "--space-key");
             var pageId = CommandValueResolver.ResolveOptionalString(parseResult, pageIdOption, defaults.Download.PageId);
             var pageTitle = CommandValueResolver.ResolveOptionalString(parseResult, pageTitleOption, defaults.Download.PageTitle);
-            var outputDir = CommandValueResolver.ResolveRequiredString(parseResult, outputDirOption, defaults.Download.OutputDir, "--output-dir");
+            var outputDir = CommandValueResolver.ResolveRequiredPath(parseResult, outputDirOption, defaults.Download.OutputDir, "--output-dir");
             var recursive = CommandValueResolver.ResolveBool(parseResult, recursiveOption, defaults.Download.Recursive ?? defaults.Recursive);
             var authType = CommandValueResolver.ResolveEnum(
                 parseResult,

@@ -75,6 +75,7 @@ public class UploadServiceTests
         await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
         api.VerifyAll();
+        LocalStorageHelper.ReadPageIdFromMarker(sourceDir).Should().Be("300");
     }
 
     [Fact]
@@ -138,6 +139,8 @@ public class UploadServiceTests
         await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true, onError: "abort");
 
         api.Verify(x => x.CreatePageAsync("SPACE", "111", "ChildNew", "<p>child</p>"), Times.Once);
+        var childDir = Path.Combine(rootDir, "ChildNew");
+        LocalStorageHelper.ReadPageIdFromMarker(childDir).Should().Be("500");
     }
 
     [Fact]
@@ -156,6 +159,7 @@ public class UploadServiceTests
         await service.UploadCreateAsync("SPACE", sourceDir, null, "ParentTitle", recursive: false);
 
         api.VerifyAll();
+        LocalStorageHelper.ReadPageIdFromMarker(sourceDir).Should().Be("C100");
     }
 
     [Fact]
@@ -172,6 +176,7 @@ public class UploadServiceTests
         await service.UploadCreateAsync("SPACE", sourceDir, null, null, recursive: false);
 
         api.Verify(x => x.CreatePageAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        LocalStorageHelper.ReadPageIdFromMarker(sourceDir).Should().BeNull();
     }
 
     [Fact]

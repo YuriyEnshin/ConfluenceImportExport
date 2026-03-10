@@ -19,9 +19,11 @@ public class UploadService
     {
         LocalStorageHelper.ValidateSourceDirectory(sourceDir);
 
-        var rootPageId = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle);
+        var rootMarkerPageId = LocalStorageHelper.ReadPageIdFromMarker(sourceDir);
+        var (rootPageId, resolvedByTitle) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle);
 
         await UpdatePageContentAndAttachments(spaceKey, rootPageId, sourceDir);
+        await EnsurePageIdMarkerIfMissing(sourceDir, rootPageId, rootMarkerPageId == null && resolvedByTitle);
 
         if (recursive)
         {
@@ -32,14 +34,14 @@ public class UploadService
         }
     }
 
-    private async Task<string> ResolveRootPageForUpdate(string spaceKey, string sourceDir, string? explicitPageId, string? explicitPageTitle)
+    private async Task<(string PageId, bool ResolvedByTitle)> ResolveRootPageForUpdate(string spaceKey, string sourceDir, string? explicitPageId, string? explicitPageTitle)
     {
         if (!string.IsNullOrEmpty(explicitPageId))
         {
             var page = await _apiClient.TryGetPageByIdAsync(explicitPageId);
             if (page == null)
                 throw new InvalidOperationException($"Page with ID '{explicitPageId}' not found in Confluence");
-            return page.Id;
+            return (page.Id, false);
         }
 
         if (!string.IsNullOrEmpty(explicitPageTitle))
@@ -47,7 +49,7 @@ public class UploadService
             var foundId = await _apiClient.FindPageByTitleAsync(spaceKey, null, explicitPageTitle);
             if (foundId == null)
                 throw new InvalidOperationException($"Page with title '{explicitPageTitle}' not found in space '{spaceKey}'");
-            return foundId;
+            return (foundId, true);
         }
 
         var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(sourceDir);
@@ -55,14 +57,14 @@ public class UploadService
         {
             var page = await _apiClient.TryGetPageByIdAsync(markerPageId);
             if (page != null)
-                return page.Id;
+                return (page.Id, false);
             _logger.LogWarning("Page with ID '{PageId}' from .id marker not found, falling back to title search", markerPageId);
         }
 
         var folderName = LocalStorageHelper.GetPageTitleFromDirectory(sourceDir);
         var foundByTitle = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName);
         if (foundByTitle != null)
-            return foundByTitle;
+            return (foundByTitle, true);
 
         throw new InvalidOperationException(
             $"Could not find a matching Confluence page for '{folderName}'. " +
@@ -76,6 +78,7 @@ public class UploadService
         string? resolvedPageId = null;
         string? moveToParentId = null;
         bool shouldCreate = false;
+        bool resolvedByTitle = false;
 
         if (markerPageId != null)
         {
@@ -112,6 +115,7 @@ public class UploadService
             if (foundUnderParent != null)
             {
                 resolvedPageId = foundUnderParent;
+                resolvedByTitle = true;
             }
             else
             {
@@ -125,6 +129,7 @@ public class UploadService
                             folderName, foundGlobally, parentPageId);
                         resolvedPageId = foundGlobally;
                         moveToParentId = parentPageId;
+                        resolvedByTitle = true;
                     }
                     else
                     {
@@ -146,6 +151,7 @@ public class UploadService
         {
             resolvedPageId = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
             if (resolvedPageId == null) return;
+            await EnsurePageIdMarkerIfMissing(childDir, resolvedPageId, markerPageId == null);
 
             foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
             {
@@ -155,6 +161,7 @@ public class UploadService
         else
         {
             await UpdatePageContentAndAttachments(spaceKey, resolvedPageId!, childDir, moveToParentId);
+            await EnsurePageIdMarkerIfMissing(childDir, resolvedPageId!, markerPageId == null && resolvedByTitle);
 
             foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
             {
@@ -166,6 +173,7 @@ public class UploadService
     public async Task UploadCreateAsync(string spaceKey, string sourceDir, string? parentId, string? parentTitle, bool recursive)
     {
         LocalStorageHelper.ValidateSourceDirectory(sourceDir);
+        var rootMarkerPageId = LocalStorageHelper.ReadPageIdFromMarker(sourceDir);
 
         string? resolvedParentId = null;
         if (!string.IsNullOrEmpty(parentId) || !string.IsNullOrEmpty(parentTitle))
@@ -178,6 +186,7 @@ public class UploadService
 
         var createdPageId = await CreatePageFromDirectory(spaceKey, sourceDir, resolvedParentId);
         if (createdPageId == null) return;
+        await EnsurePageIdMarkerIfMissing(sourceDir, createdPageId, rootMarkerPageId == null);
 
         if (recursive)
         {
@@ -190,8 +199,10 @@ public class UploadService
 
     private async Task ProcessChildForCreate(string spaceKey, string childDir, string? parentPageId)
     {
+        var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(childDir);
         var createdPageId = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
         if (createdPageId == null) return;
+        await EnsurePageIdMarkerIfMissing(childDir, createdPageId, markerPageId == null);
 
         foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
         {
@@ -294,5 +305,14 @@ public class UploadService
         {
             _logger.LogInformation("DRY RUN: Would upload attachment '{FileName}'", Path.GetFileName(file));
         }
+    }
+
+    private async Task EnsurePageIdMarkerIfMissing(string pageDir, string pageId, bool shouldWrite)
+    {
+        if (!shouldWrite || _dryRun)
+            return;
+
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId);
+        _logger.LogInformation("Saved page ID marker '.id{PageId}' in '{PageDir}'", pageId, pageDir);
     }
 }

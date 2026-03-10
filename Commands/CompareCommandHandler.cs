@@ -60,7 +60,7 @@ public class CompareCommandHandler
             var spaceKey = CommandValueResolver.ResolveRequiredString(parseResult, spaceKeyOption, defaults.SpaceKey, "--space-key");
             var pageId = CommandValueResolver.ResolveOptionalString(parseResult, pageIdOption, compareDefaults.PageId);
             var pageTitle = CommandValueResolver.ResolveOptionalString(parseResult, pageTitleOption, compareDefaults.PageTitle);
-            var outputDir = CommandValueResolver.ResolveRequiredString(parseResult, outputDirOption, compareDefaults.OutputDir, "--output-dir");
+            var outputDir = CommandValueResolver.ResolveRequiredPath(parseResult, outputDirOption, compareDefaults.OutputDir, "--output-dir");
             var recursive = CommandValueResolver.ResolveBool(parseResult, recursiveOption, compareDefaults.Recursive ?? defaults.Recursive);
             var matchByTitle = CommandValueResolver.ResolveBool(parseResult, matchByTitleOption, compareDefaults.MatchByTitle);
             var authType = CommandValueResolver.ResolveEnum(

@@ -6,6 +6,20 @@ namespace ConfluencePageExporter.Services;
 
 public static class CommandValueResolver
 {
+    public static string ResolveRequiredPath(ParseResult parseResult, Option<string> option, string? configValue, string optionName)
+    {
+        var value = ResolveOptionalPath(parseResult, option, configValue);
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException($"Missing required parameter: {optionName}");
+        return value;
+    }
+
+    public static string? ResolveOptionalPath(ParseResult parseResult, Option<string> option, string? configValue)
+    {
+        var value = ResolveOptionalString(parseResult, option, configValue);
+        return NormalizePathInput(value);
+    }
+
     public static string ResolveRequiredString(ParseResult parseResult, Option<string> option, string? configValue, string optionName)
     {
         var value = ResolveOptionalString(parseResult, option, configValue);
@@ -64,14 +78,37 @@ public static class CommandValueResolver
             {
                 if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
                     throw new ArgumentException("Option --config requires a file path.");
-                return args[i + 1];
+                return NormalizePathInput(args[i + 1]);
             }
 
             const string configPrefix = "--config=";
             if (arg.StartsWith(configPrefix, StringComparison.OrdinalIgnoreCase))
-                return arg[configPrefix.Length..];
+                return NormalizePathInput(arg[configPrefix.Length..]);
         }
 
         return null;
+    }
+
+    public static string? NormalizePathInput(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return value;
+
+        var normalized = value.Trim();
+
+        if (normalized.Length >= 2)
+        {
+            var first = normalized[0];
+            var last = normalized[^1];
+            if ((first == '"' && last == '"') || (first == '\'' && last == '\''))
+            {
+                normalized = normalized[1..^1];
+            }
+        }
+
+        // Support escaped spaces often used in unix shell contexts (e.g. My\ New\ Project)
+        normalized = normalized.Replace("\\ ", " ", StringComparison.Ordinal);
+
+        return normalized;
     }
 }
