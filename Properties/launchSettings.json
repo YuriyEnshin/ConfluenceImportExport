@@ -2,7 +2,7 @@
   "profiles": {
     "ConfluencePageExporter": {
       "commandName": "Project",
-      "commandLineArgs": "upload --base-url https://confluence-ff.inplatlabs.ru/ --username yuriy.enshin --token 1234567890 --space-key PP --source-dir \"D:\\_tmp\\System.wiki\\wiki (2)\\Архитектура\" --auth-type onprem --conflict-resolution update --dry-run"
+      "commandLineArgs": "upload --base-url https://confluence-ff.inplatlabs.ru/ --username yuriy.enshin --token 1234567890 --auth-type onprem --space-key PP --source-dir \"D:\\_tmp\\System.wiki\\wiki (2)\\Архитектура\" --auth-type onprem --conflict-resolution update --dry-run"
     }
   }
 }

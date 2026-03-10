@@ -75,7 +75,7 @@ public class CommandLayerTests
                 "--output-dir", "out"
             ]);
 
-            await parseResult.InvokeAsync();
+            await parseResult.InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
         }
         finally
         {
@@ -107,7 +107,7 @@ public class CommandLayerTests
                 "--page-title", "Title"
             ]);
 
-            await parseResult.InvokeAsync();
+            await parseResult.InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
         }
         finally
         {
@@ -139,7 +139,7 @@ public class CommandLayerTests
                 "--parent-title", "Parent"
             ]);
 
-            await parseResult.InvokeAsync();
+            await parseResult.InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
         }
         finally
         {
@@ -168,7 +168,7 @@ public class CommandLayerTests
                 "--output-dir", "out"
             ]);
 
-            await parseResult.InvokeAsync();
+            await parseResult.InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
         }
         finally
         {
