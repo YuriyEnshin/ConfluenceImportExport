@@ -7,6 +7,7 @@
 - выгрузку страниц из Confluence на диск (`download`)
 - загрузку локальных страниц обратно в Confluence (`upload update`, `upload create`)
 - сравнение дерева страниц в Confluence с локальным снимком (`compare`)
+- запуск с параметрами из файла конфигурации (`--config`) с приоритетом CLI-аргументов
 
 ## Основные возможности
 
@@ -55,6 +56,50 @@
 dotnet build
 ```
 
+## Файл конфигурации
+
+Утилита поддерживает JSON-файл с параметрами по умолчанию.
+
+- По умолчанию читается `confluence-exporter.json` из текущей директории (если файл отсутствует, утилита работает только с CLI-параметрами).
+- Можно явно указать путь: `--config <path-to-json>`.
+- Приоритет значений: `CLI` > `config` > встроенное значение по умолчанию.
+
+Пример `confluence-exporter.json`:
+
+```json
+{
+  "defaults": {
+    "baseUrl": "https://wiki.example.com",
+    "username": "user@example.com",
+    "token": "token-or-password",
+    "spaceKey": "DOCS",
+    "authType": "onprem",
+    "recursive": true,
+    "dryRun": false,
+    "download": {
+      "pageId": "12345",
+      "outputDir": "./export",
+      "overwriteStrategy": "fail"
+    },
+    "upload": {
+      "update": {
+        "sourceDir": "./export/MyPage",
+        "onError": "abort",
+        "movePages": true
+      },
+      "create": {
+        "sourceDir": "./export/NewPage",
+        "parentTitle": "Architecture"
+      }
+    },
+    "compare": {
+      "outputDir": "./export",
+      "matchByTitle": true
+    }
+  }
+}
+```
+
 ## Обзор команд
 
 ```text
@@ -91,6 +136,7 @@ ConfluencePageExporter compare ...
 
 ```bash
 ConfluencePageExporter download \
+  --config ./confluence-exporter.json \
   --base-url https://wiki.example.com \
   --username user@example.com \
   --token <token> \
@@ -129,6 +175,7 @@ ConfluencePageExporter download \
 
 ```bash
 ConfluencePageExporter upload update \
+  --config ./confluence-exporter.json \
   --base-url https://wiki.example.com \
   --username user@example.com \
   --token <token> \
@@ -157,6 +204,7 @@ ConfluencePageExporter upload update \
 
 ```bash
 ConfluencePageExporter upload create \
+  --config ./confluence-exporter.json \
   --base-url https://wiki.example.com \
   --username user@example.com \
   --token <token> \
@@ -198,6 +246,7 @@ ConfluencePageExporter upload create \
 
 ```bash
 ConfluencePageExporter compare \
+  --config ./confluence-exporter.json \
   --base-url https://wiki.example.com \
   --username user@example.com \
   --token <token> \

@@ -1,5 +1,6 @@
 using System.CommandLine;
 using ConfluencePageExporter.Commands;
+using ConfluencePageExporter.Models;
 using ConfluencePageExporter.Tests.Helpers;
 using FluentAssertions;
 
@@ -176,5 +177,43 @@ public class CommandLayerTests
         }
 
         writer.ToString().Should().ContainEquivalentOf("Either --page-id or --page-title");
+    }
+
+    [Fact]
+    public async Task DownloadCommand_ShouldApplyConfigValues_ForValidation()
+    {
+        var config = new AppConfig
+        {
+            Defaults = new DefaultConfig
+            {
+                BaseUrl = "https://example.com",
+                Username = "user",
+                Token = "token",
+                SpaceKey = "DOCS",
+                Download = new DownloadDefaults
+                {
+                    OutputDir = "out",
+                    PageId = "1",
+                    PageTitle = "Title"
+                }
+            }
+        };
+        var handler = new DownloadCommandHandler(LoggerTestHelper.CreateLoggerFactory(), config);
+        var command = handler.CreateCommand();
+
+        using var writer = new StringWriter();
+        var previous = Console.Out;
+        Console.SetOut(writer);
+        try
+        {
+            var parseResult = command.Parse([]);
+            await parseResult.InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            Console.SetOut(previous);
+        }
+
+        writer.ToString().Should().ContainEquivalentOf("mutually exclusive");
     }
 }

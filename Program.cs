@@ -3,11 +3,26 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ConfluencePageExporter;
 using ConfluencePageExporter.Commands;
+using ConfluencePageExporter.Models;
+using ConfluencePageExporter.Services;
 
 class Program
 {
     static async Task<int> Main(string[] args)
     {
+        AppConfig appConfig;
+        try
+        {
+            var explicitConfigPath = CommandValueResolver.ExtractConfigPathFromArgs(args);
+            appConfig = ConfigFileLoader.Load(explicitConfigPath);
+        }
+        catch (Exception ex)
+        {
+            var message = ExceptionHandling.GetUserFriendlyErrorMessage(ex);
+            await Console.Error.WriteLineAsync($"Error: {message}");
+            return 1;
+        }
+
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddLogging(builder => builder
             .AddConsole()
@@ -15,9 +30,9 @@ class Program
         var serviceProvider = serviceCollection.BuildServiceProvider();
         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
 
-        var downloadHandler = new DownloadCommandHandler(loggerFactory);
-        var uploadHandler = new UploadCommandHandler(loggerFactory);
-        var compareHandler = new CompareCommandHandler(loggerFactory);
+        var downloadHandler = new DownloadCommandHandler(loggerFactory, appConfig);
+        var uploadHandler = new UploadCommandHandler(loggerFactory, appConfig);
+        var compareHandler = new CompareCommandHandler(loggerFactory, appConfig);
 
         var downloadCommand = downloadHandler.CreateCommand();
         var uploadCommand = uploadHandler.CreateCommand();
@@ -30,6 +45,7 @@ class Program
             uploadCommand,
             compareCommand
         };
+        rootCommand.Options.Add(CommandOptionsBuilder.CreateOptionalStringOption("--config", "Path to JSON configuration file with default parameter values"));
 
         rootCommand.SetAction(async (parseResult) =>
         {

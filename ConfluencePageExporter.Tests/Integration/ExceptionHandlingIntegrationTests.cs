@@ -31,6 +31,47 @@ public class ExceptionHandlingIntegrationTests
         result.Stderr.Should().Contain("Source directory does not exist");
     }
 
+    [Fact]
+    public async Task Program_ShouldReturnExitCode1_WhenExplicitConfigFileDoesNotExist()
+    {
+        var projectPath = GetProjectPath();
+        if (!File.Exists(projectPath))
+            throw new InvalidOperationException($"Project not found: {projectPath}");
+
+        var missingConfigPath = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.json");
+        var result = await RunProcessAsync("dotnet",
+            $"run --project \"{projectPath}\" -- --config \"{missingConfigPath}\"");
+
+        result.ExitCode.Should().Be(1);
+        result.Stderr.Should().Contain("Error:");
+        result.Stderr.Should().Contain("Configuration file does not exist");
+    }
+
+    [Fact]
+    public async Task Program_ShouldReturnExitCode1_WhenConfigFileIsMalformed()
+    {
+        var projectPath = GetProjectPath();
+        if (!File.Exists(projectPath))
+            throw new InvalidOperationException($"Project not found: {projectPath}");
+
+        var configPath = Path.Combine(Path.GetTempPath(), $"bad-config-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(configPath, "{ \"defaults\": ", TestContext.Current.CancellationToken);
+        try
+        {
+            var result = await RunProcessAsync("dotnet",
+                $"run --project \"{projectPath}\" -- --config \"{configPath}\"");
+
+            result.ExitCode.Should().Be(1);
+            result.Stderr.Should().Contain("Error:");
+            result.Stderr.Should().Contain("Configuration file is invalid");
+        }
+        finally
+        {
+            if (File.Exists(configPath))
+                File.Delete(configPath);
+        }
+    }
+
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunProcessAsync(string fileName, string arguments)
     {
         using var process = new Process
@@ -54,7 +95,7 @@ public class ExceptionHandlingIntegrationTests
         process.Start();
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
-        await process.WaitForExitAsync();
+        await process.WaitForExitAsync(TestContext.Current.CancellationToken);
 
         return (process.ExitCode, stdout.ToString(), stderr.ToString());
     }

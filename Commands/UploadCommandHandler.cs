@@ -1,5 +1,6 @@
 using System.CommandLine;
 using Microsoft.Extensions.Logging;
+using ConfluencePageExporter.Models;
 using ConfluencePageExporter.Services;
 
 namespace ConfluencePageExporter.Commands;
@@ -7,10 +8,12 @@ namespace ConfluencePageExporter.Commands;
 public class UploadCommandHandler
 {
     private readonly ILoggerFactory _loggerFactory;
+    private readonly AppConfig _config;
 
-    public UploadCommandHandler(ILoggerFactory loggerFactory)
+    public UploadCommandHandler(ILoggerFactory loggerFactory, AppConfig? config = null)
     {
         _loggerFactory = loggerFactory;
+        _config = config ?? new AppConfig();
     }
 
     public Command CreateCommand()
@@ -35,6 +38,11 @@ public class UploadCommandHandler
         var pageTitleOption = CommandOptionsBuilder.CreateOptionalStringOption("--page-title", "Confluence page title to update (mutually exclusive with --page-id)");
         var onErrorOption = CommandOptionsBuilder.CreateEnumOption("--on-error", "Behavior on conflict during recursive upload: 'abort' (default) or 'skip'", "abort", "skip");
         var movePagesOption = CommandOptionsBuilder.CreateBoolOption("--move-pages", "Move pages in Confluence when their local position in the tree differs from the remote one");
+        baseUrlOption.Required = false;
+        usernameOption.Required = false;
+        tokenOption.Required = false;
+        spaceKeyOption.Required = false;
+        sourceDirOption.Required = false;
 
         var command = new Command("update", "Update existing Confluence pages from local files")
         {
@@ -44,18 +52,35 @@ public class UploadCommandHandler
 
         command.SetAction(async (parseResult) =>
         {
-            var baseUrl = parseResult.GetValue(baseUrlOption) ?? "";
-            var username = parseResult.GetValue(usernameOption) ?? "";
-            var token = parseResult.GetValue(tokenOption) ?? "";
-            var spaceKey = parseResult.GetValue(spaceKeyOption) ?? "";
-            var authType = parseResult.GetValue(authTypeOption) ?? "onprem";
-            var dryRun = parseResult.GetValue(dryRunOption);
-            var sourceDir = parseResult.GetValue(sourceDirOption) ?? "";
-            var recursive = parseResult.GetValue(recursiveOption);
-            var pageId = parseResult.GetValue(pageIdOption);
-            var pageTitle = parseResult.GetValue(pageTitleOption);
-            var onError = parseResult.GetValue(onErrorOption) ?? "abort";
-            var movePages = parseResult.GetValue(movePagesOption);
+            var defaults = _config.Defaults;
+            var updateDefaults = defaults.Upload.Update;
+
+            var baseUrl = CommandValueResolver.ResolveRequiredString(parseResult, baseUrlOption, defaults.BaseUrl, "--base-url");
+            var username = CommandValueResolver.ResolveRequiredString(parseResult, usernameOption, defaults.Username, "--username");
+            var token = CommandValueResolver.ResolveRequiredString(parseResult, tokenOption, defaults.Token, "--token");
+            var spaceKey = CommandValueResolver.ResolveRequiredString(parseResult, spaceKeyOption, defaults.SpaceKey, "--space-key");
+            var authType = CommandValueResolver.ResolveEnum(
+                parseResult,
+                authTypeOption,
+                defaults.AuthType,
+                "onprem",
+                "--auth-type",
+                "onprem",
+                "cloud");
+            var dryRun = CommandValueResolver.ResolveBool(parseResult, dryRunOption, defaults.DryRun);
+            var sourceDir = CommandValueResolver.ResolveRequiredString(parseResult, sourceDirOption, updateDefaults.SourceDir, "--source-dir");
+            var recursive = CommandValueResolver.ResolveBool(parseResult, recursiveOption, updateDefaults.Recursive ?? defaults.Recursive);
+            var pageId = CommandValueResolver.ResolveOptionalString(parseResult, pageIdOption, updateDefaults.PageId);
+            var pageTitle = CommandValueResolver.ResolveOptionalString(parseResult, pageTitleOption, updateDefaults.PageTitle);
+            var onError = CommandValueResolver.ResolveEnum(
+                parseResult,
+                onErrorOption,
+                updateDefaults.OnError,
+                "abort",
+                "--on-error",
+                "abort",
+                "skip");
+            var movePages = CommandValueResolver.ResolveBool(parseResult, movePagesOption, updateDefaults.MovePages);
 
             if (!string.IsNullOrEmpty(pageId) && !string.IsNullOrEmpty(pageTitle))
             {
@@ -97,6 +122,11 @@ public class UploadCommandHandler
         var recursiveOption = CommandOptionsBuilder.CreateBoolOption("--recursive", "Recursively create child pages");
         var parentIdOption = CommandOptionsBuilder.CreateOptionalStringOption("--parent-id", "Parent Confluence page ID (mutually exclusive with --parent-title)");
         var parentTitleOption = CommandOptionsBuilder.CreateOptionalStringOption("--parent-title", "Parent Confluence page title (mutually exclusive with --parent-id)");
+        baseUrlOption.Required = false;
+        usernameOption.Required = false;
+        tokenOption.Required = false;
+        spaceKeyOption.Required = false;
+        sourceDirOption.Required = false;
 
         var command = new Command("create", "Create new Confluence pages from local files")
         {
@@ -106,16 +136,26 @@ public class UploadCommandHandler
 
         command.SetAction(async (parseResult) =>
         {
-            var baseUrl = parseResult.GetValue(baseUrlOption) ?? "";
-            var username = parseResult.GetValue(usernameOption) ?? "";
-            var token = parseResult.GetValue(tokenOption) ?? "";
-            var spaceKey = parseResult.GetValue(spaceKeyOption) ?? "";
-            var authType = parseResult.GetValue(authTypeOption) ?? "onprem";
-            var dryRun = parseResult.GetValue(dryRunOption);
-            var sourceDir = parseResult.GetValue(sourceDirOption) ?? "";
-            var recursive = parseResult.GetValue(recursiveOption);
-            var parentId = parseResult.GetValue(parentIdOption);
-            var parentTitle = parseResult.GetValue(parentTitleOption);
+            var defaults = _config.Defaults;
+            var createDefaults = defaults.Upload.Create;
+
+            var baseUrl = CommandValueResolver.ResolveRequiredString(parseResult, baseUrlOption, defaults.BaseUrl, "--base-url");
+            var username = CommandValueResolver.ResolveRequiredString(parseResult, usernameOption, defaults.Username, "--username");
+            var token = CommandValueResolver.ResolveRequiredString(parseResult, tokenOption, defaults.Token, "--token");
+            var spaceKey = CommandValueResolver.ResolveRequiredString(parseResult, spaceKeyOption, defaults.SpaceKey, "--space-key");
+            var authType = CommandValueResolver.ResolveEnum(
+                parseResult,
+                authTypeOption,
+                defaults.AuthType,
+                "onprem",
+                "--auth-type",
+                "onprem",
+                "cloud");
+            var dryRun = CommandValueResolver.ResolveBool(parseResult, dryRunOption, defaults.DryRun);
+            var sourceDir = CommandValueResolver.ResolveRequiredString(parseResult, sourceDirOption, createDefaults.SourceDir, "--source-dir");
+            var recursive = CommandValueResolver.ResolveBool(parseResult, recursiveOption, createDefaults.Recursive ?? defaults.Recursive);
+            var parentId = CommandValueResolver.ResolveOptionalString(parseResult, parentIdOption, createDefaults.ParentId);
+            var parentTitle = CommandValueResolver.ResolveOptionalString(parseResult, parentTitleOption, createDefaults.ParentTitle);
 
             if (!string.IsNullOrEmpty(parentId) && !string.IsNullOrEmpty(parentTitle))
             {

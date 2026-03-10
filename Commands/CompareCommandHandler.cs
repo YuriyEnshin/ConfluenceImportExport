@@ -1,5 +1,6 @@
 using System.CommandLine;
 using Microsoft.Extensions.Logging;
+using ConfluencePageExporter;
 using ConfluencePageExporter.Models;
 using ConfluencePageExporter.Services;
 
@@ -8,10 +9,12 @@ namespace ConfluencePageExporter.Commands;
 public class CompareCommandHandler
 {
     private readonly ILoggerFactory _loggerFactory;
+    private readonly AppConfig _config;
 
-    public CompareCommandHandler(ILoggerFactory loggerFactory)
+    public CompareCommandHandler(ILoggerFactory loggerFactory, AppConfig? config = null)
     {
         _loggerFactory = loggerFactory;
+        _config = config ?? new AppConfig();
     }
 
     public Command CreateCommand()
@@ -26,6 +29,11 @@ public class CompareCommandHandler
         var outputDirOption = CommandOptionsBuilder.CreateRequiredStringOption("--output-dir", "Output directory with local exported pages");
         var recursiveOption = CommandOptionsBuilder.CreateBoolOption("--recursive", "Recursively compare all child pages");
         var matchByTitleOption = CommandOptionsBuilder.CreateBoolOption("--match-by-title", "If no .id marker is found locally, try matching by titles/folder names");
+        baseUrlOption.Required = false;
+        usernameOption.Required = false;
+        tokenOption.Required = false;
+        spaceKeyOption.Required = false;
+        outputDirOption.Required = false;
 
         var compareCommand = new Command("compare", "Compare Confluence pages with local exported copy")
         {
@@ -43,16 +51,26 @@ public class CompareCommandHandler
 
         compareCommand.SetAction(async (parseResult) =>
         {
-            var baseUrl = parseResult.GetValue(baseUrlOption) ?? "";
-            var username = parseResult.GetValue(usernameOption) ?? "";
-            var token = parseResult.GetValue(tokenOption) ?? "";
-            var spaceKey = parseResult.GetValue(spaceKeyOption) ?? "";
-            var pageId = parseResult.GetValue(pageIdOption);
-            var pageTitle = parseResult.GetValue(pageTitleOption);
-            var outputDir = parseResult.GetValue(outputDirOption) ?? "";
-            var recursive = parseResult.GetValue(recursiveOption);
-            var matchByTitle = parseResult.GetValue(matchByTitleOption);
-            var authType = parseResult.GetValue(authTypeOption) ?? "onprem";
+            var defaults = _config.Defaults;
+            var compareDefaults = defaults.Compare;
+
+            var baseUrl = CommandValueResolver.ResolveRequiredString(parseResult, baseUrlOption, defaults.BaseUrl, "--base-url");
+            var username = CommandValueResolver.ResolveRequiredString(parseResult, usernameOption, defaults.Username, "--username");
+            var token = CommandValueResolver.ResolveRequiredString(parseResult, tokenOption, defaults.Token, "--token");
+            var spaceKey = CommandValueResolver.ResolveRequiredString(parseResult, spaceKeyOption, defaults.SpaceKey, "--space-key");
+            var pageId = CommandValueResolver.ResolveOptionalString(parseResult, pageIdOption, compareDefaults.PageId);
+            var pageTitle = CommandValueResolver.ResolveOptionalString(parseResult, pageTitleOption, compareDefaults.PageTitle);
+            var outputDir = CommandValueResolver.ResolveRequiredString(parseResult, outputDirOption, compareDefaults.OutputDir, "--output-dir");
+            var recursive = CommandValueResolver.ResolveBool(parseResult, recursiveOption, compareDefaults.Recursive ?? defaults.Recursive);
+            var matchByTitle = CommandValueResolver.ResolveBool(parseResult, matchByTitleOption, compareDefaults.MatchByTitle);
+            var authType = CommandValueResolver.ResolveEnum(
+                parseResult,
+                authTypeOption,
+                defaults.AuthType,
+                "onprem",
+                "--auth-type",
+                "onprem",
+                "cloud");
 
             if (string.IsNullOrEmpty(pageId) && string.IsNullOrEmpty(pageTitle))
             {

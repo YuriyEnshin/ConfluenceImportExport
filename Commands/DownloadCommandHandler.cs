@@ -1,5 +1,6 @@
 using System.CommandLine;
 using Microsoft.Extensions.Logging;
+using ConfluencePageExporter.Models;
 using ConfluencePageExporter.Services;
 
 namespace ConfluencePageExporter.Commands;
@@ -7,10 +8,12 @@ namespace ConfluencePageExporter.Commands;
 public class DownloadCommandHandler
 {
     private readonly ILoggerFactory _loggerFactory;
+    private readonly AppConfig _config;
 
-    public DownloadCommandHandler(ILoggerFactory loggerFactory)
+    public DownloadCommandHandler(ILoggerFactory loggerFactory, AppConfig? config = null)
     {
         _loggerFactory = loggerFactory;
+        _config = config ?? new AppConfig();
     }
 
     public Command CreateCommand()
@@ -27,6 +30,11 @@ public class DownloadCommandHandler
         var outputDirOption = CommandOptionsBuilder.CreateRequiredStringOption("--output-dir", "Output directory for downloaded pages");
         var recursiveOption = CommandOptionsBuilder.CreateBoolOption("--recursive", "Recursively download all child pages");
         var overwriteStrategyOption = CommandOptionsBuilder.CreateEnumOption("--overwrite-strategy", "How to handle existing files: 'skip', 'overwrite', or 'fail' (default)", "skip", "overwrite", "fail");
+        baseUrlOption.Required = false;
+        usernameOption.Required = false;
+        tokenOption.Required = false;
+        spaceKeyOption.Required = false;
+        outputDirOption.Required = false;
 
         var downloadCommand = new Command("download", "Download Confluence pages to local files")
         {
@@ -45,17 +53,33 @@ public class DownloadCommandHandler
 
         downloadCommand.SetAction(async (parseResult) =>
         {
-            var baseUrl = parseResult.GetValue(baseUrlOption) ?? "";
-            var username = parseResult.GetValue(usernameOption) ?? "";
-            var token = parseResult.GetValue(tokenOption) ?? "";
-            var spaceKey = parseResult.GetValue(spaceKeyOption) ?? "";
-            var pageId = parseResult.GetValue(pageIdOption);
-            var pageTitle = parseResult.GetValue(pageTitleOption);
-            var outputDir = parseResult.GetValue(outputDirOption) ?? "";
-            var recursive = parseResult.GetValue(recursiveOption);
-            var authType = parseResult.GetValue(authTypeOption) ?? "onprem";
-            var dryRun = parseResult.GetValue(dryRunOption);
-            var overwriteStrategy = parseResult.GetValue(overwriteStrategyOption) ?? "fail";
+            var defaults = _config.Defaults;
+            var baseUrl = CommandValueResolver.ResolveRequiredString(parseResult, baseUrlOption, defaults.BaseUrl, "--base-url");
+            var username = CommandValueResolver.ResolveRequiredString(parseResult, usernameOption, defaults.Username, "--username");
+            var token = CommandValueResolver.ResolveRequiredString(parseResult, tokenOption, defaults.Token, "--token");
+            var spaceKey = CommandValueResolver.ResolveRequiredString(parseResult, spaceKeyOption, defaults.SpaceKey, "--space-key");
+            var pageId = CommandValueResolver.ResolveOptionalString(parseResult, pageIdOption, defaults.Download.PageId);
+            var pageTitle = CommandValueResolver.ResolveOptionalString(parseResult, pageTitleOption, defaults.Download.PageTitle);
+            var outputDir = CommandValueResolver.ResolveRequiredString(parseResult, outputDirOption, defaults.Download.OutputDir, "--output-dir");
+            var recursive = CommandValueResolver.ResolveBool(parseResult, recursiveOption, defaults.Download.Recursive ?? defaults.Recursive);
+            var authType = CommandValueResolver.ResolveEnum(
+                parseResult,
+                authTypeOption,
+                defaults.AuthType,
+                "onprem",
+                "--auth-type",
+                "onprem",
+                "cloud");
+            var dryRun = CommandValueResolver.ResolveBool(parseResult, dryRunOption, defaults.DryRun);
+            var overwriteStrategy = CommandValueResolver.ResolveEnum(
+                parseResult,
+                overwriteStrategyOption,
+                defaults.Download.OverwriteStrategy,
+                "fail",
+                "--overwrite-strategy",
+                "skip",
+                "overwrite",
+                "fail");
 
             if (string.IsNullOrEmpty(pageId) && string.IsNullOrEmpty(pageTitle))
             {
