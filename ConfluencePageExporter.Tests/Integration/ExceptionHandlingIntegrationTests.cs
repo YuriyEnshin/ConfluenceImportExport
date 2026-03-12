@@ -4,10 +4,6 @@ using FluentAssertions;
 
 namespace ConfluencePageExporter.Tests.Integration;
 
-/// <summary>
-/// Integration tests that run the actual executable to verify exception handling
-/// produces user-friendly output and correct exit codes.
-/// </summary>
 public class ExceptionHandlingIntegrationTests
 {
     private static string GetProjectPath()
@@ -40,7 +36,7 @@ public class ExceptionHandlingIntegrationTests
 
         var missingConfigPath = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.json");
         var result = await RunProcessAsync("dotnet",
-            $"run --project \"{projectPath}\" -- --config \"{missingConfigPath}\"");
+            $"run --project \"{projectPath}\" -- --config \"{missingConfigPath}\" download --page-id 1");
 
         result.ExitCode.Should().Be(1);
         result.Stderr.Should().Contain("Error:");
@@ -48,28 +44,18 @@ public class ExceptionHandlingIntegrationTests
     }
 
     [Fact]
-    public async Task Program_ShouldReturnExitCode1_WhenConfigFileIsMalformed()
+    public async Task Program_ShouldReturnExitCode0_ForConfigShow()
     {
         var projectPath = GetProjectPath();
         if (!File.Exists(projectPath))
             throw new InvalidOperationException($"Project not found: {projectPath}");
 
-        var configPath = Path.Combine(Path.GetTempPath(), $"bad-config-{Guid.NewGuid():N}.json");
-        await File.WriteAllTextAsync(configPath, "{ \"defaults\": ", TestContext.Current.CancellationToken);
-        try
-        {
-            var result = await RunProcessAsync("dotnet",
-                $"run --project \"{projectPath}\" -- --config \"{configPath}\"");
+        var result = await RunProcessAsync("dotnet",
+            $"run --project \"{projectPath}\" -- config show");
 
-            result.ExitCode.Should().Be(1);
-            result.Stderr.Should().Contain("Error:");
-            result.Stderr.Should().Contain("Configuration file is invalid");
-        }
-        finally
-        {
-            if (File.Exists(configPath))
-                File.Delete(configPath);
-        }
+        result.ExitCode.Should().Be(0);
+        result.Stdout.Should().Contain("Effective configuration");
+        result.Stdout.Should().Contain("Global:");
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunProcessAsync(string fileName, string arguments)

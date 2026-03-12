@@ -7,7 +7,7 @@
 - выгрузку страниц из Confluence на диск (`download`)
 - загрузку локальных страниц обратно в Confluence (`upload update`, `upload create`)
 - сравнение дерева страниц в Confluence с локальным снимком (`compare`)
-- запуск с параметрами из файла конфигурации (`--config`) с приоритетом CLI-аргументов
+- просмотр действующей конфигурации с указанием источников значений (`config show`)
 
 ## Основные возможности
 
@@ -21,6 +21,8 @@
 - Режимы аутентификации:
   - `--auth-type onprem`
   - `--auth-type cloud`
+- Многоуровневая конфигурация с приоритетом: CLI > переменные окружения > файл > значение по умолчанию
+- Глобальный параметр `--verbose` для подробного (debug-level) вывода
 - Поддержка dry-run там, где применимо
 
 ## Локальная структура хранения
@@ -56,48 +58,66 @@
 dotnet build
 ```
 
-## Файл конфигурации
+## Конфигурация
 
-Утилита поддерживает JSON-файл с параметрами по умолчанию.
+Утилита использует стандартный `Microsoft.Extensions.Configuration` pipeline. Параметры читаются из нескольких источников с приоритетом (последний побеждает):
 
-- По умолчанию читается `confluence-exporter.json` из текущей директории (если файл отсутствует, утилита работает только с CLI-параметрами).
-- Можно явно указать путь: `--config <path-to-json>`.
-- Приоритет значений: `CLI` > `config` > встроенное значение по умолчанию.
+1. **JSON-файл** — по умолчанию `confluence-exporter.json` в текущей директории; путь можно указать явно через `--config <path>`.
+2. **Переменные окружения** — с префиксом `CONFLUENCE_EXPORTER__`, двойное подчёркивание разделяет секции (например, `CONFLUENCE_EXPORTER__GLOBAL__BASEURL`).
+3. **Параметры командной строки** — явно заданные CLI-аргументы имеют наивысший приоритет.
 
-Пример `confluence-exporter.json`:
+### Глобальные параметры
+
+Указываются перед именем команды:
+
+- `--config <path>` — путь к JSON-файлу конфигурации
+- `--verbose` — включить подробный (debug-level) вывод в лог
+
+### Пример `confluence-exporter.json`
 
 ```json
 {
-  "defaults": {
-    "baseUrl": "https://wiki.example.com",
-    "username": "user@example.com",
-    "token": "token-or-password",
-    "spaceKey": "DOCS",
-    "authType": "onprem",
-    "recursive": true,
-    "dryRun": false,
-    "download": {
-      "pageId": "12345",
-      "outputDir": "./export",
-      "overwriteStrategy": "fail"
+  "Global": {
+    "BaseUrl": "https://wiki.example.com",
+    "Username": "user@example.com",
+    "Token": "token-or-password",
+    "SpaceKey": "DOCS",
+    "AuthType": "onprem",
+    "DryRun": false,
+    "Recursive": true
+  },
+  "Download": {
+    "PageId": "12345",
+    "OutputDir": "./export",
+    "OverwriteStrategy": "fail"
+  },
+  "Upload": {
+    "Update": {
+      "SourceDir": "./export/MyPage",
+      "OnError": "abort",
+      "MovePages": true
     },
-    "upload": {
-      "update": {
-        "sourceDir": "./export/MyPage",
-        "onError": "abort",
-        "movePages": true
-      },
-      "create": {
-        "sourceDir": "./export/NewPage",
-        "parentTitle": "Architecture"
-      }
-    },
-    "compare": {
-      "outputDir": "./export",
-      "matchByTitle": true
+    "Create": {
+      "SourceDir": "./export/NewPage",
+      "ParentTitle": "Architecture"
     }
+  },
+  "Compare": {
+    "OutputDir": "./export",
+    "MatchByTitle": true
   }
 }
+```
+
+### Переменные окружения
+
+Переменные окружения именуются по формату `CONFLUENCE_EXPORTER__<Секция>__<Параметр>` (всё в верхнем регистре):
+
+```bash
+export CONFLUENCE_EXPORTER__GLOBAL__BASEURL=https://wiki.example.com
+export CONFLUENCE_EXPORTER__GLOBAL__USERNAME=user@example.com
+export CONFLUENCE_EXPORTER__GLOBAL__TOKEN=secret
+export CONFLUENCE_EXPORTER__DOWNLOAD__OUTPUTDIR=./export
 ```
 
 ## Обзор команд
@@ -107,6 +127,7 @@ ConfluencePageExporter download ...
 ConfluencePageExporter upload update ...
 ConfluencePageExporter upload create ...
 ConfluencePageExporter compare ...
+ConfluencePageExporter config show
 ```
 
 ## Команда download
@@ -135,8 +156,7 @@ ConfluencePageExporter compare ...
 ### Пример download
 
 ```bash
-ConfluencePageExporter download \
-  --config ./confluence-exporter.json \
+ConfluencePageExporter --config ./confluence-exporter.json download \
   --base-url https://wiki.example.com \
   --username user@example.com \
   --token <token> \
@@ -174,8 +194,7 @@ ConfluencePageExporter download \
 ### Пример upload update
 
 ```bash
-ConfluencePageExporter upload update \
-  --config ./confluence-exporter.json \
+ConfluencePageExporter --config ./confluence-exporter.json upload update \
   --base-url https://wiki.example.com \
   --username user@example.com \
   --token <token> \
@@ -203,8 +222,7 @@ ConfluencePageExporter upload update \
 ### Пример upload create
 
 ```bash
-ConfluencePageExporter upload create \
-  --config ./confluence-exporter.json \
+ConfluencePageExporter --config ./confluence-exporter.json upload create \
   --base-url https://wiki.example.com \
   --username user@example.com \
   --token <token> \
@@ -245,8 +263,7 @@ ConfluencePageExporter upload create \
 ### Пример compare
 
 ```bash
-ConfluencePageExporter compare \
-  --config ./confluence-exporter.json \
+ConfluencePageExporter --config ./confluence-exporter.json compare \
   --base-url https://wiki.example.com \
   --username user@example.com \
   --token <token> \
@@ -254,5 +271,49 @@ ConfluencePageExporter compare \
   --page-id 12345 \
   --recursive \
   --match-by-title \
+  --output-dir ./export
+```
+
+## Команда config show
+
+Выводит текущую действующую конфигурацию с указанием источника каждого значения.
+
+Возможные источники:
+
+- `[CLI]` — задано аргументом командной строки
+- `[ENV]` — задано переменной окружения
+- `[FILE]` — задано в JSON-файле конфигурации
+- `[DEFAULT]` — значение по умолчанию
+
+### Пример config show
+
+```bash
+ConfluencePageExporter --config ./confluence-exporter.json config show
+```
+
+Пример вывода:
+
+```text
+Effective configuration
+=======================
+
+Global:
+  BaseUrl                      = https://wiki.example.com            [FILE]
+  Username                     = user@example.com                    [FILE]
+  Token                        = to***en                             [FILE]
+  SpaceKey                     = DOCS                                [FILE]
+  AuthType                     = onprem                              [DEFAULT]
+  Verbose                      = False                               [DEFAULT]
+  DryRun                       = False                               [DEFAULT]
+  Recursive                    = True                                [FILE]
+```
+
+## Подробное логирование
+
+Для включения debug-level вывода используйте глобальный параметр `--verbose`:
+
+```bash
+ConfluencePageExporter --verbose download \
+  --page-id 12345 \
   --output-dir ./export
 ```

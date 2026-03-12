@@ -1,104 +1,62 @@
-using System.CommandLine;
 using Microsoft.Extensions.Logging;
-using ConfluencePageExporter;
+using Microsoft.Extensions.Options;
+using ConfluencePageExporter.Infrastructure;
 using ConfluencePageExporter.Models;
+using ConfluencePageExporter.Options;
 using ConfluencePageExporter.Services;
 
 namespace ConfluencePageExporter.Commands;
 
-public class CompareCommandHandler
+public sealed class CompareCommandHandler : ICommandHandler
 {
+    private readonly IOptions<GlobalOptions> _global;
+    private readonly IOptions<CompareOptions> _opts;
+    private readonly IConfluenceApiClient _apiClient;
     private readonly ILoggerFactory _loggerFactory;
-    private readonly AppConfig _config;
 
-    public CompareCommandHandler(ILoggerFactory loggerFactory, AppConfig? config = null)
+    public CompareCommandHandler(
+        IOptions<GlobalOptions> global,
+        IOptions<CompareOptions> opts,
+        IConfluenceApiClient apiClient,
+        ILoggerFactory loggerFactory)
     {
+        _global = global;
+        _opts = opts;
+        _apiClient = apiClient;
         _loggerFactory = loggerFactory;
-        _config = config ?? new AppConfig();
     }
 
-    public Command CreateCommand()
+    public async Task<int> ExecuteAsync(CancellationToken ct)
     {
-        var baseUrlOption = CommandOptionsBuilder.CreateRequiredStringOption("--base-url", "Base URL of Confluence instance (e.g., https://wiki.example.com)");
-        var usernameOption = CommandOptionsBuilder.CreateRequiredStringOption("--username", "Username or email for authentication");
-        var tokenOption = CommandOptionsBuilder.CreateRequiredStringOption("--token", "API token or password for authentication");
-        var spaceKeyOption = CommandOptionsBuilder.CreateRequiredStringOption("--space-key", "Confluence space key (e.g., DOCS)");
-        var authTypeOption = CommandOptionsBuilder.CreateEnumOption("--auth-type", "Authentication type: 'onprem' (default) or 'cloud'", "onprem", "cloud");
-        var pageIdOption = CommandOptionsBuilder.CreateOptionalStringOption("--page-id", "ID of the page to compare (mutually exclusive with --page-title)");
-        var pageTitleOption = CommandOptionsBuilder.CreateOptionalStringOption("--page-title", "Title of the page to compare (mutually exclusive with --page-id)");
-        var outputDirOption = CommandOptionsBuilder.CreateRequiredStringOption("--output-dir", "Output directory with local exported pages");
-        var recursiveOption = CommandOptionsBuilder.CreateBoolOption("--recursive", "Recursively compare all child pages");
-        var matchByTitleOption = CommandOptionsBuilder.CreateBoolOption("--match-by-title", "If no .id marker is found locally, try matching by titles/folder names");
-        baseUrlOption.Required = false;
-        usernameOption.Required = false;
-        tokenOption.Required = false;
-        spaceKeyOption.Required = false;
-        outputDirOption.Required = false;
+        var g = _global.Value;
+        var o = _opts.Value;
 
-        var compareCommand = new Command("compare", "Compare Confluence pages with local exported copy")
-        {
-            baseUrlOption,
-            usernameOption,
-            tokenOption,
-            spaceKeyOption,
-            pageIdOption,
-            pageTitleOption,
-            outputDirOption,
-            recursiveOption,
-            matchByTitleOption,
-            authTypeOption
-        };
+        var spaceKey = g.SpaceKey
+            ?? throw new ArgumentException("Missing required parameter: --space-key");
+        var outputDir = PathNormalizer.Normalize(o.OutputDir)
+            ?? throw new ArgumentException("Missing required parameter: --output-dir");
 
-        compareCommand.SetAction(async (parseResult) =>
-        {
-            var defaults = _config.Defaults;
-            var compareDefaults = defaults.Compare;
+        var pageId = o.PageId;
+        var pageTitle = o.PageTitle;
 
-            var baseUrl = CommandValueResolver.ResolveRequiredString(parseResult, baseUrlOption, defaults.BaseUrl, "--base-url");
-            var username = CommandValueResolver.ResolveRequiredString(parseResult, usernameOption, defaults.Username, "--username");
-            var token = CommandValueResolver.ResolveRequiredString(parseResult, tokenOption, defaults.Token, "--token");
-            var spaceKey = CommandValueResolver.ResolveRequiredString(parseResult, spaceKeyOption, defaults.SpaceKey, "--space-key");
-            var pageId = CommandValueResolver.ResolveOptionalString(parseResult, pageIdOption, compareDefaults.PageId);
-            var pageTitle = CommandValueResolver.ResolveOptionalString(parseResult, pageTitleOption, compareDefaults.PageTitle);
-            var outputDir = CommandValueResolver.ResolveRequiredPath(parseResult, outputDirOption, compareDefaults.OutputDir, "--output-dir");
-            var recursive = CommandValueResolver.ResolveBool(parseResult, recursiveOption, compareDefaults.Recursive ?? defaults.Recursive);
-            var matchByTitle = CommandValueResolver.ResolveBool(parseResult, matchByTitleOption, compareDefaults.MatchByTitle);
-            var authType = CommandValueResolver.ResolveEnum(
-                parseResult,
-                authTypeOption,
-                defaults.AuthType,
-                "onprem",
-                "--auth-type",
-                "onprem",
-                "cloud");
+        if (string.IsNullOrEmpty(pageId) && string.IsNullOrEmpty(pageTitle))
+            throw new ArgumentException("Either --page-id or --page-title must be specified.");
+        if (!string.IsNullOrEmpty(pageId) && !string.IsNullOrEmpty(pageTitle))
+            throw new ArgumentException("--page-id and --page-title are mutually exclusive. Specify only one.");
 
-            if (string.IsNullOrEmpty(pageId) && string.IsNullOrEmpty(pageTitle))
-            {
-                Console.WriteLine("Error: Either --page-id or --page-title must be specified.");
-                return;
-            }
-            if (!string.IsNullOrEmpty(pageId) && !string.IsNullOrEmpty(pageTitle))
-            {
-                Console.WriteLine("Error: --page-id and --page-title are mutually exclusive. Specify only one.");
-                return;
-            }
+        var recursive = o.Recursive ?? g.Recursive ?? false;
+        var matchByTitle = o.MatchByTitle ?? false;
 
-            var apiClient = new HttpClientConfluenceApiClient(
-                baseUrl, username, token,
-                _loggerFactory.CreateLogger<HttpClientConfluenceApiClient>(),
-                authType);
-            var service = new CompareService(
-                apiClient,
-                _loggerFactory.CreateLogger<CompareService>());
+        var pageIdentifier = !string.IsNullOrEmpty(pageId) ? $"ID '{pageId}'" : $"title '{pageTitle}'";
+        Console.WriteLine($"Comparing page {pageIdentifier} in space '{spaceKey}' with local folder '{outputDir}'{(recursive ? " (recursive)" : "")}...");
 
-            var pageIdentifier = !string.IsNullOrEmpty(pageId) ? $"ID '{pageId}'" : $"title '{pageTitle}'";
-            Console.WriteLine($"Comparing page {pageIdentifier} in space '{spaceKey}' with local folder '{outputDir}'{(recursive ? " (recursive)" : "")}...");
+        var service = new CompareService(
+            _apiClient,
+            _loggerFactory.CreateLogger<CompareService>());
 
-            var report = await CommandInvocationHelper.RunAsync(() => service.CompareAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitle));
-            PrintReport(report);
-        });
-
-        return compareCommand;
+        var report = await service.CompareAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitle);
+        PrintReport(report);
+        return 0;
     }
 
     private static void PrintReport(CompareReport report)

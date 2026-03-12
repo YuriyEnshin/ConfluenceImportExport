@@ -6,16 +6,16 @@ using ConfluencePageExporter.Services;
 
 namespace ConfluencePageExporter.Commands;
 
-public sealed class DownloadCommandHandler : ICommandHandler
+public sealed class UploadUpdateCommandHandler : ICommandHandler
 {
     private readonly IOptions<GlobalOptions> _global;
-    private readonly IOptions<DownloadOptions> _opts;
+    private readonly IOptions<UploadUpdateOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
     private readonly ILoggerFactory _loggerFactory;
 
-    public DownloadCommandHandler(
+    public UploadUpdateCommandHandler(
         IOptions<GlobalOptions> global,
-        IOptions<DownloadOptions> opts,
+        IOptions<UploadUpdateOptions> opts,
         IConfluenceApiClient apiClient,
         ILoggerFactory loggerFactory)
     {
@@ -32,35 +32,34 @@ public sealed class DownloadCommandHandler : ICommandHandler
 
         var spaceKey = g.SpaceKey
             ?? throw new ArgumentException("Missing required parameter: --space-key");
-        var outputDir = PathNormalizer.Normalize(o.OutputDir)
-            ?? throw new ArgumentException("Missing required parameter: --output-dir");
+        var sourceDir = PathNormalizer.Normalize(o.SourceDir)
+            ?? throw new ArgumentException("Missing required parameter: --source-dir");
 
         var pageId = o.PageId;
         var pageTitle = o.PageTitle;
-
-        if (string.IsNullOrEmpty(pageId) && string.IsNullOrEmpty(pageTitle))
-            throw new ArgumentException("Either --page-id or --page-title must be specified.");
         if (!string.IsNullOrEmpty(pageId) && !string.IsNullOrEmpty(pageTitle))
-            throw new ArgumentException("--page-id and --page-title are mutually exclusive. Specify only one.");
+            throw new ArgumentException("--page-id and --page-title are mutually exclusive.");
 
         var recursive = o.Recursive ?? g.Recursive ?? false;
         var dryRun = g.DryRun ?? false;
-        var overwriteStrategy = o.OverwriteStrategy ?? "fail";
+        var onError = o.OnError ?? "abort";
+        var movePages = o.MovePages ?? false;
 
-        ValidateEnum(overwriteStrategy, "--overwrite-strategy", "skip", "overwrite", "fail");
+        ValidateEnum(onError, "--on-error", "abort", "skip");
 
-        var pageIdentifier = !string.IsNullOrEmpty(pageId) ? $"ID '{pageId}'" : $"title '{pageTitle}'";
-        Console.WriteLine($"Downloading page {pageIdentifier} from space '{spaceKey}'{(recursive ? " (recursive)" : "")}...");
         if (dryRun)
-            Console.WriteLine("DRY RUN MODE: No files will be written to disk.");
+            Console.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
 
-        var service = new DownloadService(
+        var desc = recursive ? " (recursive)" : "";
+        Console.WriteLine($"Updating pages in space '{spaceKey}' from '{sourceDir}'{desc}...");
+
+        var service = new UploadService(
             _apiClient,
-            _loggerFactory.CreateLogger<DownloadService>(),
+            _loggerFactory.CreateLogger<UploadService>(),
             dryRun);
 
-        await service.DownloadAsync(spaceKey, pageId, pageTitle, outputDir, recursive, overwriteStrategy);
-        Console.WriteLine($"Download completed. Files saved to: {outputDir}");
+        await service.UploadUpdateAsync(spaceKey, sourceDir, pageId, pageTitle, recursive, onError, movePages);
+        Console.WriteLine("Upload update completed.");
         return 0;
     }
 
