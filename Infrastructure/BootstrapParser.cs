@@ -6,6 +6,7 @@ namespace ConfluencePageExporter.Infrastructure;
 /// <summary>
 /// Phase-1 lightweight extraction of infrastructure values from a <see cref="ParseResult"/>:
 /// config file path, verbose flag, and the invoked command path.
+/// Walks the full command chain so recursive options are found regardless of placement.
 /// </summary>
 public static class BootstrapParser
 {
@@ -14,7 +15,7 @@ public static class BootstrapParser
         string? configPath = null;
         bool verbose = false;
 
-        foreach (var child in parseResult.RootCommandResult.Children.OfType<OptionResult>())
+        foreach (var child in CollectOptionResults(parseResult))
         {
             if (child.Implicit) continue;
 
@@ -32,6 +33,17 @@ public static class BootstrapParser
         var commandPath = BuildCommandPath(parseResult);
 
         return new BootstrapResult(configPath, verbose, commandPath);
+    }
+
+    private static IEnumerable<OptionResult> CollectOptionResults(ParseResult parseResult)
+    {
+        var cmd = parseResult.CommandResult;
+        while (cmd != null)
+        {
+            foreach (var or in cmd.Children.OfType<OptionResult>())
+                yield return or;
+            cmd = cmd.Parent as CommandResult;
+        }
     }
 
     private static string BuildCommandPath(ParseResult parseResult)

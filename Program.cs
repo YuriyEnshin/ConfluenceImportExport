@@ -13,7 +13,7 @@ using ConfluencePageExporter.Services;
 var rootCommand = CommandDefinitions.Build();
 var parseResult = rootCommand.Parse(args);
 
-if (parseResult.Errors.Count > 0)
+if (parseResult.Errors.Count > 0 || parseResult.Action is not null)
     return await parseResult.InvokeAsync();
 
 var boot = BootstrapParser.Parse(parseResult);

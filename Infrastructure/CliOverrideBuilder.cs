@@ -5,7 +5,8 @@ namespace ConfluencePageExporter.Infrastructure;
 
 /// <summary>
 /// Converts explicitly-specified CLI options into IConfiguration key-value pairs.
-/// Uses name-based lookup from OptionResult tokens.
+/// Walks the command result parent chain so recursive options are found
+/// regardless of where the user places them in the command line.
 /// </summary>
 public static class CliOverrideBuilder
 {
@@ -34,6 +35,9 @@ public static class CliOverrideBuilder
                 break;
             case "compare":
                 MapCompare(parseResult, result);
+                break;
+            case "config show":
+                MapConfigShow(parseResult, result);
                 break;
         }
 
@@ -69,6 +73,33 @@ public static class CliOverrideBuilder
 
     private static void MapCompare(ParseResult pr, Dictionary<string, string?> d)
     {
+        AddIfExplicit(pr, "page-id", "Compare:PageId", d);
+        AddIfExplicit(pr, "page-title", "Compare:PageTitle", d);
+        AddIfExplicitPath(pr, "output-dir", "Compare:OutputDir", d);
+        AddIfExplicit(pr, "recursive", "Compare:Recursive", d, isFlag: true);
+        AddIfExplicit(pr, "match-by-title", "Compare:MatchByTitle", d, isFlag: true);
+    }
+
+    private static void MapConfigShow(ParseResult pr, Dictionary<string, string?> d)
+    {
+        AddIfExplicit(pr, "page-id", "Download:PageId", d);
+        AddIfExplicit(pr, "page-title", "Download:PageTitle", d);
+        AddIfExplicitPath(pr, "output-dir", "Download:OutputDir", d);
+        AddIfExplicit(pr, "recursive", "Download:Recursive", d, isFlag: true);
+        AddIfExplicit(pr, "overwrite-strategy", "Download:OverwriteStrategy", d);
+
+        AddIfExplicitPath(pr, "source-dir", "Upload:Update:SourceDir", d);
+        AddIfExplicit(pr, "page-id", "Upload:Update:PageId", d);
+        AddIfExplicit(pr, "page-title", "Upload:Update:PageTitle", d);
+        AddIfExplicit(pr, "recursive", "Upload:Update:Recursive", d, isFlag: true);
+        AddIfExplicit(pr, "on-error", "Upload:Update:OnError", d);
+        AddIfExplicit(pr, "move-pages", "Upload:Update:MovePages", d, isFlag: true);
+
+        AddIfExplicitPath(pr, "source-dir", "Upload:Create:SourceDir", d);
+        AddIfExplicit(pr, "parent-id", "Upload:Create:ParentId", d);
+        AddIfExplicit(pr, "parent-title", "Upload:Create:ParentTitle", d);
+        AddIfExplicit(pr, "recursive", "Upload:Create:Recursive", d, isFlag: true);
+
         AddIfExplicit(pr, "page-id", "Compare:PageId", d);
         AddIfExplicit(pr, "page-title", "Compare:PageTitle", d);
         AddIfExplicitPath(pr, "output-dir", "Compare:OutputDir", d);
@@ -118,17 +149,17 @@ public static class CliOverrideBuilder
     {
         var fullName = "--" + optionName;
 
-        var result = parseResult.CommandResult.Children
-            .OfType<OptionResult>()
-            .FirstOrDefault(r => r.Option.Name == fullName);
-
-        if (result == null && parseResult.CommandResult != parseResult.RootCommandResult)
+        var cmd = parseResult.CommandResult;
+        while (cmd != null)
         {
-            result = parseResult.RootCommandResult.Children
+            var match = cmd.Children
                 .OfType<OptionResult>()
                 .FirstOrDefault(r => r.Option.Name == fullName);
+            if (match != null)
+                return match;
+            cmd = cmd.Parent as CommandResult;
         }
 
-        return result;
+        return null;
     }
 }

@@ -4,15 +4,24 @@ namespace ConfluencePageExporter.Infrastructure;
 
 /// <summary>
 /// Builds the System.CommandLine tree used for parsing and help.
-/// Each command gets its own option instances (System.CommandLine requires this).
+/// Shared options are defined once on the root with <see cref="Option.Recursive"/> = true
+/// so they propagate automatically to all subcommands.
 /// </summary>
 public static class CommandDefinitions
 {
     public static RootCommand Build()
     {
         var root = new RootCommand("Downloads Confluence pages to local files or uploads local files to Confluence.");
-        root.Options.Add(Opt<string?>("--config", "Path to JSON configuration file"));
-        root.Options.Add(Flag("--verbose", "Enable verbose (debug-level) logging"));
+
+        root.Options.Add(Opt<string?>("--config", "Path to JSON configuration file", recursive: true));
+        root.Options.Add(Flag("--verbose", "Enable verbose (debug-level) logging", recursive: true));
+        root.Options.Add(Opt<string?>("--base-url", "Base URL of Confluence instance", recursive: true));
+        root.Options.Add(Opt<string?>("--username", "Username or email for authentication", recursive: true));
+        root.Options.Add(Opt<string?>("--token", "API token or password for authentication", recursive: true));
+        root.Options.Add(Opt<string?>("--space-key", "Confluence space key", recursive: true));
+        root.Options.Add(Opt<string?>("--auth-type", "Authentication type: 'onprem' or 'cloud'", recursive: true));
+        root.Options.Add(Flag("--dry-run", "Perform a dry run without writing changes", recursive: true));
+        root.Options.Add(Flag("--recursive", "Recursively process child pages", recursive: true));
 
         root.Add(BuildDownloadCommand());
         root.Add(BuildUploadCommand());
@@ -26,13 +35,6 @@ public static class CommandDefinitions
     {
         return new Command("download", "Download Confluence pages to local files")
         {
-            Opt<string?>("--base-url", "Base URL of Confluence instance"),
-            Opt<string?>("--username", "Username or email for authentication"),
-            Opt<string?>("--token", "API token or password for authentication"),
-            Opt<string?>("--space-key", "Confluence space key"),
-            Opt<string?>("--auth-type", "Authentication type: 'onprem' or 'cloud'"),
-            Flag("--dry-run", "Perform a dry run without writing changes"),
-            Flag("--recursive", "Recursively process child pages"),
             Opt<string?>("--page-id", "Confluence page ID"),
             Opt<string?>("--page-title", "Confluence page title"),
             Opt<string?>("--output-dir", "Output directory for downloaded pages"),
@@ -52,13 +54,6 @@ public static class CommandDefinitions
     {
         return new Command("update", "Update existing Confluence pages from local files")
         {
-            Opt<string?>("--base-url", "Base URL of Confluence instance"),
-            Opt<string?>("--username", "Username or email for authentication"),
-            Opt<string?>("--token", "API token or password for authentication"),
-            Opt<string?>("--space-key", "Confluence space key"),
-            Opt<string?>("--auth-type", "Authentication type: 'onprem' or 'cloud'"),
-            Flag("--dry-run", "Perform a dry run without writing changes"),
-            Flag("--recursive", "Recursively process child pages"),
             Opt<string?>("--source-dir", "Local page folder to upload"),
             Opt<string?>("--page-id", "Confluence page ID to update"),
             Opt<string?>("--page-title", "Confluence page title to update"),
@@ -71,13 +66,6 @@ public static class CommandDefinitions
     {
         return new Command("create", "Create new Confluence pages from local files")
         {
-            Opt<string?>("--base-url", "Base URL of Confluence instance"),
-            Opt<string?>("--username", "Username or email for authentication"),
-            Opt<string?>("--token", "API token or password for authentication"),
-            Opt<string?>("--space-key", "Confluence space key"),
-            Opt<string?>("--auth-type", "Authentication type: 'onprem' or 'cloud'"),
-            Flag("--dry-run", "Perform a dry run without writing changes"),
-            Flag("--recursive", "Recursively process child pages"),
             Opt<string?>("--source-dir", "Local page folder to upload"),
             Opt<string?>("--parent-id", "Parent Confluence page ID"),
             Opt<string?>("--parent-title", "Parent Confluence page title"),
@@ -88,12 +76,6 @@ public static class CommandDefinitions
     {
         return new Command("compare", "Compare Confluence pages with local exported copy")
         {
-            Opt<string?>("--base-url", "Base URL of Confluence instance"),
-            Opt<string?>("--username", "Username or email for authentication"),
-            Opt<string?>("--token", "API token or password for authentication"),
-            Opt<string?>("--space-key", "Confluence space key"),
-            Opt<string?>("--auth-type", "Authentication type: 'onprem' or 'cloud'"),
-            Flag("--recursive", "Recursively process child pages"),
             Opt<string?>("--page-id", "Confluence page ID"),
             Opt<string?>("--page-title", "Confluence page title"),
             Opt<string?>("--output-dir", "Output directory with local exported pages"),
@@ -104,17 +86,30 @@ public static class CommandDefinitions
     private static Command BuildConfigCommand()
     {
         var config = new Command("config", "Configuration management");
-        config.Add(new Command("show", "Display effective configuration values"));
+        var show = new Command("show", "Display effective configuration values with source annotations")
+        {
+            Opt<string?>("--page-id", "Confluence page ID"),
+            Opt<string?>("--page-title", "Confluence page title"),
+            Opt<string?>("--output-dir", "Output/local directory"),
+            Opt<string?>("--overwrite-strategy", "How to handle existing files"),
+            Opt<string?>("--source-dir", "Local page folder"),
+            Opt<string?>("--on-error", "Behavior on conflict"),
+            Flag("--move-pages", "Move pages flag"),
+            Opt<string?>("--parent-id", "Parent Confluence page ID"),
+            Opt<string?>("--parent-title", "Parent Confluence page title"),
+            Flag("--match-by-title", "Match pages by title flag"),
+        };
+        config.Add(show);
         return config;
     }
 
-    private static Option<T> Opt<T>(string name, string description)
+    private static Option<T> Opt<T>(string name, string description, bool recursive = false)
     {
-        return new Option<T>(name) { Description = description };
+        return new Option<T>(name) { Description = description, Recursive = recursive };
     }
 
-    private static Option<bool> Flag(string name, string description)
+    private static Option<bool> Flag(string name, string description, bool recursive = false)
     {
-        return new Option<bool>(name) { Description = description };
+        return new Option<bool>(name) { Description = description, Recursive = recursive };
     }
 }

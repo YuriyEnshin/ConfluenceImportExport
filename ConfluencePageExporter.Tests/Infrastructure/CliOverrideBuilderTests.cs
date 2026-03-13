@@ -98,4 +98,49 @@ public class CliOverrideBuilderTests
 
         overrides.Should().ContainKey("Download:OutputDir").WhoseValue.Should().Be("/tmp/My Dir");
     }
+
+    [Fact]
+    public void Build_ShouldFindSharedOptionsPlacedBeforeCommand()
+    {
+        var root = CommandDefinitions.Build();
+        var pr = root.Parse("--base-url https://x.com download --page-id 1");
+
+        var overrides = CliOverrideBuilder.Build(pr, "download");
+
+        overrides.Should().ContainKey("Global:BaseUrl").WhoseValue.Should().Be("https://x.com");
+        overrides.Should().ContainKey("Download:PageId").WhoseValue.Should().Be("1");
+    }
+
+    [Fact]
+    public void Build_ConfigShow_ShouldMapOptionsToAllSections()
+    {
+        var root = CommandDefinitions.Build();
+        var pr = root.Parse("config show --page-id 42 --recursive --source-dir ./src");
+
+        var overrides = CliOverrideBuilder.Build(pr, "config show");
+
+        overrides.Should().ContainKey("Download:PageId").WhoseValue.Should().Be("42");
+        overrides.Should().ContainKey("Upload:Update:PageId").WhoseValue.Should().Be("42");
+        overrides.Should().ContainKey("Compare:PageId").WhoseValue.Should().Be("42");
+
+        overrides.Should().ContainKey("Download:Recursive").WhoseValue.Should().Be("True");
+        overrides.Should().ContainKey("Upload:Update:Recursive").WhoseValue.Should().Be("True");
+        overrides.Should().ContainKey("Upload:Create:Recursive").WhoseValue.Should().Be("True");
+        overrides.Should().ContainKey("Compare:Recursive").WhoseValue.Should().Be("True");
+
+        overrides.Should().ContainKey("Upload:Update:SourceDir").WhoseValue.Should().Be("./src");
+        overrides.Should().ContainKey("Upload:Create:SourceDir").WhoseValue.Should().Be("./src");
+    }
+
+    [Fact]
+    public void Build_ConfigShow_ShouldMapGlobalOptions()
+    {
+        var root = CommandDefinitions.Build();
+        var pr = root.Parse("config show --base-url https://x.com --dry-run");
+
+        var overrides = CliOverrideBuilder.Build(pr, "config show");
+
+        overrides.Should().ContainKey("Global:BaseUrl").WhoseValue.Should().Be("https://x.com");
+        overrides.Should().ContainKey("Global:DryRun").WhoseValue.Should().Be("True");
+    }
 }

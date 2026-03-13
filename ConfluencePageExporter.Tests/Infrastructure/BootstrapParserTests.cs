@@ -74,7 +74,7 @@ public class BootstrapParserTests
     }
 
     [Fact]
-    public void Parse_ShouldExtractVerboseFlag()
+    public void Parse_ShouldExtractVerboseFlag_BeforeCommand()
     {
         var root = CommandDefinitions.Build();
         var pr = root.Parse("--verbose download --page-id 1");
@@ -86,10 +86,33 @@ public class BootstrapParserTests
     }
 
     [Fact]
-    public void Parse_ShouldExtractConfigPath()
+    public void Parse_ShouldExtractVerboseFlag_AfterCommand()
+    {
+        var root = CommandDefinitions.Build();
+        var pr = root.Parse("download --verbose --page-id 1");
+
+        var result = BootstrapParser.Parse(pr);
+
+        result.Verbose.Should().BeTrue();
+        result.CommandPath.Should().Be("download");
+    }
+
+    [Fact]
+    public void Parse_ShouldExtractConfigPath_BeforeCommand()
     {
         var root = CommandDefinitions.Build();
         var pr = root.Parse("--config my-config.json download --page-id 1");
+
+        var result = BootstrapParser.Parse(pr);
+
+        result.ConfigPath.Should().Be("my-config.json");
+    }
+
+    [Fact]
+    public void Parse_ShouldExtractConfigPath_AfterCommand()
+    {
+        var root = CommandDefinitions.Build();
+        var pr = root.Parse("download --config my-config.json --page-id 1");
 
         var result = BootstrapParser.Parse(pr);
 
