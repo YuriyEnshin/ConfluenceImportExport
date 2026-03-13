@@ -120,6 +120,12 @@ export CONFLUENCE_EXPORTER__GLOBAL__TOKEN=secret
 export CONFLUENCE_EXPORTER__DOWNLOAD__OUTPUTDIR=./export
 ```
 
+## Формат вызова
+
+```text
+ConfluencePageExporter [глобальные параметры] <команда [подкоманда]> [параметры команды]
+```
+
 ## Обзор команд
 
 ```text
