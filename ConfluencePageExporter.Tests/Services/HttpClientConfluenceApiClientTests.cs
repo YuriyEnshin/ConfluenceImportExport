@@ -178,6 +178,104 @@ public class HttpClientConfluenceApiClientTests
         result.Should().Equal([9, 9]);
     }
 
+    [Fact]
+    public async Task GetPageVersionsAsync_ShouldReturnVersionList()
+    {
+        var handler = new StubHttpMessageHandler();
+        var json = JsonConvert.SerializeObject(new
+        {
+            results = new[]
+            {
+                new { number = 3, when = "2026-03-15T10:00:00.000+0000", message = "", minorEdit = false },
+                new { number = 2, when = "2026-03-14T09:00:00.000+0000", message = "update", minorEdit = false },
+                new { number = 1, when = "2026-03-13T08:00:00.000+0000", message = "created", minorEdit = false }
+            },
+            start = 0,
+            limit = 10,
+            size = 3
+        });
+        handler.EnqueueResponse(HttpStatusCode.OK, json);
+        var client = CreateClient(handler);
+
+        var result = await client.GetPageVersionsAsync("100", 10);
+
+        result.Should().HaveCount(3);
+        result[0].Number.Should().Be(3);
+        result[2].Number.Should().Be(1);
+        handler.Requests.Should().ContainSingle();
+        handler.Requests[0].RequestUri!.ToString().Should().Contain("/rest/experimental/content/100/version");
+    }
+
+    [Fact]
+    public async Task GetPageVersionsAsync_ShouldReturnEmpty_OnError()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.NotFound);
+        var client = CreateClient(handler);
+
+        var result = await client.GetPageVersionsAsync("999");
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetPageAtVersionAsync_ShouldReturnHistoricalPage()
+    {
+        var handler = new StubHttpMessageHandler();
+        var json = JsonConvert.SerializeObject(new
+        {
+            id = "100",
+            title = "OldTitle",
+            ancestors = new[] { new { id = "50", title = "Parent" } },
+            version = new { number = 2, when = "2026-03-14T09:00:00.000+0000" }
+        });
+        handler.EnqueueResponse(HttpStatusCode.OK, json);
+        var client = CreateClient(handler);
+
+        var result = await client.GetPageAtVersionAsync("100", 2);
+
+        result.Should().NotBeNull();
+        result!.Title.Should().Be("OldTitle");
+        result.Ancestors.Should().ContainSingle(a => a.Title == "Parent");
+        handler.Requests[0].RequestUri!.ToString().Should().Contain("status=historical");
+        handler.Requests[0].RequestUri!.ToString().Should().Contain("version=2");
+    }
+
+    [Fact]
+    public async Task GetPageAtVersionAsync_ShouldReturnNull_OnError()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.NotFound);
+        var client = CreateClient(handler);
+
+        var result = await client.GetPageAtVersionAsync("999", 1);
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetPageByIdAsync_ShouldExpandVersion()
+    {
+        var handler = new StubHttpMessageHandler();
+        var json = JsonConvert.SerializeObject(new
+        {
+            id = "100",
+            title = "Test",
+            body = new { storage = new { value = "<p>test</p>", representation = "storage" } },
+            ancestors = Array.Empty<object>(),
+            version = new { number = 5, when = "2026-03-15T10:00:00.000+0000" }
+        });
+        handler.EnqueueResponse(HttpStatusCode.OK, json);
+        var client = CreateClient(handler);
+
+        var result = await client.GetPageByIdAsync("100");
+
+        result.Version.Should().NotBeNull();
+        result.Version!.Number.Should().Be(5);
+        result.Version.When.Should().NotBeNull();
+        handler.Requests[0].RequestUri!.ToString().Should().Contain("expand=body.storage,ancestors,version");
+    }
+
     private static HttpClientConfluenceApiClient CreateClient(StubHttpMessageHandler handler)
     {
         var httpClient = new HttpClient(handler);

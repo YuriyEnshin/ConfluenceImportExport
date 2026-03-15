@@ -8,6 +8,12 @@ namespace ConfluencePageExporter.Tests.Services;
 
 public class CompareServiceTests
 {
+    private static CompareService CreateService(Mock<IConfluenceApiClient> api)
+    {
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        return new CompareService(api.Object, analyzer, LoggerTestHelper.CreateLogger<CompareService>());
+    }
+
     [Fact]
     public async Task CompareAsync_ShouldThrow_WhenRootPageCannotBeResolved()
     {
@@ -16,7 +22,7 @@ public class CompareServiceTests
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.FindPageByTitleAsync("SPACE", null, "Root")).ReturnsAsync((string?)null);
-        var service = new CompareService(api.Object, LoggerTestHelper.CreateLogger<CompareService>());
+        var service = CreateService(api);
 
         var act = () => service.CompareAsync("SPACE", null, "Root", outputDir, recursive: false);
 
@@ -39,7 +45,7 @@ public class CompareServiceTests
         api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([child]);
         api.Setup(x => x.GetChildrenPagesAsync("2")).ReturnsAsync([]);
 
-        var service = new CompareService(api.Object, LoggerTestHelper.CreateLogger<CompareService>());
+        var service = CreateService(api);
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
 
@@ -62,7 +68,7 @@ public class CompareServiceTests
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
         api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([]);
 
-        var service = new CompareService(api.Object, LoggerTestHelper.CreateLogger<CompareService>());
+        var service = CreateService(api);
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
 
@@ -85,7 +91,7 @@ public class CompareServiceTests
         api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([child]);
         api.Setup(x => x.GetChildrenPagesAsync("2")).ReturnsAsync([]);
 
-        var service = new CompareService(api.Object, LoggerTestHelper.CreateLogger<CompareService>());
+        var service = CreateService(api);
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
 
@@ -108,7 +114,7 @@ public class CompareServiceTests
         api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([child]);
         api.Setup(x => x.GetChildrenPagesAsync("2")).ReturnsAsync([]);
 
-        var service = new CompareService(api.Object, LoggerTestHelper.CreateLogger<CompareService>());
+        var service = CreateService(api);
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
 
@@ -126,7 +132,7 @@ public class CompareServiceTests
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
 
-        var service = new CompareService(api.Object, LoggerTestHelper.CreateLogger<CompareService>());
+        var service = CreateService(api);
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: false, matchByTitleWhenNoId: true);
 
@@ -146,10 +152,74 @@ public class CompareServiceTests
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
 
-        var service = new CompareService(api.Object, LoggerTestHelper.CreateLogger<CompareService>());
+        var service = CreateService(api);
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: false);
 
         report.DeletedInConfluence.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task CompareAsync_ShouldPopulateChangeSource_ForContentDifferences()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var rootDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
+        LocalPageTreeBuilder.CreatePage(rootDir, "Child", "<p>local</p>", "2");
+
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var child = ApiClientMockFactory.CreatePage("2", "Child", "<p>remote</p>", "1", "Root");
+        child.Version = new VersionInfo { Number = 3, When = DateTime.UtcNow.AddDays(1) };
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+        api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([child]);
+        api.Setup(x => x.GetChildrenPagesAsync("2")).ReturnsAsync([]);
+
+        var service = CreateService(api);
+
+        var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
+
+        report.ContentChanged.Should().ContainSingle();
+        var changed = report.ContentChanged[0];
+        changed.ChangeSource.Should().NotBeNull();
+        changed.ChangeSource!.Origin.Should().Be(ChangeOrigin.Server);
+    }
+
+    [Fact]
+    public async Task CompareAsync_ShouldPopulateRenameSource_WhenDetectSourceEnabled()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var rootDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
+        LocalPageTreeBuilder.CreatePage(rootDir, "OldName", "<p>same</p>", "2");
+
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var child = ApiClientMockFactory.CreatePage("2", "NewName", "<p>same</p>", "1", "Root");
+        child.Version = new VersionInfo { Number = 3, When = DateTime.UtcNow.AddDays(1) };
+
+        var historicalPage = ApiClientMockFactory.CreatePage("2", "OldName", "<p>same</p>", "1", "Root");
+        historicalPage.Version = new VersionInfo { Number = 2, When = DateTime.UtcNow.AddDays(-1) };
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+        api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([child]);
+        api.Setup(x => x.GetChildrenPagesAsync("2")).ReturnsAsync([]);
+        api.Setup(x => x.GetPageVersionsAsync("2", 10)).ReturnsAsync([
+            new PageVersionSummary { Number = 3, When = DateTime.UtcNow.AddDays(1) },
+            new PageVersionSummary { Number = 2, When = DateTime.UtcNow.AddDays(-1) }
+        ]);
+        api.Setup(x => x.GetPageAtVersionAsync("2", 2)).ReturnsAsync(historicalPage);
+
+        var service = CreateService(api);
+
+        var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true,
+            matchByTitleWhenNoId: false, detectSource: true);
+
+        report.RenamedOrMovedInConfluence.Should().ContainSingle();
+        var renamed = report.RenamedOrMovedInConfluence[0];
+        renamed.RenameSource.Should().NotBeNull();
+        renamed.RenameSource!.Origin.Should().Be(ChangeOrigin.Server);
+        renamed.RenameSource.Confidence.Should().Be(ChangeConfidence.High);
     }
 }

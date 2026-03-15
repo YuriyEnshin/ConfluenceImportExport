@@ -35,7 +35,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
 
     public async Task<PageData> GetPageByIdAsync(string pageId)
     {
-        var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors";
+        var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors,version";
         using var response = await _httpClient.GetAsync(url);
         response.EnsureSuccessStatusCode();
         var content = await response.Content.ReadAsStringAsync();
@@ -45,7 +45,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
 
     public async Task<PageData?> TryGetPageByIdAsync(string pageId)
     {
-        var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors";
+        var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors,version";
         using var response = await _httpClient.GetAsync(url);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             return null;
@@ -62,7 +62,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
 
         while (true)
         {
-            var url = $"{_baseUrl}/rest/api/content/{parentId}/child/page?limit={limit}&start={start}&expand=body.storage";
+            var url = $"{_baseUrl}/rest/api/content/{parentId}/child/page?limit={limit}&start={start}&expand=body.storage,version";
             using var response = await _httpClient.GetAsync(url);
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync();
@@ -378,6 +378,59 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         using var response = await _httpClient.GetAsync(fullUrl);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsByteArrayAsync();
+    }
+
+    public async Task<List<PageVersionSummary>> GetPageVersionsAsync(string pageId, int limit = 10)
+    {
+        try
+        {
+            var url = $"{_baseUrl}/rest/experimental/content/{pageId}/version?limit={limit}";
+            _logger.LogDebug("Fetching version history for page {PageId}: {Url}", pageId, url);
+
+            using var response = await _httpClient.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "Failed to fetch version history for page {PageId}. Status: {StatusCode}",
+                    pageId, response.StatusCode);
+                return [];
+            }
+
+            var content = await response.Content.ReadAsStringAsync();
+            var result = JsonConvert.DeserializeObject<ConfluenceResponse<PageVersionSummary>>(content);
+            return result?.Results ?? [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error fetching version history for page {PageId}", pageId);
+            return [];
+        }
+    }
+
+    public async Task<PageData?> GetPageAtVersionAsync(string pageId, int versionNumber)
+    {
+        try
+        {
+            var url = $"{_baseUrl}/rest/api/content/{pageId}?status=historical&version={versionNumber}&expand=ancestors,version";
+            _logger.LogDebug("Fetching page {PageId} at version {Version}: {Url}", pageId, versionNumber, url);
+
+            using var response = await _httpClient.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "Failed to fetch page {PageId} at version {Version}. Status: {StatusCode}",
+                    pageId, versionNumber, response.StatusCode);
+                return null;
+            }
+
+            var content = await response.Content.ReadAsStringAsync();
+            return JsonConvert.DeserializeObject<PageData>(content);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error fetching page {PageId} at version {Version}", pageId, versionNumber);
+            return null;
+        }
     }
 
     public void Dispose()

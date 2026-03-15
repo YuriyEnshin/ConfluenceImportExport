@@ -4,7 +4,9 @@ public sealed record RemotePageSnapshot(
     string PageId,
     string Title,
     string RelativePath,
-    string Content);
+    string Content,
+    DateTime? LastModifiedUtc,
+    int? VersionNumber);
 
 public sealed record LocalComparisonSnapshot(
     Dictionary<string, LocalPageSnapshot> PagesById,
@@ -14,7 +16,9 @@ public sealed record LocalPageSnapshot(
     string PageId,
     string Title,
     string DirectoryPath,
-    string RelativePath);
+    string RelativePath,
+    DateTime? DirectoryLastModifiedUtc,
+    DateTime? ContentLastModifiedUtc);
 
 public sealed record LocalPathSnapshot(
     string RelativePath,

@@ -80,6 +80,7 @@ public static class CommandDefinitions
             Opt<string?>("--page-title", "Confluence page title"),
             Opt<string?>("--output-dir", "Output directory with local exported pages"),
             Flag("--match-by-title", "Match pages by title when .id marker is missing"),
+            Flag("--detect-source", "Analyze version history to determine change source (server or local)"),
         };
     }
 
@@ -98,6 +99,7 @@ public static class CommandDefinitions
             Opt<string?>("--parent-id", "Parent Confluence page ID"),
             Opt<string?>("--parent-title", "Parent Confluence page title"),
             Flag("--match-by-title", "Match pages by title flag"),
+            Flag("--detect-source", "Analyze version history to determine change source"),
         };
         config.Add(show);
         return config;

@@ -7,6 +7,7 @@ public class CompareReport
     public List<CompareRenamedOrMovedPageInfo> RenamedOrMovedInConfluence { get; } = new();
     public List<CompareContentChangedPageInfo> ContentChanged { get; } = new();
     public List<string> Notes { get; } = new();
+    public bool DetectSourceEnabled { get; set; }
 }
 
 public class ComparePageInfo
@@ -22,6 +23,8 @@ public class CompareRenamedOrMovedPageInfo
     public string Title { get; set; } = string.Empty;
     public string LocalPath { get; set; } = string.Empty;
     public string ConfluencePath { get; set; } = string.Empty;
+    public ChangeSourceInfo? RenameSource { get; set; }
+    public ChangeSourceInfo? MoveSource { get; set; }
 }
 
 public class CompareContentChangedPageInfo
@@ -29,4 +32,5 @@ public class CompareContentChangedPageInfo
     public string PageId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Path { get; set; } = string.Empty;
+    public ChangeSourceInfo? ChangeSource { get; set; }
 }

@@ -78,6 +78,7 @@ public static class CliOverrideBuilder
         AddIfExplicitPath(pr, "output-dir", "Compare:OutputDir", d);
         AddIfExplicit(pr, "recursive", "Compare:Recursive", d, isFlag: true);
         AddIfExplicit(pr, "match-by-title", "Compare:MatchByTitle", d, isFlag: true);
+        AddIfExplicit(pr, "detect-source", "Compare:DetectSource", d, isFlag: true);
     }
 
     private static void MapConfigShow(ParseResult pr, Dictionary<string, string?> d)
@@ -105,6 +106,7 @@ public static class CliOverrideBuilder
         AddIfExplicitPath(pr, "output-dir", "Compare:OutputDir", d);
         AddIfExplicit(pr, "recursive", "Compare:Recursive", d, isFlag: true);
         AddIfExplicit(pr, "match-by-title", "Compare:MatchByTitle", d, isFlag: true);
+        AddIfExplicit(pr, "detect-source", "Compare:DetectSource", d, isFlag: true);
     }
 
     private static void AddIfExplicit(

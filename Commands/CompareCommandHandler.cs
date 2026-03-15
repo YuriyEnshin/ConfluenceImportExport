@@ -46,15 +46,21 @@ public sealed class CompareCommandHandler : ICommandHandler
 
         var recursive = o.Recursive ?? g.Recursive ?? false;
         var matchByTitle = o.MatchByTitle ?? false;
+        var detectSource = o.DetectSource ?? false;
 
         var pageIdentifier = !string.IsNullOrEmpty(pageId) ? $"ID '{pageId}'" : $"title '{pageTitle}'";
-        Console.WriteLine($"Comparing page {pageIdentifier} in space '{spaceKey}' with local folder '{outputDir}'{(recursive ? " (recursive)" : "")}...");
+        Console.WriteLine($"Comparing page {pageIdentifier} in space '{spaceKey}' with local folder '{outputDir}'{(recursive ? " (recursive)" : "")}{(detectSource ? " (detect-source)" : "")}...");
+
+        var analyzer = new ChangeSourceAnalyzer(
+            _apiClient,
+            _loggerFactory.CreateLogger<ChangeSourceAnalyzer>());
 
         var service = new CompareService(
             _apiClient,
+            analyzer,
             _loggerFactory.CreateLogger<CompareService>());
 
-        var report = await service.CompareAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitle);
+        var report = await service.CompareAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitle, detectSource);
         PrintReport(report);
         return 0;
     }
@@ -72,13 +78,23 @@ public sealed class CompareCommandHandler : ICommandHandler
         foreach (var page in report.DeletedInConfluence)
             Console.WriteLine($"  - [{page.PageId}] {page.Title} ({page.Path})");
 
-        Console.WriteLine($"Renamed/moved in Confluence: {report.RenamedOrMovedInConfluence.Count}");
+        Console.WriteLine($"Renamed/moved: {report.RenamedOrMovedInConfluence.Count}");
         foreach (var page in report.RenamedOrMovedInConfluence)
+        {
             Console.WriteLine($"  ~ [{page.PageId}] {page.Title} | local: {page.LocalPath} -> confluence: {page.ConfluencePath}");
+            if (page.RenameSource != null)
+                Console.WriteLine($"    Переименование: {FormatSource(page.RenameSource)}");
+            if (page.MoveSource != null)
+                Console.WriteLine($"    Перемещение: {FormatSource(page.MoveSource)}");
+        }
 
         Console.WriteLine($"Content changed: {report.ContentChanged.Count}");
         foreach (var page in report.ContentChanged)
+        {
             Console.WriteLine($"  * [{page.PageId}] {page.Title} ({page.Path})");
+            if (page.ChangeSource != null)
+                Console.WriteLine($"    Источник: {FormatSource(page.ChangeSource)}");
+        }
 
         if (report.Notes.Count > 0)
         {
@@ -86,5 +102,22 @@ public sealed class CompareCommandHandler : ICommandHandler
             foreach (var note in report.Notes)
                 Console.WriteLine($"  ! {note}");
         }
+    }
+
+    private static string FormatSource(ChangeSourceInfo source)
+    {
+        var origin = source.Origin switch
+        {
+            ChangeOrigin.Local => "ЛОКАЛЬНО",
+            ChangeOrigin.Server => "СЕРВЕР",
+            _ => "НЕИЗВЕСТНО"
+        };
+        var confidence = source.Confidence switch
+        {
+            ChangeConfidence.High => "высокая",
+            ChangeConfidence.Medium => "средняя",
+            _ => "низкая"
+        };
+        return $"{origin} ({confidence}) — {source.Reason}";
     }
 }

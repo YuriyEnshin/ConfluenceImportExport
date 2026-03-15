@@ -54,4 +54,25 @@ public class VersionInfo
 {
     [JsonProperty("number")]
     public int Number { get; set; }
+
+    [JsonProperty("when")]
+    public DateTime? When { get; set; }
+
+    [JsonProperty("minorEdit")]
+    public bool MinorEdit { get; set; }
+}
+
+public class PageVersionSummary
+{
+    [JsonProperty("number")]
+    public int Number { get; set; }
+
+    [JsonProperty("when")]
+    public DateTime? When { get; set; }
+
+    [JsonProperty("message")]
+    public string? Message { get; set; }
+
+    [JsonProperty("minorEdit")]
+    public bool MinorEdit { get; set; }
 }

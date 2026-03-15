@@ -16,6 +16,9 @@ public class PageData
     [JsonProperty("body")]
     public Body Body { get; set; } = new();
 
+    [JsonProperty("version")]
+    public VersionInfo? Version { get; set; }
+
     [JsonProperty("ancestors")]
     public List<PageAncestor> Ancestors { get; set; } = new();
 

@@ -6,11 +6,16 @@ namespace ConfluencePageExporter.Services;
 public class CompareService
 {
     private readonly IConfluenceApiClient _apiClient;
+    private readonly ChangeSourceAnalyzer _changeSourceAnalyzer;
     private readonly ILogger<CompareService> _logger;
 
-    public CompareService(IConfluenceApiClient apiClient, ILogger<CompareService> logger)
+    public CompareService(
+        IConfluenceApiClient apiClient,
+        ChangeSourceAnalyzer changeSourceAnalyzer,
+        ILogger<CompareService> logger)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
+        _changeSourceAnalyzer = changeSourceAnalyzer ?? throw new ArgumentNullException(nameof(changeSourceAnalyzer));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -20,9 +25,10 @@ public class CompareService
         string? pageTitle,
         string outputDir,
         bool recursive,
-        bool matchByTitleWhenNoId = false)
+        bool matchByTitleWhenNoId = false,
+        bool detectSource = false)
     {
-        var report = new CompareReport();
+        var report = new CompareReport { DetectSourceEnabled = detectSource };
         var resolvedRootPageId = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, pageId, pageTitle);
         if (resolvedRootPageId == null)
             throw new InvalidOperationException("Could not resolve root page for comparison.");
@@ -71,27 +77,63 @@ public class CompareService
             if (localById != null
                 && !string.Equals(localById.RelativePath, remote.RelativePath, StringComparison.OrdinalIgnoreCase))
             {
-                report.RenamedOrMovedInConfluence.Add(new CompareRenamedOrMovedPageInfo
+                var renamedOrMoved = new CompareRenamedOrMovedPageInfo
                 {
                     PageId = remote.PageId,
                     Title = remote.Title,
                     LocalPath = localById.RelativePath,
                     ConfluencePath = remote.RelativePath
-                });
+                };
+
+                var localName = GetLastSegment(localById.RelativePath);
+                var remoteName = GetLastSegment(remote.RelativePath);
+                bool isRenamed = !string.Equals(localName, remoteName, StringComparison.OrdinalIgnoreCase);
+
+                var localParent = GetParentPath(localById.RelativePath);
+                var remoteParent = GetParentPath(remote.RelativePath);
+                bool isMoved = !string.Equals(localParent, remoteParent, StringComparison.OrdinalIgnoreCase);
+
+                if (isRenamed)
+                {
+                    renamedOrMoved.RenameSource = await _changeSourceAnalyzer.AnalyzeRenameAsync(
+                        remote.PageId, remote.Title, localName,
+                        remote.LastModifiedUtc, localById.DirectoryLastModifiedUtc,
+                        detectSource);
+                }
+
+                if (isMoved)
+                {
+                    renamedOrMoved.MoveSource = await _changeSourceAnalyzer.AnalyzeMoveAsync(
+                        remote.PageId, remoteParent, localParent,
+                        remote.LastModifiedUtc, localById.DirectoryLastModifiedUtc,
+                        detectSource);
+                }
+
+                report.RenamedOrMovedInConfluence.Add(renamedOrMoved);
             }
 
-            var localContent = localById != null
-                ? await LocalStorageHelper.ReadLocalPageContentOrNull(localById.DirectoryPath)
-                : await LocalStorageHelper.ReadLocalPageContentOrNull(localByTitlePath!.DirectoryPath);
+            var localDir = localById?.DirectoryPath ?? localByTitlePath!.DirectoryPath;
+            var localContent = await LocalStorageHelper.ReadLocalPageContentOrNull(localDir);
 
             if (!string.Equals(localContent, remote.Content, StringComparison.Ordinal))
             {
-                report.ContentChanged.Add(new CompareContentChangedPageInfo
+                var contentFileDate = localById?.ContentLastModifiedUtc;
+                if (contentFileDate == null)
+                {
+                    var indexPath = Path.Combine(localDir, "index.html");
+                    if (File.Exists(indexPath))
+                        contentFileDate = File.GetLastWriteTimeUtc(indexPath);
+                }
+
+                var contentChanged = new CompareContentChangedPageInfo
                 {
                     PageId = remote.PageId,
                     Title = remote.Title,
-                    Path = remote.RelativePath
-                });
+                    Path = remote.RelativePath,
+                    ChangeSource = _changeSourceAnalyzer.AnalyzeContentChange(
+                        remote.LastModifiedUtc, contentFileDate)
+                };
+                report.ContentChanged.Add(contentChanged);
             }
         }
 
@@ -121,7 +163,9 @@ public class CompareService
             page.Id,
             page.Title,
             relativePath,
-            page.Body.Storage.Value);
+            page.Body.Storage.Value,
+            page.Version?.When?.ToUniversalTime(),
+            page.Version?.Number);
 
         if (!recursive)
             return;
@@ -192,7 +236,11 @@ public class CompareService
                 continue;
             }
 
-            pagesById[pageId] = new LocalPageSnapshot(pageId, title, normalizedDir, relativePath);
+            var dirDate = Directory.GetLastWriteTimeUtc(normalizedDir);
+            var indexPath = Path.Combine(normalizedDir, "index.html");
+            DateTime? contentDate = File.Exists(indexPath) ? File.GetLastWriteTimeUtc(indexPath) : null;
+
+            pagesById[pageId] = new LocalPageSnapshot(pageId, title, normalizedDir, relativePath, dirDate, contentDate);
         }
 
         foreach (var localDir in LocalStorageHelper.EnumeratePageDirectories(localRootDir))
@@ -223,5 +271,19 @@ public class CompareService
         }
 
         return new LocalComparisonSnapshot(pagesById, pagesByPath);
+    }
+
+    private static string GetLastSegment(string path)
+    {
+        var trimmed = path.TrimEnd('/');
+        var lastSlash = trimmed.LastIndexOf('/');
+        return lastSlash >= 0 ? trimmed[(lastSlash + 1)..] : trimmed;
+    }
+
+    private static string GetParentPath(string path)
+    {
+        var trimmed = path.TrimEnd('/');
+        var lastSlash = trimmed.LastIndexOf('/');
+        return lastSlash >= 0 ? trimmed[..lastSlash] : "";
     }
 }
