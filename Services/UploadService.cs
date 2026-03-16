@@ -22,7 +22,8 @@ public class UploadService
         var rootMarkerPageId = LocalStorageHelper.ReadPageIdFromMarker(sourceDir);
         var (rootPageId, resolvedByTitle) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle);
 
-        await UpdatePageContentAndAttachments(spaceKey, rootPageId, sourceDir);
+        var moveToParentId = await DetectRootPageMoveAsync(rootPageId, sourceDir, movePages, onError);
+        await UpdatePageContentAndAttachments(spaceKey, rootPageId, sourceDir, moveToParentId);
         await EnsurePageIdMarkerIfMissing(sourceDir, rootPageId, rootMarkerPageId == null && resolvedByTitle);
 
         if (recursive)
@@ -32,6 +33,36 @@ public class UploadService
                 await ProcessChildForUpdate(spaceKey, childDir, rootPageId, onError, movePages);
             }
         }
+    }
+
+    private async Task<string?> DetectRootPageMoveAsync(string rootPageId, string sourceDir, bool movePages, string onError)
+    {
+        var parentDir = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(sourceDir));
+        if (string.IsNullOrEmpty(parentDir))
+            return null;
+
+        var localParentPageId = LocalStorageHelper.ReadPageIdFromMarker(parentDir);
+        if (localParentPageId == null)
+            return null;
+
+        var rootPage = await _apiClient.GetPageByIdAsync(rootPageId);
+        if (string.Equals(rootPage.ParentId, localParentPageId, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        if (movePages)
+        {
+            _logger.LogInformation(
+                "Root page '{Title}' (ID: {PageId}) will be moved from parent {OldParent} to {NewParent}",
+                rootPage.Title, rootPageId, rootPage.ParentId, localParentPageId);
+            return localParentPageId;
+        }
+
+        var msg = $"Root page '{rootPage.Title}' (ID: {rootPageId}) exists under parent " +
+                  $"{rootPage.ParentId} on server, but locally is under parent {localParentPageId}";
+        _logger.LogError("{Message}", msg);
+        if (onError == "abort")
+            throw new InvalidOperationException(msg);
+        return null;
     }
 
     private async Task<(string PageId, bool ResolvedByTitle)> ResolveRootPageForUpdate(string spaceKey, string sourceDir, string? explicitPageId, string? explicitPageTitle)

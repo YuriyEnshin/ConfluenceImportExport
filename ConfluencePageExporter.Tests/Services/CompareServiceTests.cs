@@ -222,4 +222,66 @@ public class CompareServiceTests
         renamed.RenameSource!.Origin.Should().Be(ChangeOrigin.Server);
         renamed.RenameSource.Confidence.Should().Be(ChangeConfidence.High);
     }
+
+    [Fact]
+    public async Task CompareAsync_ShouldDetectRootPageMove_WhenLocalParentIdDiffers()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var newParentDir = LocalPageTreeBuilder.CreatePage(outputDir, "NewParent", "<p>np</p>", "P2");
+        LocalPageTreeBuilder.CreatePage(newParentDir, "Subpage4", "<p>content</p>", "400");
+
+        var root = ApiClientMockFactory.CreatePage("400", "Subpage4", "<p>content</p>", parentId: "P1", parentTitle: "OldParent");
+        root.Version = new VersionInfo { Number = 2, When = DateTime.UtcNow };
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(root);
+
+        var service = CreateService(api);
+
+        var report = await service.CompareAsync("SPACE", "400", null, outputDir, recursive: false);
+
+        report.RenamedOrMovedInConfluence.Should().ContainSingle(x => x.PageId == "400");
+        var moved = report.RenamedOrMovedInConfluence[0];
+        moved.MoveSource.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task CompareAsync_ShouldNotReportRootMove_WhenParentIdsMatch()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        File.WriteAllText(Path.Combine(outputDir, ".idP1"), string.Empty);
+        LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>content</p>", "1");
+
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>content</p>", parentId: "P1", parentTitle: "Parent");
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+
+        var service = CreateService(api);
+
+        var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: false);
+
+        report.RenamedOrMovedInConfluence.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task CompareAsync_ShouldSkipRootMoveCheck_WhenParentDirHasNoIdMarker()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>content</p>", "1");
+
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>content</p>", parentId: "P1");
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+
+        var service = CreateService(api);
+
+        var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: false);
+
+        report.RenamedOrMovedInConfluence.Should().BeEmpty();
+    }
 }

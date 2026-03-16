@@ -150,6 +150,8 @@ public class CompareService
             });
         }
 
+        await DetectRootPageParentMismatchAsync(report, rootPage, localSnapshot, rootRelativePath, detectSource);
+
         return report;
     }
 
@@ -271,6 +273,55 @@ public class CompareService
         }
 
         return new LocalComparisonSnapshot(pagesById, pagesByPath);
+    }
+
+    private async Task DetectRootPageParentMismatchAsync(
+        CompareReport report,
+        PageData rootPage,
+        LocalComparisonSnapshot localSnapshot,
+        string rootRelativePath,
+        bool detectSource)
+    {
+        if (!localSnapshot.PagesById.TryGetValue(rootPage.Id, out var localRootSnapshot))
+            return;
+
+        var localParentDir = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(localRootSnapshot.DirectoryPath));
+        if (string.IsNullOrEmpty(localParentDir))
+            return;
+
+        var localParentPageId = LocalStorageHelper.ReadPageIdFromMarker(localParentDir);
+        if (localParentPageId == null)
+            return;
+
+        if (string.Equals(rootPage.ParentId, localParentPageId, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var existing = report.RenamedOrMovedInConfluence
+            .FirstOrDefault(r => string.Equals(r.PageId, rootPage.Id, StringComparison.OrdinalIgnoreCase));
+
+        var serverParentTitle = rootPage.Ancestors.Count > 0 ? rootPage.Ancestors[^1].Title : "";
+        var localParentTitle = LocalStorageHelper.GetPageTitleFromDirectory(localParentDir);
+
+        var moveSource = await _changeSourceAnalyzer.AnalyzeMoveAsync(
+            rootPage.Id, serverParentTitle, localParentTitle,
+            rootPage.Version?.When?.ToUniversalTime(),
+            localRootSnapshot.DirectoryLastModifiedUtc,
+            detectSource);
+
+        if (existing != null)
+        {
+            existing.MoveSource ??= moveSource;
+            return;
+        }
+
+        report.RenamedOrMovedInConfluence.Add(new CompareRenamedOrMovedPageInfo
+        {
+            PageId = rootPage.Id,
+            Title = rootPage.Title,
+            LocalPath = localRootSnapshot.RelativePath,
+            ConfluencePath = rootRelativePath,
+            MoveSource = moveSource
+        });
     }
 
     private static string GetLastSegment(string path)
