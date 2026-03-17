@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using ConfluencePageExporter.Models;
 
 namespace ConfluencePageExporter.Services;
 
@@ -23,8 +24,9 @@ public class UploadService
         var (rootPageId, resolvedByTitle) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle);
 
         var moveToParentId = await DetectRootPageMoveAsync(rootPageId, sourceDir, movePages, onError);
-        await UpdatePageContentAndAttachments(spaceKey, rootPageId, sourceDir, moveToParentId);
-        await EnsurePageIdMarkerIfMissing(sourceDir, rootPageId, rootMarkerPageId == null && resolvedByTitle);
+        var result = await UpdatePageContentAndAttachments(spaceKey, rootPageId, sourceDir, moveToParentId);
+        if (result != null)
+            await UpdatePageIdMarker(sourceDir, result.Id, result.VersionNumber);
 
         if (recursive)
         {
@@ -109,7 +111,6 @@ public class UploadService
         string? resolvedPageId = null;
         string? moveToParentId = null;
         bool shouldCreate = false;
-        bool resolvedByTitle = false;
 
         if (markerPageId != null)
         {
@@ -146,7 +147,6 @@ public class UploadService
             if (foundUnderParent != null)
             {
                 resolvedPageId = foundUnderParent;
-                resolvedByTitle = true;
             }
             else
             {
@@ -160,7 +160,6 @@ public class UploadService
                             folderName, foundGlobally, parentPageId);
                         resolvedPageId = foundGlobally;
                         moveToParentId = parentPageId;
-                        resolvedByTitle = true;
                     }
                     else
                     {
@@ -180,9 +179,10 @@ public class UploadService
 
         if (shouldCreate)
         {
-            resolvedPageId = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
-            if (resolvedPageId == null) return;
-            await EnsurePageIdMarkerIfMissing(childDir, resolvedPageId, markerPageId == null);
+            var createResult = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
+            if (createResult == null) return;
+            resolvedPageId = createResult.Id;
+            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber);
 
             foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
             {
@@ -191,8 +191,9 @@ public class UploadService
         }
         else
         {
-            await UpdatePageContentAndAttachments(spaceKey, resolvedPageId!, childDir, moveToParentId);
-            await EnsurePageIdMarkerIfMissing(childDir, resolvedPageId!, markerPageId == null && resolvedByTitle);
+            var updateResult = await UpdatePageContentAndAttachments(spaceKey, resolvedPageId!, childDir, moveToParentId);
+            if (updateResult != null)
+                await UpdatePageIdMarker(childDir, updateResult.Id, updateResult.VersionNumber);
 
             foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
             {
@@ -215,33 +216,32 @@ public class UploadService
                     $"Parent page not found. ID: '{parentId}', Title: '{parentTitle}'");
         }
 
-        var createdPageId = await CreatePageFromDirectory(spaceKey, sourceDir, resolvedParentId);
-        if (createdPageId == null) return;
-        await EnsurePageIdMarkerIfMissing(sourceDir, createdPageId, rootMarkerPageId == null);
+        var createResult = await CreatePageFromDirectory(spaceKey, sourceDir, resolvedParentId);
+        if (createResult == null) return;
+        await UpdatePageIdMarker(sourceDir, createResult.Id, createResult.VersionNumber);
 
         if (recursive)
         {
             foreach (var childDir in LocalStorageHelper.GetPageSubdirectories(sourceDir))
             {
-                await ProcessChildForCreate(spaceKey, childDir, createdPageId);
+                await ProcessChildForCreate(spaceKey, childDir, createResult.Id);
             }
         }
     }
 
     private async Task ProcessChildForCreate(string spaceKey, string childDir, string? parentPageId)
     {
-        var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(childDir);
-        var createdPageId = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
-        if (createdPageId == null) return;
-        await EnsurePageIdMarkerIfMissing(childDir, createdPageId, markerPageId == null);
+        var createResult = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
+        if (createResult == null) return;
+        await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber);
 
         foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
         {
-            await ProcessChildForCreate(spaceKey, grandchildDir, createdPageId);
+            await ProcessChildForCreate(spaceKey, grandchildDir, createResult.Id);
         }
     }
 
-    private async Task<string?> CreatePageFromDirectory(string spaceKey, string pageDir, string? parentId)
+    private async Task<PageUpdateResult?> CreatePageFromDirectory(string spaceKey, string pageDir, string? parentId)
     {
         var title = LocalStorageHelper.GetPageTitleFromDirectory(pageDir);
         var content = await LocalStorageHelper.ReadPageContent(pageDir);
@@ -257,25 +257,25 @@ public class UploadService
         {
             _logger.LogInformation("DRY RUN: Would create page '{Title}' under parent {ParentId}", title, parentId ?? "(space root)");
             LogDryRunAttachments(pageDir);
-            return $"dry-run-{title}";
+            return new PageUpdateResult($"dry-run-{title}", 1);
         }
 
-        var createdId = await _apiClient.CreatePageAsync(spaceKey, parentId, title, content);
-        if (createdId == null)
+        var result = await _apiClient.CreatePageAsync(spaceKey, parentId, title, content);
+        if (result == null)
         {
             _logger.LogError("Failed to create page '{Title}'", title);
             return null;
         }
 
-        _logger.LogInformation("Created page '{Title}' with ID {PageId}", title, createdId);
-        await UploadPageAttachments(createdId, pageDir);
-        return createdId;
+        _logger.LogInformation("Created page '{Title}' with ID {PageId}", title, result.Id);
+        await UploadPageAttachments(result.Id, pageDir);
+        return result;
     }
 
-    private async Task UpdatePageContentAndAttachments(string spaceKey, string pageId, string pageDir, string? moveToParentId = null)
+    private async Task<PageUpdateResult?> UpdatePageContentAndAttachments(string spaceKey, string pageId, string pageDir, string? moveToParentId = null)
     {
         var title = LocalStorageHelper.GetPageTitleFromDirectory(pageDir);
-        var content = await LocalStorageHelper.ReadPageContent(pageDir);
+        var localContent = await LocalStorageHelper.ReadPageContent(pageDir);
 
         if (_dryRun)
         {
@@ -292,14 +292,32 @@ public class UploadService
             }
 
             LogDryRunAttachments(pageDir);
-            return;
+            return null;
         }
 
-        var updatedId = await _apiClient.UpdatePageAsync(pageId, title, content, moveToParentId);
-        if (updatedId == null)
+        var serverPage = await _apiClient.GetPageByIdAsync(pageId);
+        var serverVersion = serverPage.Version?.Number;
+
+        bool titleChanged = !string.Equals(title, serverPage.Title, StringComparison.Ordinal);
+        bool contentChanged = !string.Equals(localContent, serverPage.Body.Storage.Value, StringComparison.Ordinal);
+        bool parentChanged = moveToParentId != null;
+
+        if (!titleChanged && !contentChanged && !parentChanged)
+        {
+            _logger.LogInformation(
+                "Page {PageId} '{Title}' is unchanged (title, content, parent match server), skipping update",
+                pageId, title);
+            return new PageUpdateResult(pageId, serverVersion ?? 0);
+        }
+
+        _logger.LogDebug("Page {PageId} changes detected: title={TitleChanged}, content={ContentChanged}, parent={ParentChanged}",
+            pageId, titleChanged, contentChanged, parentChanged);
+
+        var result = await _apiClient.UpdatePageAsync(pageId, title, localContent, moveToParentId);
+        if (result == null)
         {
             _logger.LogError("Failed to update page {PageId} with title '{Title}'", pageId, title);
-            return;
+            return null;
         }
 
         if (moveToParentId != null)
@@ -307,6 +325,7 @@ public class UploadService
         else
             _logger.LogInformation("Updated page {PageId} with title '{Title}'", pageId, title);
         await UploadPageAttachments(pageId, pageDir);
+        return result;
     }
 
     private async Task UploadPageAttachments(string pageId, string pageDir)
@@ -338,12 +357,19 @@ public class UploadService
         }
     }
 
-    private async Task EnsurePageIdMarkerIfMissing(string pageDir, string pageId, bool shouldWrite)
+    private async Task UpdatePageIdMarker(string pageDir, string pageId, int? version)
     {
-        if (!shouldWrite || _dryRun)
-            return;
+        if (_dryRun) return;
 
-        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId);
-        _logger.LogInformation("Saved page ID marker '.id{PageId}' in '{PageDir}'", pageId, pageDir);
+        var existing = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
+        if (existing != null
+            && string.Equals(existing.PageId, pageId, StringComparison.OrdinalIgnoreCase)
+            && existing.Version == version)
+        {
+            return;
+        }
+
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version);
+        _logger.LogInformation("Saved page ID marker '.id{PageId}_{Version}' in '{PageDir}'", pageId, version, pageDir);
     }
 }

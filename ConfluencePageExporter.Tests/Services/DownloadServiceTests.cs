@@ -61,7 +61,7 @@ public class DownloadServiceTests
 
         var pageDir = Path.Combine(outputDir, "Root");
         File.Exists(Path.Combine(pageDir, "index.html")).Should().BeTrue();
-        File.Exists(Path.Combine(pageDir, ".id1")).Should().BeTrue();
+        LocalStorageHelper.ReadPageIdFromMarker(pageDir).Should().Be("1");
         File.Exists(Path.Combine(pageDir, "file.txt")).Should().BeTrue();
         api.Verify(x => x.GetChildrenPagesAsync(It.IsAny<string>()), Times.Never);
         api.VerifyAll();
@@ -130,7 +130,7 @@ public class DownloadServiceTests
         Directory.Exists(oldDir).Should().BeFalse();
         var newDir = Path.Combine(outputDir, "NewTitle");
         Directory.Exists(newDir).Should().BeTrue();
-        File.Exists(Path.Combine(newDir, ".id1")).Should().BeTrue();
+        LocalStorageHelper.ReadPageIdFromMarker(newDir).Should().Be("1");
     }
 
     [Fact]

@@ -61,7 +61,7 @@ public class DownloadService
         }
 
         await SavePageContent(page, pageDir, overwriteStrategy);
-        await SavePageIdMarker(page.Id, pageDir);
+        await SavePageIdMarker(page.Id, page.Version?.Number, pageDir);
 
         var attachments = await _apiClient.GetAttachmentsAsync(page.Id);
         await SaveAttachments(attachments, pageDir, overwriteStrategy);
@@ -177,20 +177,23 @@ public class DownloadService
         _logger.LogInformation("Saved page '{Title}' -> {File}", page.Title, filePath);
     }
 
-    private async Task SavePageIdMarker(string pageId, string pageDir)
+    private async Task SavePageIdMarker(string pageId, int? version, string pageDir)
     {
-        var filePath = Path.Combine(pageDir, $".id{pageId}");
-
         if (_dryRun)
         {
-            _logger.LogInformation("DRY RUN: Would create ID marker: {File}", filePath);
+            _logger.LogInformation("DRY RUN: Would create ID marker: .id{PageId}_{Version}", pageId, version);
             return;
         }
 
-        if (!File.Exists(filePath))
+        var existing = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
+        if (existing != null
+            && string.Equals(existing.PageId, pageId, StringComparison.OrdinalIgnoreCase)
+            && existing.Version == version)
         {
-            await File.WriteAllTextAsync(filePath, string.Empty);
+            return;
         }
+
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version);
     }
 
     private async Task SaveAttachments(List<AttachmentData> attachments, string pageDir, string overwriteStrategy)

@@ -15,7 +15,8 @@ public static class ApiClientMockFactory
         string title,
         string content,
         string? parentId = null,
-        string? parentTitle = null)
+        string? parentTitle = null,
+        int versionNumber = 1)
     {
         return new PageData
         {
@@ -29,10 +30,16 @@ public static class ApiClientMockFactory
                     Representation = "storage"
                 }
             },
+            Version = new VersionInfo { Number = versionNumber },
             Ancestors = parentId == null
                 ? []
                 : [new PageAncestor { Id = parentId, Title = parentTitle ?? $"parent-{parentId}" }]
         };
+    }
+
+    public static PageUpdateResult CreateUpdateResult(string id, int versionNumber)
+    {
+        return new PageUpdateResult(id, versionNumber);
     }
 
     public static AttachmentData CreateAttachment(

@@ -89,6 +89,44 @@ public class ChangeSourceAnalyzerTests
         result.Confidence.Should().Be(ChangeConfidence.Low);
     }
 
+    [Fact]
+    public void AnalyzeContentChange_ShouldReturnLocalHigh_WhenVersionsMatch()
+    {
+        var analyzer = CreateAnalyzer();
+
+        var result = analyzer.AnalyzeContentChange(DateTime.UtcNow, DateTime.UtcNow,
+            localMarkerVersion: 5, serverVersion: 5);
+
+        result.Origin.Should().Be(ChangeOrigin.Local);
+        result.Confidence.Should().Be(ChangeConfidence.High);
+    }
+
+    [Fact]
+    public void AnalyzeContentChange_ShouldReturnServerHigh_WhenServerVersionNewer()
+    {
+        var analyzer = CreateAnalyzer();
+
+        var result = analyzer.AnalyzeContentChange(DateTime.UtcNow, DateTime.UtcNow,
+            localMarkerVersion: 3, serverVersion: 5);
+
+        result.Origin.Should().Be(ChangeOrigin.Server);
+        result.Confidence.Should().Be(ChangeConfidence.High);
+    }
+
+    [Fact]
+    public void AnalyzeContentChange_ShouldFallbackToDates_WhenLocalVersionNull()
+    {
+        var analyzer = CreateAnalyzer();
+        var serverDate = new DateTime(2026, 3, 14, 12, 0, 0, DateTimeKind.Utc);
+        var localDate = new DateTime(2026, 3, 10, 12, 0, 0, DateTimeKind.Utc);
+
+        var result = analyzer.AnalyzeContentChange(serverDate, localDate,
+            localMarkerVersion: null, serverVersion: 5);
+
+        result.Origin.Should().Be(ChangeOrigin.Server);
+        result.Confidence.Should().Be(ChangeConfidence.Medium);
+    }
+
     // --- Rename analysis with dates only ---
 
     [Fact]

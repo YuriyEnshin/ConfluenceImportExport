@@ -131,7 +131,8 @@ public class CompareService
                     Title = remote.Title,
                     Path = remote.RelativePath,
                     ChangeSource = _changeSourceAnalyzer.AnalyzeContentChange(
-                        remote.LastModifiedUtc, contentFileDate)
+                        remote.LastModifiedUtc, contentFileDate,
+                        localById?.LocalVersionNumber, remote.VersionNumber)
                 };
                 report.ContentChanged.Add(contentChanged);
             }
@@ -223,7 +224,8 @@ public class CompareService
             if (!markerName.StartsWith(".id", StringComparison.OrdinalIgnoreCase) || markerName.Length <= 3)
                 continue;
 
-            var pageId = markerName[3..];
+            var markerInfo = LocalStorageHelper.ParseMarkerFileName(markerName);
+            var pageId = markerInfo.PageId;
             var pageDir = Path.GetDirectoryName(markerFile);
             if (string.IsNullOrEmpty(pageDir))
                 continue;
@@ -242,7 +244,7 @@ public class CompareService
             var indexPath = Path.Combine(normalizedDir, "index.html");
             DateTime? contentDate = File.Exists(indexPath) ? File.GetLastWriteTimeUtc(indexPath) : null;
 
-            pagesById[pageId] = new LocalPageSnapshot(pageId, title, normalizedDir, relativePath, dirDate, contentDate);
+            pagesById[pageId] = new LocalPageSnapshot(pageId, title, normalizedDir, relativePath, dirDate, contentDate, markerInfo.Version);
         }
 
         foreach (var localDir in LocalStorageHelper.EnumeratePageDirectories(localRootDir))

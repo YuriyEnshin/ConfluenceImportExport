@@ -99,8 +99,29 @@ public class ChangeSourceAnalyzer
 
     public ChangeSourceInfo AnalyzeContentChange(
         DateTime? serverModifiedUtc,
-        DateTime? localFileModifiedUtc)
+        DateTime? localFileModifiedUtc,
+        int? localMarkerVersion = null,
+        int? serverVersion = null)
     {
+        if (localMarkerVersion.HasValue && serverVersion.HasValue)
+        {
+            if (localMarkerVersion.Value == serverVersion.Value)
+            {
+                return new ChangeSourceInfo(
+                    ChangeOrigin.Local,
+                    ChangeConfidence.High,
+                    $"Версия маркера ({localMarkerVersion}) совпадает с серверной — контент изменён локально");
+            }
+
+            if (localMarkerVersion.Value < serverVersion.Value)
+            {
+                return new ChangeSourceInfo(
+                    ChangeOrigin.Server,
+                    ChangeConfidence.High,
+                    $"Серверная версия ({serverVersion}) новее маркера ({localMarkerVersion}) — контент изменён на сервере");
+            }
+        }
+
         return CompareByDates(serverModifiedUtc, localFileModifiedUtc, "файл", "контент");
     }
 

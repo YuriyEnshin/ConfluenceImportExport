@@ -40,6 +40,64 @@ public class LocalStorageHelperTests
     }
 
     [Fact]
+    public void ReadPageIdFromMarker_ShouldReturnPageId_WhenVersionedMarkerExists()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        File.WriteAllText(Path.Combine(pageDir, ".id123_5"), string.Empty);
+
+        var result = LocalStorageHelper.ReadPageIdFromMarker(pageDir);
+
+        result.Should().Be("123");
+    }
+
+    [Fact]
+    public void ReadPageMarkerInfo_ShouldReturnIdAndVersion_WhenVersionedMarkerExists()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        File.WriteAllText(Path.Combine(pageDir, ".id456_7"), string.Empty);
+
+        var result = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
+
+        result.Should().NotBeNull();
+        result!.PageId.Should().Be("456");
+        result.Version.Should().Be(7);
+    }
+
+    [Fact]
+    public void ReadPageMarkerInfo_ShouldReturnNullVersion_WhenOldFormatMarker()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        File.WriteAllText(Path.Combine(pageDir, ".id456"), string.Empty);
+
+        var result = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
+
+        result.Should().NotBeNull();
+        result!.PageId.Should().Be("456");
+        result.Version.Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseMarkerFileName_ShouldParseVersionedFormat()
+    {
+        var result = LocalStorageHelper.ParseMarkerFileName(".id12345_42");
+
+        result.PageId.Should().Be("12345");
+        result.Version.Should().Be(42);
+    }
+
+    [Fact]
+    public void ParseMarkerFileName_ShouldParseOldFormat()
+    {
+        var result = LocalStorageHelper.ParseMarkerFileName(".id12345");
+
+        result.PageId.Should().Be("12345");
+        result.Version.Should().BeNull();
+    }
+
+    [Fact]
     public async Task ReadPageContent_ShouldReturnContent_WhenIndexExists()
     {
         using var temp = new TempDirectoryScope();
@@ -239,6 +297,45 @@ public class LocalStorageHelperTests
         index.Should().ContainKey("100");
         index.Should().ContainKey("200");
         index["100"].Should().Be(Path.GetFullPath(first));
+    }
+
+    [Fact]
+    public void BuildPageDirectoryIndex_ShouldParseVersionedMarkers()
+    {
+        using var temp = new TempDirectoryScope();
+        var root = temp.CreateDirectory("Root");
+        var pageA = Path.Combine(root, "A");
+        Directory.CreateDirectory(pageA);
+        File.WriteAllText(Path.Combine(pageA, ".id100_5"), string.Empty);
+
+        var index = LocalStorageHelper.BuildPageDirectoryIndex(root);
+
+        index.Should().ContainKey("100");
+        index["100"].Should().Be(Path.GetFullPath(pageA));
+    }
+
+    [Fact]
+    public async Task WritePageIdMarkerAsync_ShouldWriteVersionedMarker()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, "123", 5);
+
+        File.Exists(Path.Combine(pageDir, ".id123_5")).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task WritePageIdMarkerAsync_ShouldReplaceOldMarker_WithVersionedMarker()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        File.WriteAllText(Path.Combine(pageDir, ".id123"), string.Empty);
+
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, "123", 3);
+
+        File.Exists(Path.Combine(pageDir, ".id123")).Should().BeFalse();
+        File.Exists(Path.Combine(pageDir, ".id123_3")).Should().BeTrue();
     }
 
     [Fact]

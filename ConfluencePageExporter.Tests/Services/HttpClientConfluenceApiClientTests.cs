@@ -79,7 +79,7 @@ public class HttpClientConfluenceApiClientTests
     }
 
     [Fact]
-    public async Task CreatePageAsync_ShouldReturnCreatedId_WhenRequestSucceeds()
+    public async Task CreatePageAsync_ShouldReturnResultWithIdAndVersion_WhenRequestSucceeds()
     {
         var handler = new StubHttpMessageHandler();
         handler.EnqueueResponder(request =>
@@ -91,14 +91,16 @@ public class HttpClientConfluenceApiClientTests
 
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent("""{"id":"700","title":"NewPage"}""")
+                Content = new StringContent("""{"id":"700","title":"NewPage","version":{"number":1}}""")
             };
         });
         var client = CreateClient(handler);
 
         var result = await client.CreatePageAsync("DOCS", "10", "NewPage", "<p>x</p>");
 
-        result.Should().Be("700");
+        result.Should().NotBeNull();
+        result!.Id.Should().Be("700");
+        result.VersionNumber.Should().Be(1);
     }
 
     [Fact]
@@ -114,7 +116,7 @@ public class HttpClientConfluenceApiClientTests
     }
 
     [Fact]
-    public async Task UpdatePageAsync_ShouldIncrementVersionAndReturnId()
+    public async Task UpdatePageAsync_ShouldIncrementVersionAndReturnResult()
     {
         var handler = new StubHttpMessageHandler();
         handler.EnqueueResponse(HttpStatusCode.OK, """{"id":"900","title":"Old","version":{"number":3}}""");
@@ -126,7 +128,7 @@ public class HttpClientConfluenceApiClientTests
 
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent("""{"id":"900","title":"New"}""")
+                Content = new StringContent("""{"id":"900","title":"New","version":{"number":4}}""")
             };
         });
 
@@ -134,7 +136,9 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.UpdatePageAsync("900", "New", "<p>new</p>", null);
 
-        result.Should().Be("900");
+        result.Should().NotBeNull();
+        result!.Id.Should().Be("900");
+        result.VersionNumber.Should().Be(4);
         handler.Requests.Should().HaveCount(2);
         handler.Requests[0].Method.Should().Be(HttpMethod.Get);
         handler.Requests[1].Method.Should().Be(HttpMethod.Put);

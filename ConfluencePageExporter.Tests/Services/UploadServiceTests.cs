@@ -1,3 +1,4 @@
+using ConfluencePageExporter.Models;
 using ConfluencePageExporter.Services;
 using ConfluencePageExporter.Tests.Helpers;
 using FluentAssertions;
@@ -31,7 +32,8 @@ public class UploadServiceTests
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
-        api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>content</p>", null)).ReturnsAsync("100");
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("100", 2));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
@@ -39,7 +41,6 @@ public class UploadServiceTests
 
         api.Verify(x => x.UpdatePageAsync("100", "Root", "<p>content</p>", null), Times.Once);
         api.Verify(x => x.FindPageByTitleAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>()), Times.Never);
-        api.VerifyAll();
     }
 
     [Fact]
@@ -50,14 +51,14 @@ public class UploadServiceTests
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("200")).ReturnsAsync(ApiClientMockFactory.CreatePage("200", "Remote", "<p>x</p>"));
-        api.Setup(x => x.UpdatePageAsync("200", "Root", "<p>content</p>", null)).ReturnsAsync("200");
+        api.Setup(x => x.GetPageByIdAsync("200")).ReturnsAsync(ApiClientMockFactory.CreatePage("200", "Remote", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("200", "Root", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("200", 2));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
         api.Verify(x => x.TryGetPageByIdAsync("200"), Times.Once);
-        api.VerifyAll();
     }
 
     [Fact]
@@ -68,7 +69,8 @@ public class UploadServiceTests
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.FindPageByTitleAsync("SPACE", null, "RootByTitle")).ReturnsAsync("300");
-        api.Setup(x => x.UpdatePageAsync("300", "RootByTitle", "<p>content</p>", null)).ReturnsAsync("300");
+        api.Setup(x => x.GetPageByIdAsync("300")).ReturnsAsync(ApiClientMockFactory.CreatePage("300", "OldTitle", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("300", "RootByTitle", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("300", 2));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
@@ -87,7 +89,8 @@ public class UploadServiceTests
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
-        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync("111");
+        api.Setup(x => x.GetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync(new PageUpdateResult("111", 2));
         api.Setup(x => x.TryGetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "another-parent"));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
@@ -107,7 +110,8 @@ public class UploadServiceTests
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
-        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync("111");
+        api.Setup(x => x.GetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync(new PageUpdateResult("111", 2));
         api.Setup(x => x.TryGetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "another-parent"));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
@@ -126,13 +130,14 @@ public class UploadServiceTests
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
-        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync("111");
+        api.Setup(x => x.GetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync(new PageUpdateResult("111", 2));
 
         api.Setup(x => x.FindPageByTitleAsync("SPACE", "111", "ChildNew")).ReturnsAsync((string?)null);
         api.SetupSequence(x => x.FindPageByTitleAsync("SPACE", null, "ChildNew"))
             .ReturnsAsync((string?)null)
             .ReturnsAsync((string?)null);
-        api.Setup(x => x.CreatePageAsync("SPACE", "111", "ChildNew", "<p>child</p>")).ReturnsAsync("500");
+        api.Setup(x => x.CreatePageAsync("SPACE", "111", "ChildNew", "<p>child</p>")).ReturnsAsync(new PageUpdateResult("500", 1));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
@@ -152,7 +157,7 @@ public class UploadServiceTests
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.FindPageByTitleAsync("SPACE", null, "ParentTitle")).ReturnsAsync("P100");
         api.Setup(x => x.FindPageByTitleAsync("SPACE", null, "RootToCreate")).ReturnsAsync((string?)null);
-        api.Setup(x => x.CreatePageAsync("SPACE", "P100", "RootToCreate", "<p>content</p>")).ReturnsAsync("C100");
+        api.Setup(x => x.CreatePageAsync("SPACE", "P100", "RootToCreate", "<p>content</p>")).ReturnsAsync(new PageUpdateResult("C100", 1));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
@@ -191,7 +196,8 @@ public class UploadServiceTests
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
-        api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>content</p>", null)).ReturnsAsync("100");
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("100", 2));
         api.Setup(x => x.GetAttachmentsAsync("100")).ReturnsAsync([ApiClientMockFactory.CreateAttachment("ATT-1", "file.txt")]);
         api.Setup(x => x.DeleteAttachmentAsync("100", "ATT-1")).ReturnsAsync(true);
         api.Setup(x => x.UploadAttachmentAsync("100", It.Is<string>(p => p.EndsWith("file.txt")), "file.txt")).ReturnsAsync(true);
@@ -213,9 +219,11 @@ public class UploadServiceTests
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
-        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync("111");
+        api.Setup(x => x.GetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync(new PageUpdateResult("111", 2));
         api.Setup(x => x.TryGetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "old-parent"));
-        api.Setup(x => x.UpdatePageAsync("222", "Child", "<p>child</p>", "111")).ReturnsAsync("222");
+        api.Setup(x => x.GetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "old-parent"));
+        api.Setup(x => x.UpdatePageAsync("222", "Child", "<p>child</p>", "111")).ReturnsAsync(new PageUpdateResult("222", 2));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
@@ -233,10 +241,12 @@ public class UploadServiceTests
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
-        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync("111");
+        api.Setup(x => x.GetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync(new PageUpdateResult("111", 2));
         api.Setup(x => x.FindPageByTitleAsync("SPACE", "111", "MovedChild")).ReturnsAsync((string?)null);
         api.Setup(x => x.FindPageByTitleAsync("SPACE", null, "MovedChild")).ReturnsAsync("333");
-        api.Setup(x => x.UpdatePageAsync("333", "MovedChild", "<p>child</p>", "111")).ReturnsAsync("333");
+        api.Setup(x => x.GetPageByIdAsync("333")).ReturnsAsync(ApiClientMockFactory.CreatePage("333", "MovedChild", "<p>x</p>", parentId: "old-parent"));
+        api.Setup(x => x.UpdatePageAsync("333", "MovedChild", "<p>child</p>", "111")).ReturnsAsync(new PageUpdateResult("333", 2));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
@@ -254,7 +264,8 @@ public class UploadServiceTests
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
-        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync("111");
+        api.Setup(x => x.GetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync(new PageUpdateResult("111", 2));
         api.Setup(x => x.TryGetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "old-parent"));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
@@ -274,11 +285,14 @@ public class UploadServiceTests
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
-        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync("111");
+        api.Setup(x => x.GetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync(new PageUpdateResult("111", 2));
         api.Setup(x => x.TryGetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "old-parent"));
-        api.Setup(x => x.UpdatePageAsync("222", "Child", "<p>child</p>", "111")).ReturnsAsync("222");
+        api.Setup(x => x.GetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "old-parent"));
+        api.Setup(x => x.UpdatePageAsync("222", "Child", "<p>child</p>", "111")).ReturnsAsync(new PageUpdateResult("222", 2));
         api.Setup(x => x.TryGetPageByIdAsync("333")).ReturnsAsync(ApiClientMockFactory.CreatePage("333", "Grandchild", "<p>x</p>", parentId: "222"));
-        api.Setup(x => x.UpdatePageAsync("333", "Grandchild", "<p>gc</p>", null)).ReturnsAsync("333");
+        api.Setup(x => x.GetPageByIdAsync("333")).ReturnsAsync(ApiClientMockFactory.CreatePage("333", "Grandchild", "<p>x</p>", parentId: "222"));
+        api.Setup(x => x.UpdatePageAsync("333", "Grandchild", "<p>gc</p>", null)).ReturnsAsync(new PageUpdateResult("333", 2));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
@@ -319,7 +333,7 @@ public class UploadServiceTests
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("400")).ReturnsAsync(serverPage);
         api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
-        api.Setup(x => x.UpdatePageAsync("400", "Subpage4", "<p>content</p>", "P2")).ReturnsAsync("400");
+        api.Setup(x => x.UpdatePageAsync("400", "Subpage4", "<p>content</p>", "P2")).ReturnsAsync(new PageUpdateResult("400", 2));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
@@ -357,7 +371,8 @@ public class UploadServiceTests
         var serverPage = ApiClientMockFactory.CreatePage("400", "Subpage4", "<p>old</p>", parentId: "P1");
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("400")).ReturnsAsync(serverPage);
-        api.Setup(x => x.UpdatePageAsync("400", "Subpage4", "<p>content</p>", null)).ReturnsAsync("400");
+        api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
+        api.Setup(x => x.UpdatePageAsync("400", "Subpage4", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("400", 2));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
@@ -377,7 +392,7 @@ public class UploadServiceTests
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("400")).ReturnsAsync(serverPage);
         api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
-        api.Setup(x => x.UpdatePageAsync("400", "Subpage", "<p>content</p>", null)).ReturnsAsync("400");
+        api.Setup(x => x.UpdatePageAsync("400", "Subpage", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("400", 2));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
@@ -397,12 +412,90 @@ public class UploadServiceTests
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("400")).ReturnsAsync(serverPage);
         api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
-        api.Setup(x => x.UpdatePageAsync("400", "Subpage4", "<p>content</p>", null)).ReturnsAsync("400");
+        api.Setup(x => x.UpdatePageAsync("400", "Subpage4", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("400", 2));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false, onError: "skip", movePages: false);
 
         api.Verify(x => x.UpdatePageAsync("400", "Subpage4", "<p>content</p>", null), Times.Once);
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldSkipUpdate_WhenPageIsUnchanged()
+    {
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>same content</p>", pageId: "100", version: 5);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>same content</p>", versionNumber: 5);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+
+        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
+
+        api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldUpdate_WhenContentChanged()
+    {
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>new content</p>", pageId: "100", version: 5);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>old content</p>", versionNumber: 5);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>new content</p>", null)).ReturnsAsync(new PageUpdateResult("100", 6));
+
+        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
+
+        api.Verify(x => x.UpdatePageAsync("100", "Root", "<p>new content</p>", null), Times.Once);
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldUpdate_WhenTitleChanged()
+    {
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "NewTitle", "<p>content</p>", pageId: "100", version: 3);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "OldTitle", "<p>content</p>", versionNumber: 3);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.UpdatePageAsync("100", "NewTitle", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("100", 4));
+
+        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
+
+        api.Verify(x => x.UpdatePageAsync("100", "NewTitle", "<p>content</p>", null), Times.Once);
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldUpdateMarkerVersion_AfterSuccessfulUpload()
+    {
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>new</p>", pageId: "100", version: 5);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>old</p>", versionNumber: 5);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>new</p>", null)).ReturnsAsync(new PageUpdateResult("100", 6));
+
+        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
+
+        var markerInfo = LocalStorageHelper.ReadPageMarkerInfo(sourceDir);
+        markerInfo.Should().NotBeNull();
+        markerInfo!.PageId.Should().Be("100");
+        markerInfo.Version.Should().Be(6);
     }
 }

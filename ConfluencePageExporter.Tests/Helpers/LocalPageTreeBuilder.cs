@@ -7,7 +7,8 @@ public static class LocalPageTreeBuilder
         string title,
         string content = "<p>content</p>",
         string? pageId = null,
-        IEnumerable<(string FileName, string Content)>? textAttachments = null)
+        IEnumerable<(string FileName, string Content)>? textAttachments = null,
+        int? version = null)
     {
         var pageDir = Path.Combine(parentDir, title);
         Directory.CreateDirectory(pageDir);
@@ -15,7 +16,8 @@ public static class LocalPageTreeBuilder
         File.WriteAllText(Path.Combine(pageDir, "index.html"), content);
         if (!string.IsNullOrEmpty(pageId))
         {
-            File.WriteAllText(Path.Combine(pageDir, $".id{pageId}"), string.Empty);
+            var markerName = version.HasValue ? $".id{pageId}_{version.Value}" : $".id{pageId}";
+            File.WriteAllText(Path.Combine(pageDir, markerName), string.Empty);
         }
 
         if (textAttachments == null)

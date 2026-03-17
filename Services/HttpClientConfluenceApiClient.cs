@@ -164,13 +164,12 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         }
     }
 
-    public async Task<string?> CreatePageAsync(string spaceKey, string? parentId, string title, string content)
+    public async Task<PageUpdateResult?> CreatePageAsync(string spaceKey, string? parentId, string title, string content)
     {
         try
         {
             object pageData;
 
-            // Add parent if specified
             if (!string.IsNullOrEmpty(parentId))
             {
                 pageData = new
@@ -223,7 +222,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
             var responseContent = await response.Content.ReadAsStringAsync();
             var result = JsonConvert.DeserializeObject<PageResponse>(responseContent) 
                 ?? throw new Exception("Could not deserialize page creation response");
-            return result.Id;
+            return new PageUpdateResult(result.Id, result.Version?.Number ?? 1);
         }
         catch (Exception ex)
         {
@@ -232,11 +231,10 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         }
     }
 
-    public async Task<string?> UpdatePageAsync(string pageId, string title, string content, string? parentId)
+    public async Task<PageUpdateResult?> UpdatePageAsync(string pageId, string title, string content, string? parentId)
     {
         try
         {
-            // First get the current page version
             var getPageUrl = $"{_baseUrl}/rest/api/content/{pageId}?expand=version";
             using var getResponse = await _httpClient.GetAsync(getPageUrl);
             getResponse.EnsureSuccessStatusCode();
@@ -245,11 +243,10 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
                 ?? throw new Exception("Could not deserialize current page");
 
             var version = currentPage.Version?.Number ?? 1;
-            version++; // Increment version for update
+            version++;
 
             object pageData;
 
-            // Add parent if specified
             if (!string.IsNullOrEmpty(parentId))
             {
                 pageData = new
@@ -304,7 +301,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
             var responseContent = await response.Content.ReadAsStringAsync();
             var result = JsonConvert.DeserializeObject<PageResponse>(responseContent) 
                 ?? throw new Exception("Could not deserialize page update response");
-            return result.Id;
+            return new PageUpdateResult(result.Id, result.Version?.Number ?? version);
         }
         catch (Exception ex)
         {

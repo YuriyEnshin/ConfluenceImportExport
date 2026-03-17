@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using ConfluencePageExporter.Models;
 
 namespace ConfluencePageExporter.Services;
 
@@ -10,7 +11,21 @@ public static class LocalStorageHelper
         return string.Join("_", title.Split(invalidChars, StringSplitOptions.RemoveEmptyEntries));
     }
 
+    public static PageMarkerInfo ParseMarkerFileName(string fileName)
+    {
+        var markerValue = fileName[3..];
+        var underscoreIdx = markerValue.LastIndexOf('_');
+        if (underscoreIdx > 0 && int.TryParse(markerValue[(underscoreIdx + 1)..], out var version))
+            return new PageMarkerInfo(markerValue[..underscoreIdx], version);
+        return new PageMarkerInfo(markerValue, null);
+    }
+
     public static string? ReadPageIdFromMarker(string pageDir)
+    {
+        return ReadPageMarkerInfo(pageDir)?.PageId;
+    }
+
+    public static PageMarkerInfo? ReadPageMarkerInfo(string pageDir)
     {
         if (!Directory.Exists(pageDir)) return null;
 
@@ -18,12 +33,12 @@ public static class LocalStorageHelper
         {
             var fileName = Path.GetFileName(file);
             if (fileName.StartsWith(".id") && fileName.Length > 3)
-                return fileName[3..];
+                return ParseMarkerFileName(fileName);
         }
         return null;
     }
 
-    public static async Task WritePageIdMarkerAsync(string pageDir, string pageId)
+    public static async Task WritePageIdMarkerAsync(string pageDir, string pageId, int? version = null)
     {
         if (!Directory.Exists(pageDir))
             throw new DirectoryNotFoundException($"Page directory does not exist: {pageDir}");
@@ -33,7 +48,8 @@ public static class LocalStorageHelper
             File.Delete(file);
         }
 
-        var markerPath = Path.Combine(pageDir, $".id{pageId}");
+        var markerName = version.HasValue ? $".id{pageId}_{version.Value}" : $".id{pageId}";
+        var markerPath = Path.Combine(pageDir, markerName);
         await File.WriteAllTextAsync(markerPath, string.Empty);
     }
 
@@ -132,7 +148,7 @@ public static class LocalStorageHelper
             if (!markerName.StartsWith(".id", StringComparison.OrdinalIgnoreCase) || markerName.Length <= 3)
                 continue;
 
-            var pageId = markerName[3..];
+            var pageId = ParseMarkerFileName(markerName).PageId;
             var pageDir = Path.GetDirectoryName(markerFile);
             if (string.IsNullOrEmpty(pageDir))
                 continue;

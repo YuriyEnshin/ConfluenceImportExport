@@ -76,3 +76,7 @@ public class PageVersionSummary
     [JsonProperty("minorEdit")]
     public bool MinorEdit { get; set; }
 }
+
+public record PageUpdateResult(string Id, int VersionNumber);
+
+public record PageMarkerInfo(string PageId, int? Version);
