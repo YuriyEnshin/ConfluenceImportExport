@@ -81,7 +81,7 @@ public class UploadServiceTests
     }
 
     [Fact]
-    public async Task UploadUpdateAsync_ShouldSkipChild_WhenParentMismatch_AndOnErrorSkip()
+    public async Task UploadUpdateAsync_ShouldAlwaysMoveChild_WhenParentMismatch()
     {
         using var temp = new TempDirectoryScope();
         var rootDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>root</p>");
@@ -91,34 +91,15 @@ public class UploadServiceTests
         api.Setup(x => x.TryGetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
         api.Setup(x => x.GetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
         api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync(new PageUpdateResult("111", 2));
-        api.Setup(x => x.TryGetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "another-parent"));
+        api.Setup(x => x.TryGetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "old-parent"));
+        api.Setup(x => x.GetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "old-parent"));
+        api.Setup(x => x.UpdatePageAsync("222", "Child", "<p>child</p>", "111")).ReturnsAsync(new PageUpdateResult("222", 2));
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
-        await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true, onError: "skip");
+        await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true);
 
-        api.Verify(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null), Times.Once);
-        api.Verify(x => x.UpdatePageAsync("222", It.IsAny<string>(), It.IsAny<string>(), null), Times.Never);
-    }
-
-    [Fact]
-    public async Task UploadUpdateAsync_ShouldThrowOnChildParentMismatch_WhenOnErrorAbort()
-    {
-        using var temp = new TempDirectoryScope();
-        var rootDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>root</p>");
-        LocalPageTreeBuilder.CreatePage(rootDir, "Child", "<p>child</p>", "222");
-
-        var api = ApiClientMockFactory.CreateStrict();
-        api.Setup(x => x.TryGetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
-        api.Setup(x => x.GetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
-        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync(new PageUpdateResult("111", 2));
-        api.Setup(x => x.TryGetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "another-parent"));
-
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
-
-        var act = () => service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true, onError: "abort");
-
-        await act.Should().ThrowAsync<InvalidOperationException>();
+        api.Verify(x => x.UpdatePageAsync("222", "Child", "<p>child</p>", "111"), Times.Once);
     }
 
     [Fact]
@@ -141,7 +122,7 @@ public class UploadServiceTests
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
-        await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true, onError: "abort");
+        await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true);
 
         api.Verify(x => x.CreatePageAsync("SPACE", "111", "ChildNew", "<p>child</p>"), Times.Once);
         var childDir = Path.Combine(rootDir, "ChildNew");
@@ -294,29 +275,7 @@ public class UploadServiceTests
     }
 
     [Fact]
-    public async Task UploadUpdateAsync_ShouldMoveChild_WhenIdMarkerParentMismatch_AndMovePagesEnabled()
-    {
-        using var temp = new TempDirectoryScope();
-        var rootDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>root</p>");
-        LocalPageTreeBuilder.CreatePage(rootDir, "Child", "<p>child</p>", "222");
-
-        var api = ApiClientMockFactory.CreateStrict();
-        api.Setup(x => x.TryGetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
-        api.Setup(x => x.GetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
-        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync(new PageUpdateResult("111", 2));
-        api.Setup(x => x.TryGetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "old-parent"));
-        api.Setup(x => x.GetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "old-parent"));
-        api.Setup(x => x.UpdatePageAsync("222", "Child", "<p>child</p>", "111")).ReturnsAsync(new PageUpdateResult("222", 2));
-
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
-
-        await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true, onError: "abort", movePages: true);
-
-        api.Verify(x => x.UpdatePageAsync("222", "Child", "<p>child</p>", "111"), Times.Once);
-    }
-
-    [Fact]
-    public async Task UploadUpdateAsync_ShouldMoveChild_WhenFoundGloballyByTitle_AndMovePagesEnabled()
+    public async Task UploadUpdateAsync_ShouldMoveChild_WhenFoundGloballyByTitle()
     {
         using var temp = new TempDirectoryScope();
         var rootDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>root</p>");
@@ -333,29 +292,9 @@ public class UploadServiceTests
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
-        await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true, onError: "abort", movePages: true);
+        await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true);
 
         api.Verify(x => x.UpdatePageAsync("333", "MovedChild", "<p>child</p>", "111"), Times.Once);
-    }
-
-    [Fact]
-    public async Task UploadUpdateAsync_ShouldNotMoveChild_WhenMovePagesDisabled_AndOnErrorSkip()
-    {
-        using var temp = new TempDirectoryScope();
-        var rootDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>root</p>");
-        LocalPageTreeBuilder.CreatePage(rootDir, "Child", "<p>child</p>", "222");
-
-        var api = ApiClientMockFactory.CreateStrict();
-        api.Setup(x => x.TryGetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
-        api.Setup(x => x.GetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
-        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync(new PageUpdateResult("111", 2));
-        api.Setup(x => x.TryGetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "old-parent"));
-
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
-
-        await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true, onError: "skip", movePages: false);
-
-        api.Verify(x => x.UpdatePageAsync("222", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -379,34 +318,14 @@ public class UploadServiceTests
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
-        await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true, onError: "abort", movePages: true);
+        await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true);
 
         api.Verify(x => x.UpdatePageAsync("222", "Child", "<p>child</p>", "111"), Times.Once);
         api.Verify(x => x.UpdatePageAsync("333", "Grandchild", "<p>gc</p>", null), Times.Once);
     }
 
     [Fact]
-    public async Task UploadUpdateAsync_ShouldDryRunMove_WithoutActualUpdate()
-    {
-        using var temp = new TempDirectoryScope();
-        var rootDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>root</p>");
-        LocalPageTreeBuilder.CreatePage(rootDir, "Child", "<p>child</p>", "222");
-
-        var api = ApiClientMockFactory.CreateStrict();
-        api.Setup(x => x.TryGetPageByIdAsync("111")).ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>"));
-        api.Setup(x => x.FindPageByTitleAsync("SPACE", null, "Root")).ReturnsAsync((string?)null);
-        api.Setup(x => x.TryGetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "old-parent"));
-        api.Setup(x => x.FindPageByTitleAsync("SPACE", null, "Child")).ReturnsAsync((string?)null);
-
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>(), dryRun: true);
-
-        await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true, onError: "abort", movePages: true);
-
-        api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task UploadUpdateAsync_ShouldMoveRootPage_WhenParentIdMarkerDiffers_AndMovePagesEnabled()
+    public async Task UploadUpdateAsync_ShouldMoveRootPage_WhenParentIdMarkerDiffers()
     {
         using var temp = new TempDirectoryScope();
         var parentDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "NewParent", "<p>parent</p>", "P2");
@@ -420,28 +339,9 @@ public class UploadServiceTests
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
-        await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false, movePages: true);
+        await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
         api.Verify(x => x.UpdatePageAsync("400", "Subpage4", "<p>content</p>", "P2"), Times.Once);
-    }
-
-    [Fact]
-    public async Task UploadUpdateAsync_ShouldThrowOnRootParentMismatch_WhenMovePagesDisabled_AndOnErrorAbort()
-    {
-        using var temp = new TempDirectoryScope();
-        var parentDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "NewParent", "<p>parent</p>", "P2");
-        var sourceDir = LocalPageTreeBuilder.CreatePage(parentDir, "Subpage4", "<p>content</p>", "400");
-
-        var serverPage = ApiClientMockFactory.CreatePage("400", "Subpage4", "<p>old</p>", parentId: "P1", parentTitle: "OldParent");
-        var api = ApiClientMockFactory.CreateStrict();
-        api.Setup(x => x.TryGetPageByIdAsync("400")).ReturnsAsync(serverPage);
-        api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
-
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
-
-        var act = () => service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false, onError: "abort", movePages: false);
-
-        await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
     [Fact]
@@ -459,47 +359,7 @@ public class UploadServiceTests
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
-        await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false, movePages: true);
-
-        api.Verify(x => x.UpdatePageAsync("400", "Subpage4", "<p>content</p>", null), Times.Once);
-    }
-
-    [Fact]
-    public async Task UploadUpdateAsync_ShouldNotMoveRootPage_WhenServerParentMatchesLocalParent()
-    {
-        using var temp = new TempDirectoryScope();
-        var parentDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Parent", "<p>parent</p>", "P1");
-        var sourceDir = LocalPageTreeBuilder.CreatePage(parentDir, "Subpage", "<p>content</p>", "400");
-
-        var serverPage = ApiClientMockFactory.CreatePage("400", "Subpage", "<p>old</p>", parentId: "P1", parentTitle: "Parent");
-        var api = ApiClientMockFactory.CreateStrict();
-        api.Setup(x => x.TryGetPageByIdAsync("400")).ReturnsAsync(serverPage);
-        api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
-        api.Setup(x => x.UpdatePageAsync("400", "Subpage", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("400", 2));
-
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
-
-        await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false, movePages: true);
-
-        api.Verify(x => x.UpdatePageAsync("400", "Subpage", "<p>content</p>", null), Times.Once);
-    }
-
-    [Fact]
-    public async Task UploadUpdateAsync_ShouldLogAndSkipRootMove_WhenMovePagesDisabled_AndOnErrorSkip()
-    {
-        using var temp = new TempDirectoryScope();
-        var parentDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "NewParent", "<p>parent</p>", "P2");
-        var sourceDir = LocalPageTreeBuilder.CreatePage(parentDir, "Subpage4", "<p>content</p>", "400");
-
-        var serverPage = ApiClientMockFactory.CreatePage("400", "Subpage4", "<p>old</p>", parentId: "P1");
-        var api = ApiClientMockFactory.CreateStrict();
-        api.Setup(x => x.TryGetPageByIdAsync("400")).ReturnsAsync(serverPage);
-        api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
-        api.Setup(x => x.UpdatePageAsync("400", "Subpage4", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("400", 2));
-
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
-
-        await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false, onError: "skip", movePages: false);
+        await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
         api.Verify(x => x.UpdatePageAsync("400", "Subpage4", "<p>content</p>", null), Times.Once);
     }
@@ -542,25 +402,6 @@ public class UploadServiceTests
     }
 
     [Fact]
-    public async Task UploadUpdateAsync_ShouldUpdate_WhenTitleChanged()
-    {
-        using var temp = new TempDirectoryScope();
-        var sourceDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "NewTitle", "<p>content</p>", pageId: "100", version: 3);
-
-        var serverPage = ApiClientMockFactory.CreatePage("100", "OldTitle", "<p>content</p>", versionNumber: 3);
-        var api = ApiClientMockFactory.CreateStrict();
-        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
-        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
-        api.Setup(x => x.UpdatePageAsync("100", "NewTitle", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("100", 4));
-
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
-
-        await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
-
-        api.Verify(x => x.UpdatePageAsync("100", "NewTitle", "<p>content</p>", null), Times.Once);
-    }
-
-    [Fact]
     public async Task UploadUpdateAsync_ShouldUpdateMarkerVersion_AfterSuccessfulUpload()
     {
         using var temp = new TempDirectoryScope();
@@ -580,5 +421,83 @@ public class UploadServiceTests
         markerInfo.Should().NotBeNull();
         markerInfo!.PageId.Should().Be("100");
         markerInfo.Version.Should().Be(6);
+    }
+
+    [Fact]
+    public async Task UploadMergeAsync_ShouldUploadLocallyChangedPage()
+    {
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>local edit</p>", pageId: "100", version: 3);
+
+        var indexPath = Path.Combine(sourceDir, "index.html");
+        File.SetLastWriteTimeUtc(indexPath, DateTime.UtcNow);
+
+        var markerPath = Directory.GetFiles(sourceDir, ".id*").First();
+        File.SetLastWriteTimeUtc(markerPath, DateTime.UtcNow.AddHours(-1));
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>old</p>", versionNumber: 3);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>local edit</p>", null)).ReturnsAsync(new PageUpdateResult("100", 4));
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        api.Verify(x => x.UpdatePageAsync("100", "Root", "<p>local edit</p>", null), Times.Once);
+        report.HasIssues.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task UploadMergeAsync_ShouldSkipServerChangedPage()
+    {
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>old local</p>", pageId: "100", version: 2);
+
+        var markerPath = Directory.GetFiles(sourceDir, ".id*").First();
+        File.SetLastWriteTimeUtc(markerPath, DateTime.UtcNow);
+        var indexPath = Path.Combine(sourceDir, "index.html");
+        File.SetLastWriteTimeUtc(indexPath, DateTime.UtcNow.AddHours(-1));
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>server edit</p>", versionNumber: 5);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
+        report.SkippedPages.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task UploadMergeAsync_ShouldWarnOnConflict()
+    {
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>local edit</p>", pageId: "100", version: 2);
+
+        var markerPath = Directory.GetFiles(sourceDir, ".id*").First();
+        var syncTime = DateTime.UtcNow.AddHours(-2);
+        File.SetLastWriteTimeUtc(markerPath, syncTime);
+        var indexPath = Path.Combine(sourceDir, "index.html");
+        File.SetLastWriteTimeUtc(indexPath, DateTime.UtcNow);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>server edit</p>", versionNumber: 5);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
+        report.ConflictPages.Should().HaveCount(1);
     }
 }

@@ -6,16 +6,16 @@ using ConfluencePageExporter.Services;
 
 namespace ConfluencePageExporter.Commands;
 
-public sealed class UploadUpdateCommandHandler : ICommandHandler
+public sealed class UploadMergeCommandHandler : ICommandHandler
 {
     private readonly IOptions<GlobalOptions> _global;
-    private readonly IOptions<UploadUpdateOptions> _opts;
+    private readonly IOptions<UploadMergeOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
     private readonly ILoggerFactory _loggerFactory;
 
-    public UploadUpdateCommandHandler(
+    public UploadMergeCommandHandler(
         IOptions<GlobalOptions> global,
-        IOptions<UploadUpdateOptions> opts,
+        IOptions<UploadMergeOptions> opts,
         IConfluenceApiClient apiClient,
         ILoggerFactory loggerFactory)
     {
@@ -48,16 +48,20 @@ public sealed class UploadUpdateCommandHandler : ICommandHandler
             Console.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
 
         var desc = recursive ? " (recursive)" : "";
-        Console.WriteLine($"Upload update: pages in space '{spaceKey}' from '{sourceDir}'{desc}...");
+        Console.WriteLine($"Upload merge: pages in space '{spaceKey}' from '{sourceDir}'{desc}...");
+
+        var analyzer = new ChangeSourceAnalyzer(
+            _apiClient,
+            _loggerFactory.CreateLogger<ChangeSourceAnalyzer>());
 
         var service = new UploadService(
             _apiClient,
             _loggerFactory.CreateLogger<UploadService>(),
             dryRun);
 
-        var report = await service.UploadUpdateAsync(spaceKey, sourceDir, pageId, pageTitle, recursive);
+        var report = await service.UploadMergeAsync(spaceKey, sourceDir, pageId, pageTitle, recursive, analyzer);
 
-        Console.WriteLine("Upload update completed.");
+        Console.WriteLine("Upload merge completed.");
         if (showReport)
             report.PrintReport();
         return 0;

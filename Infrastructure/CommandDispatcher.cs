@@ -37,9 +37,11 @@ public static class CommandDispatcher
     {
         return commandPath switch
         {
-            "download" => services.GetRequiredService<DownloadCommandHandler>(),
+            "download update" => services.GetRequiredService<DownloadUpdateCommandHandler>(),
+            "download merge" => services.GetRequiredService<DownloadMergeCommandHandler>(),
             "upload update" => services.GetRequiredService<UploadUpdateCommandHandler>(),
             "upload create" => services.GetRequiredService<UploadCreateCommandHandler>(),
+            "upload merge" => services.GetRequiredService<UploadMergeCommandHandler>(),
             "compare" => services.GetRequiredService<CompareCommandHandler>(),
             "config show" => services.GetRequiredService<ConfigShowCommandHandler>(),
             _ => null

@@ -17,14 +17,18 @@ public class UploadService
         _dryRun = dryRun;
     }
 
-    public async Task UploadUpdateAsync(string spaceKey, string sourceDir, string? explicitPageId, string? explicitPageTitle, bool recursive, string onError = "abort", bool movePages = false)
+    // ── upload update (force: local → server) ─────────────────────────
+
+    public async Task<SyncReport> UploadUpdateAsync(
+        string spaceKey, string sourceDir, string? explicitPageId,
+        string? explicitPageTitle, bool recursive)
     {
+        var report = new SyncReport();
         LocalStorageHelper.ValidateSourceDirectory(sourceDir);
 
-        var rootMarkerPageId = LocalStorageHelper.ReadPageIdFromMarker(sourceDir);
-        var (rootPageId, resolvedByTitle) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle);
+        var (rootPageId, _) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle);
 
-        var moveToParentId = await DetectRootPageMoveAsync(rootPageId, sourceDir, movePages, onError);
+        var moveToParentId = await DetectRootPageMoveAsync(rootPageId, sourceDir);
         var result = await UpdatePageContentAndAttachments(spaceKey, rootPageId, sourceDir, moveToParentId);
         if (result != null)
             await UpdatePageIdMarker(sourceDir, result.Id, result.VersionNumber);
@@ -32,13 +36,63 @@ public class UploadService
         if (recursive)
         {
             foreach (var childDir in LocalStorageHelper.GetPageSubdirectories(sourceDir))
-            {
-                await ProcessChildForUpdate(spaceKey, childDir, rootPageId, onError, movePages);
-            }
+                await ProcessChildForUpdate(spaceKey, childDir, rootPageId, report);
+        }
+
+        return report;
+    }
+
+    // ── upload merge (smart: local → server, only local-newer) ────────
+
+    public async Task<SyncReport> UploadMergeAsync(
+        string spaceKey, string sourceDir, string? explicitPageId,
+        string? explicitPageTitle, bool recursive, ChangeSourceAnalyzer analyzer)
+    {
+        var report = new SyncReport();
+        LocalStorageHelper.ValidateSourceDirectory(sourceDir);
+
+        var (rootPageId, _) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle);
+
+        await MergeUploadPageAsync(spaceKey, rootPageId, sourceDir, analyzer, report);
+
+        if (recursive)
+        {
+            foreach (var childDir in LocalStorageHelper.GetPageSubdirectories(sourceDir))
+                await ProcessChildForMerge(spaceKey, childDir, rootPageId, analyzer, report);
+        }
+
+        return report;
+    }
+
+    // ── upload create (unchanged) ─────────────────────────────────────
+
+    public async Task UploadCreateAsync(string spaceKey, string sourceDir, string? parentId, string? parentTitle, bool recursive)
+    {
+        LocalStorageHelper.ValidateSourceDirectory(sourceDir);
+
+        string? resolvedParentId = null;
+        if (!string.IsNullOrEmpty(parentId) || !string.IsNullOrEmpty(parentTitle))
+        {
+            resolvedParentId = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, parentId, parentTitle);
+            if (resolvedParentId == null)
+                throw new InvalidOperationException(
+                    $"Parent page not found. ID: '{parentId}', Title: '{parentTitle}'");
+        }
+
+        var createResult = await CreatePageFromDirectory(spaceKey, sourceDir, resolvedParentId);
+        if (createResult == null) return;
+        await UpdatePageIdMarker(sourceDir, createResult.Id, createResult.VersionNumber);
+
+        if (recursive)
+        {
+            foreach (var childDir in LocalStorageHelper.GetPageSubdirectories(sourceDir))
+                await ProcessChildForCreate(spaceKey, childDir, createResult.Id);
         }
     }
 
-    private async Task<string?> DetectRootPageMoveAsync(string rootPageId, string sourceDir, bool movePages, string onError)
+    // ── update internals ──────────────────────────────────────────────
+
+    private async Task<string?> DetectRootPageMoveAsync(string rootPageId, string sourceDir)
     {
         var parentDir = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(sourceDir));
         if (string.IsNullOrEmpty(parentDir))
@@ -52,23 +106,14 @@ public class UploadService
         if (string.Equals(rootPage.ParentId, localParentPageId, StringComparison.OrdinalIgnoreCase))
             return null;
 
-        if (movePages)
-        {
-            _logger.LogInformation(
-                "Root page '{Title}' (ID: {PageId}) will be moved from parent {OldParent} to {NewParent}",
-                rootPage.Title, rootPageId, rootPage.ParentId, localParentPageId);
-            return localParentPageId;
-        }
-
-        var msg = $"Root page '{rootPage.Title}' (ID: {rootPageId}) exists under parent " +
-                  $"{rootPage.ParentId} on server, but locally is under parent {localParentPageId}";
-        _logger.LogError("{Message}", msg);
-        if (onError == "abort")
-            throw new InvalidOperationException(msg);
-        return null;
+        _logger.LogInformation(
+            "Root page '{Title}' (ID: {PageId}) will be moved from parent {OldParent} to {NewParent}",
+            rootPage.Title, rootPageId, rootPage.ParentId, localParentPageId);
+        return localParentPageId;
     }
 
-    private async Task<(string PageId, bool ResolvedByTitle)> ResolveRootPageForUpdate(string spaceKey, string sourceDir, string? explicitPageId, string? explicitPageTitle)
+    private async Task<(string PageId, bool ResolvedByTitle)> ResolveRootPageForUpdate(
+        string spaceKey, string sourceDir, string? explicitPageId, string? explicitPageTitle)
     {
         if (!string.IsNullOrEmpty(explicitPageId))
         {
@@ -105,7 +150,7 @@ public class UploadService
             "Specify --page-id or --page-title, or use 'upload create' for new pages.");
     }
 
-    private async Task ProcessChildForUpdate(string spaceKey, string childDir, string parentPageId, string onError, bool movePages = false)
+    private async Task ProcessChildForUpdate(string spaceKey, string childDir, string parentPageId, SyncReport report)
     {
         var folderName = LocalStorageHelper.GetPageTitleFromDirectory(childDir);
         var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(childDir);
@@ -118,26 +163,13 @@ public class UploadService
             var page = await _apiClient.TryGetPageByIdAsync(markerPageId);
             if (page != null)
             {
-                if (page.ParentId == parentPageId)
-                {
-                    resolvedPageId = page.Id;
-                }
-                else if (movePages)
+                resolvedPageId = page.Id;
+                if (page.ParentId != parentPageId)
                 {
                     _logger.LogInformation(
                         "Page '{Title}' (ID: {PageId}) will be moved from parent {OldParent} to {NewParent}",
                         page.Title, page.Id, page.ParentId, parentPageId);
-                    resolvedPageId = page.Id;
                     moveToParentId = parentPageId;
-                }
-                else
-                {
-                    var msg = $"Page '{page.Title}' (ID: {page.Id}) exists but under a different parent " +
-                              $"(expected parent {parentPageId}, actual parent {page.ParentId})";
-                    _logger.LogError("{Message}", msg);
-                    if (onError == "abort")
-                        throw new InvalidOperationException(msg);
-                    return;
                 }
             }
         }
@@ -154,22 +186,11 @@ public class UploadService
                 var foundGlobally = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName);
                 if (foundGlobally != null)
                 {
-                    if (movePages)
-                    {
-                        _logger.LogInformation(
-                            "Page '{Title}' (ID: {PageId}) found in space but under a different parent, will be moved to parent {NewParent}",
-                            folderName, foundGlobally, parentPageId);
-                        resolvedPageId = foundGlobally;
-                        moveToParentId = parentPageId;
-                    }
-                    else
-                    {
-                        var msg = $"Page '{folderName}' exists in space '{spaceKey}' but under a different parent";
-                        _logger.LogError("{Message}", msg);
-                        if (onError == "abort")
-                            throw new InvalidOperationException(msg);
-                        return;
-                    }
+                    _logger.LogInformation(
+                        "Page '{Title}' (ID: {PageId}) found in space but under a different parent, will be moved to parent {NewParent}",
+                        folderName, foundGlobally, parentPageId);
+                    resolvedPageId = foundGlobally;
+                    moveToParentId = parentPageId;
                 }
                 else
                 {
@@ -186,9 +207,7 @@ public class UploadService
             await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber);
 
             foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
-            {
                 await ProcessChildForCreate(spaceKey, grandchildDir, resolvedPageId);
-            }
         }
         else
         {
@@ -197,38 +216,125 @@ public class UploadService
                 await UpdatePageIdMarker(childDir, updateResult.Id, updateResult.VersionNumber);
 
             foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
-            {
-                await ProcessChildForUpdate(spaceKey, grandchildDir, resolvedPageId!, onError, movePages);
-            }
+                await ProcessChildForUpdate(spaceKey, grandchildDir, resolvedPageId!, report);
         }
     }
 
-    public async Task UploadCreateAsync(string spaceKey, string sourceDir, string? parentId, string? parentTitle, bool recursive)
+    // ── merge internals ───────────────────────────────────────────────
+
+    private async Task MergeUploadPageAsync(
+        string spaceKey, string pageId, string pageDir,
+        ChangeSourceAnalyzer analyzer, SyncReport report)
     {
-        LocalStorageHelper.ValidateSourceDirectory(sourceDir);
-        var rootMarkerPageId = LocalStorageHelper.ReadPageIdFromMarker(sourceDir);
+        var title = LocalStorageHelper.GetPageTitleFromDirectory(pageDir);
+        var localContent = await LocalStorageHelper.ReadPageContent(pageDir);
 
-        string? resolvedParentId = null;
-        if (!string.IsNullOrEmpty(parentId) || !string.IsNullOrEmpty(parentTitle))
+        if (_dryRun)
         {
-            resolvedParentId = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, parentId, parentTitle);
-            if (resolvedParentId == null)
-                throw new InvalidOperationException(
-                    $"Parent page not found. ID: '{parentId}', Title: '{parentTitle}'");
+            _logger.LogInformation("DRY RUN: Would merge-upload page {PageId} with title '{Title}'", pageId, title);
+            LogDryRunAttachments(pageDir);
+            return;
         }
 
-        var createResult = await CreatePageFromDirectory(spaceKey, sourceDir, resolvedParentId);
-        if (createResult == null) return;
-        await UpdatePageIdMarker(sourceDir, createResult.Id, createResult.VersionNumber);
+        var serverPage = await _apiClient.GetPageByIdAsync(pageId);
+        bool contentChanged = !string.Equals(localContent, serverPage.Body.Storage.Value, StringComparison.Ordinal);
+        bool titleChanged = !string.Equals(title, serverPage.Title, StringComparison.Ordinal);
 
-        if (recursive)
+        if (!contentChanged && !titleChanged)
         {
-            foreach (var childDir in LocalStorageHelper.GetPageSubdirectories(sourceDir))
-            {
-                await ProcessChildForCreate(spaceKey, childDir, createResult.Id);
-            }
+            _logger.LogDebug("Page {PageId} '{Title}' is unchanged, skipping merge-upload", pageId, title);
+            await UpdatePageIdMarker(pageDir, pageId, serverPage.Version?.Number);
+            return;
+        }
+
+        var markerInfo = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
+        var syncTime = LocalStorageHelper.GetMarkerFileTimeUtc(pageDir);
+        var indexPath = Path.Combine(pageDir, "index.html");
+        DateTime? localFileTime = File.Exists(indexPath) ? File.GetLastWriteTimeUtc(indexPath) : null;
+
+        var sourceInfo = analyzer.AnalyzeContentChange(
+            serverPage.Version?.When?.ToUniversalTime(), localFileTime,
+            markerInfo?.Version, serverPage.Version?.Number, syncTime);
+
+        switch (sourceInfo.Origin)
+        {
+            case ChangeOrigin.Local:
+                _logger.LogInformation("Page '{Title}' changed locally, uploading to server", title);
+                var result = await _apiClient.UpdatePageAsync(pageId, title, localContent, null);
+                if (result != null)
+                {
+                    await UpdatePageIdMarker(pageDir, result.Id, result.VersionNumber);
+                    await UploadPageAttachments(pageId, pageDir);
+                }
+                break;
+
+            case ChangeOrigin.Server:
+                _logger.LogInformation("Page '{Title}' changed on server, skipping upload", title);
+                report.AddSkipped(pageId, title, sourceInfo.Reason);
+                break;
+
+            case ChangeOrigin.Conflict:
+                _logger.LogWarning("CONFLICT: Page '{Title}' changed both locally and on server", title);
+                report.AddConflict(pageId, title, sourceInfo.Reason);
+                break;
+
+            default:
+                _logger.LogWarning("Page '{Title}' change source unknown, skipping upload", title);
+                report.AddSkipped(pageId, title, sourceInfo.Reason);
+                break;
         }
     }
+
+    private async Task ProcessChildForMerge(
+        string spaceKey, string childDir, string parentPageId,
+        ChangeSourceAnalyzer analyzer, SyncReport report)
+    {
+        var folderName = LocalStorageHelper.GetPageTitleFromDirectory(childDir);
+        var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(childDir);
+        string? resolvedPageId = null;
+
+        if (markerPageId != null)
+        {
+            var page = await _apiClient.TryGetPageByIdAsync(markerPageId);
+            if (page != null)
+                resolvedPageId = page.Id;
+        }
+
+        if (resolvedPageId == null)
+        {
+            var foundUnderParent = await _apiClient.FindPageByTitleAsync(spaceKey, parentPageId, folderName);
+            if (foundUnderParent != null)
+            {
+                resolvedPageId = foundUnderParent;
+            }
+            else
+            {
+                var foundGlobally = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName);
+                if (foundGlobally != null)
+                    resolvedPageId = foundGlobally;
+            }
+        }
+
+        if (resolvedPageId == null)
+        {
+            var createResult = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
+            if (createResult == null) return;
+            resolvedPageId = createResult.Id;
+            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber);
+
+            foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
+                await ProcessChildForCreate(spaceKey, grandchildDir, resolvedPageId);
+        }
+        else
+        {
+            await MergeUploadPageAsync(spaceKey, resolvedPageId, childDir, analyzer, report);
+
+            foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
+                await ProcessChildForMerge(spaceKey, grandchildDir, resolvedPageId, analyzer, report);
+        }
+    }
+
+    // ── create internals ──────────────────────────────────────────────
 
     private async Task ProcessChildForCreate(string spaceKey, string childDir, string? parentPageId)
     {
@@ -237,9 +343,7 @@ public class UploadService
         await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber);
 
         foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
-        {
             await ProcessChildForCreate(spaceKey, grandchildDir, createResult.Id);
-        }
     }
 
     private async Task<PageUpdateResult?> CreatePageFromDirectory(string spaceKey, string pageDir, string? parentId)
@@ -273,7 +377,10 @@ public class UploadService
         return result;
     }
 
-    private async Task<PageUpdateResult?> UpdatePageContentAndAttachments(string spaceKey, string pageId, string pageDir, string? moveToParentId = null)
+    // ── shared: page content update ───────────────────────────────────
+
+    private async Task<PageUpdateResult?> UpdatePageContentAndAttachments(
+        string spaceKey, string pageId, string pageDir, string? moveToParentId = null)
     {
         var title = LocalStorageHelper.GetPageTitleFromDirectory(pageDir);
         var localContent = await LocalStorageHelper.ReadPageContent(pageDir);
@@ -287,10 +394,8 @@ public class UploadService
 
             var existingByTitle = await _apiClient.FindPageByTitleAsync(spaceKey, null, title);
             if (existingByTitle != null && existingByTitle != pageId)
-            {
                 _logger.LogWarning("DRY RUN: Renaming page {PageId} to '{Title}' would conflict with existing page {ConflictId}",
                     pageId, title, existingByTitle);
-            }
 
             LogDryRunAttachments(pageDir);
             return null;
@@ -328,6 +433,8 @@ public class UploadService
         await UploadPageAttachments(pageId, pageDir);
         return result;
     }
+
+    // ── shared: attachments ───────────────────────────────────────────
 
     private async Task UploadPageAttachments(string pageId, string pageDir)
     {
@@ -384,9 +491,7 @@ public class UploadService
 
         bool differs = !localHash.SequenceEqual(remoteHash);
         if (differs)
-        {
             _logger.LogDebug("Attachment '{FileName}' content hash differs", serverAttachment.Title);
-        }
 
         return differs;
     }
@@ -397,17 +502,14 @@ public class UploadService
         return await SHA256.HashDataAsync(stream);
     }
 
-    private static byte[] ComputeHash(byte[] data)
-    {
-        return SHA256.HashData(data);
-    }
+    private static byte[] ComputeHash(byte[] data) => SHA256.HashData(data);
+
+    // ── shared: utilities ─────────────────────────────────────────────
 
     private void LogDryRunAttachments(string pageDir)
     {
         foreach (var file in LocalStorageHelper.GetAttachmentFiles(pageDir))
-        {
             _logger.LogInformation("DRY RUN: Would upload attachment '{FileName}'", Path.GetFileName(file));
-        }
     }
 
     private async Task UpdatePageIdMarker(string pageDir, string pageId, int? version)

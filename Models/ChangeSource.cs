@@ -4,7 +4,8 @@ public enum ChangeOrigin
 {
     Unknown,
     Local,
-    Server
+    Server,
+    Conflict
 }
 
 public enum ChangeConfidence

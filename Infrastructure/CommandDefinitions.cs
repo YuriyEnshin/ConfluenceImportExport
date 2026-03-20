@@ -22,6 +22,7 @@ public static class CommandDefinitions
         root.Options.Add(Opt<string?>("--auth-type", "Authentication type: 'onprem' or 'cloud'", recursive: true));
         root.Options.Add(Flag("--dry-run", "Perform a dry run without writing changes", recursive: true));
         root.Options.Add(Flag("--recursive", "Recursively process child pages", recursive: true));
+        root.Options.Add(Flag("--report", "Print summary report of pages requiring manual attention", recursive: true));
 
         root.Add(BuildDownloadCommand());
         root.Add(BuildUploadCommand());
@@ -33,12 +34,29 @@ public static class CommandDefinitions
 
     private static Command BuildDownloadCommand()
     {
-        return new Command("download", "Download Confluence pages to local files")
+        var download = new Command("download", "Download Confluence pages to local files");
+        download.Add(BuildDownloadUpdateCommand());
+        download.Add(BuildDownloadMergeCommand());
+        return download;
+    }
+
+    private static Command BuildDownloadUpdateCommand()
+    {
+        return new Command("update", "Force-download pages from Confluence, overwriting local changes")
         {
             Opt<string?>("--page-id", "Confluence page ID"),
             Opt<string?>("--page-title", "Confluence page title"),
             Opt<string?>("--output-dir", "Output directory for downloaded pages"),
-            Opt<string?>("--overwrite-strategy", "How to handle existing files: 'skip', 'overwrite', or 'fail'"),
+        };
+    }
+
+    private static Command BuildDownloadMergeCommand()
+    {
+        return new Command("merge", "Download only server-side changes, preserving local edits")
+        {
+            Opt<string?>("--page-id", "Confluence page ID"),
+            Opt<string?>("--page-title", "Confluence page title"),
+            Opt<string?>("--output-dir", "Output directory for downloaded pages"),
         };
     }
 
@@ -47,18 +65,17 @@ public static class CommandDefinitions
         var upload = new Command("upload", "Upload local pages to Confluence");
         upload.Add(BuildUploadUpdateCommand());
         upload.Add(BuildUploadCreateCommand());
+        upload.Add(BuildUploadMergeCommand());
         return upload;
     }
 
     private static Command BuildUploadUpdateCommand()
     {
-        return new Command("update", "Update existing Confluence pages from local files")
+        return new Command("update", "Force-upload local pages, overwriting server changes")
         {
             Opt<string?>("--source-dir", "Local page folder to upload"),
             Opt<string?>("--page-id", "Confluence page ID to update"),
             Opt<string?>("--page-title", "Confluence page title to update"),
-            Opt<string?>("--on-error", "Behavior on conflict: 'abort' or 'skip'"),
-            Flag("--move-pages", "Move pages whose local tree position differs from remote"),
         };
     }
 
@@ -69,6 +86,16 @@ public static class CommandDefinitions
             Opt<string?>("--source-dir", "Local page folder to upload"),
             Opt<string?>("--parent-id", "Parent Confluence page ID"),
             Opt<string?>("--parent-title", "Parent Confluence page title"),
+        };
+    }
+
+    private static Command BuildUploadMergeCommand()
+    {
+        return new Command("merge", "Upload only local changes, preserving server-side edits")
+        {
+            Opt<string?>("--source-dir", "Local page folder to upload"),
+            Opt<string?>("--page-id", "Confluence page ID"),
+            Opt<string?>("--page-title", "Confluence page title"),
         };
     }
 
@@ -92,10 +119,7 @@ public static class CommandDefinitions
             Opt<string?>("--page-id", "Confluence page ID"),
             Opt<string?>("--page-title", "Confluence page title"),
             Opt<string?>("--output-dir", "Output/local directory"),
-            Opt<string?>("--overwrite-strategy", "How to handle existing files"),
             Opt<string?>("--source-dir", "Local page folder"),
-            Opt<string?>("--on-error", "Behavior on conflict"),
-            Flag("--move-pages", "Move pages flag"),
             Opt<string?>("--parent-id", "Parent Confluence page ID"),
             Opt<string?>("--parent-title", "Parent Confluence page title"),
             Flag("--match-by-title", "Match pages by title flag"),

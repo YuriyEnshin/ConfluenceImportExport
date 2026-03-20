@@ -38,6 +38,19 @@ public static class LocalStorageHelper
         return null;
     }
 
+    public static DateTime? GetMarkerFileTimeUtc(string pageDir)
+    {
+        if (!Directory.Exists(pageDir)) return null;
+
+        foreach (var file in Directory.GetFiles(pageDir, ".id*"))
+        {
+            var fileName = Path.GetFileName(file);
+            if (fileName.StartsWith(".id") && fileName.Length > 3)
+                return File.GetLastWriteTimeUtc(file);
+        }
+        return null;
+    }
+
     public static async Task WritePageIdMarkerAsync(string pageDir, string pageId, int? version = null)
     {
         if (!Directory.Exists(pageDir))

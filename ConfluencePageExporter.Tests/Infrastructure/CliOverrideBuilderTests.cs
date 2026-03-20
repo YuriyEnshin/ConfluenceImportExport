@@ -6,12 +6,12 @@ namespace ConfluencePageExporter.Tests.Infrastructure;
 public class CliOverrideBuilderTests
 {
     [Fact]
-    public void Build_ShouldMapGlobalOptions_ForDownload()
+    public void Build_ShouldMapGlobalOptions_ForDownloadUpdate()
     {
         var root = CommandDefinitions.Build();
-        var pr = root.Parse("download --base-url https://x.com --username u --token t --space-key S --dry-run");
+        var pr = root.Parse("download update --base-url https://x.com --username u --token t --space-key S --dry-run");
 
-        var overrides = CliOverrideBuilder.Build(pr, "download");
+        var overrides = CliOverrideBuilder.Build(pr, "download update");
 
         overrides.Should().ContainKey("Global:BaseUrl").WhoseValue.Should().Be("https://x.com");
         overrides.Should().ContainKey("Global:Username").WhoseValue.Should().Be("u");
@@ -21,31 +21,54 @@ public class CliOverrideBuilderTests
     }
 
     [Fact]
-    public void Build_ShouldMapDownloadOptions()
+    public void Build_ShouldMapDownloadUpdateOptions()
     {
         var root = CommandDefinitions.Build();
-        var pr = root.Parse("download --page-id 123 --output-dir ./out --recursive --overwrite-strategy skip");
+        var pr = root.Parse("download update --page-id 123 --output-dir ./out --recursive");
 
-        var overrides = CliOverrideBuilder.Build(pr, "download");
+        var overrides = CliOverrideBuilder.Build(pr, "download update");
 
         overrides.Should().ContainKey("Download:PageId").WhoseValue.Should().Be("123");
         overrides.Should().ContainKey("Download:OutputDir").WhoseValue.Should().Be("./out");
         overrides.Should().ContainKey("Download:Recursive").WhoseValue.Should().Be("True");
-        overrides.Should().ContainKey("Download:OverwriteStrategy").WhoseValue.Should().Be("skip");
+    }
+
+    [Fact]
+    public void Build_ShouldMapDownloadMergeOptions()
+    {
+        var root = CommandDefinitions.Build();
+        var pr = root.Parse("download merge --page-id 123 --output-dir ./out --report");
+
+        var overrides = CliOverrideBuilder.Build(pr, "download merge");
+
+        overrides.Should().ContainKey("Download:PageId").WhoseValue.Should().Be("123");
+        overrides.Should().ContainKey("Download:OutputDir").WhoseValue.Should().Be("./out");
+        overrides.Should().ContainKey("Global:Report").WhoseValue.Should().Be("True");
     }
 
     [Fact]
     public void Build_ShouldMapUploadUpdateOptions()
     {
         var root = CommandDefinitions.Build();
-        var pr = root.Parse("upload update --source-dir ./src --page-id 1 --on-error skip --move-pages");
+        var pr = root.Parse("upload update --source-dir ./src --page-id 1");
 
         var overrides = CliOverrideBuilder.Build(pr, "upload update");
 
         overrides.Should().ContainKey("Upload:Update:SourceDir").WhoseValue.Should().Be("./src");
         overrides.Should().ContainKey("Upload:Update:PageId").WhoseValue.Should().Be("1");
-        overrides.Should().ContainKey("Upload:Update:OnError").WhoseValue.Should().Be("skip");
-        overrides.Should().ContainKey("Upload:Update:MovePages").WhoseValue.Should().Be("True");
+    }
+
+    [Fact]
+    public void Build_ShouldMapUploadMergeOptions()
+    {
+        var root = CommandDefinitions.Build();
+        var pr = root.Parse("upload merge --source-dir ./src --page-id 1 --report");
+
+        var overrides = CliOverrideBuilder.Build(pr, "upload merge");
+
+        overrides.Should().ContainKey("Upload:Merge:SourceDir").WhoseValue.Should().Be("./src");
+        overrides.Should().ContainKey("Upload:Merge:PageId").WhoseValue.Should().Be("1");
+        overrides.Should().ContainKey("Global:Report").WhoseValue.Should().Be("True");
     }
 
     [Fact]
@@ -78,9 +101,9 @@ public class CliOverrideBuilderTests
     public void Build_ShouldNotIncludeOptionsNotExplicitlySet()
     {
         var root = CommandDefinitions.Build();
-        var pr = root.Parse("download --page-id 1");
+        var pr = root.Parse("download update --page-id 1");
 
-        var overrides = CliOverrideBuilder.Build(pr, "download");
+        var overrides = CliOverrideBuilder.Build(pr, "download update");
 
         overrides.Should().ContainKey("Download:PageId");
         overrides.Should().NotContainKey("Download:OutputDir");
@@ -92,9 +115,9 @@ public class CliOverrideBuilderTests
     public void Build_ShouldNormalizePathValues()
     {
         var root = CommandDefinitions.Build();
-        var pr = root.Parse(new[] { "download", "--output-dir", "\"/tmp/My Dir\"", "--page-id", "1" });
+        var pr = root.Parse(new[] { "download", "update", "--output-dir", "\"/tmp/My Dir\"", "--page-id", "1" });
 
-        var overrides = CliOverrideBuilder.Build(pr, "download");
+        var overrides = CliOverrideBuilder.Build(pr, "download update");
 
         overrides.Should().ContainKey("Download:OutputDir").WhoseValue.Should().Be("/tmp/My Dir");
     }
@@ -103,9 +126,9 @@ public class CliOverrideBuilderTests
     public void Build_ShouldFindSharedOptionsPlacedBeforeCommand()
     {
         var root = CommandDefinitions.Build();
-        var pr = root.Parse("--base-url https://x.com download --page-id 1");
+        var pr = root.Parse("--base-url https://x.com download update --page-id 1");
 
-        var overrides = CliOverrideBuilder.Build(pr, "download");
+        var overrides = CliOverrideBuilder.Build(pr, "download update");
 
         overrides.Should().ContainKey("Global:BaseUrl").WhoseValue.Should().Be("https://x.com");
         overrides.Should().ContainKey("Download:PageId").WhoseValue.Should().Be("1");

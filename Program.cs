@@ -69,6 +69,9 @@ try
     builder.Services.AddOptions<UploadCreateOptions>()
         .Bind(builder.Configuration.GetSection("Upload:Create"));
 
+    builder.Services.AddOptions<UploadMergeOptions>()
+        .Bind(builder.Configuration.GetSection("Upload:Merge"));
+
     builder.Services.AddOptions<CompareOptions>()
         .Bind(builder.Configuration.GetSection("Compare"));
 
@@ -85,9 +88,11 @@ try
             opts.AuthType ?? "onprem");
     });
 
-    builder.Services.AddTransient<DownloadCommandHandler>();
+    builder.Services.AddTransient<DownloadUpdateCommandHandler>();
+    builder.Services.AddTransient<DownloadMergeCommandHandler>();
     builder.Services.AddTransient<UploadUpdateCommandHandler>();
     builder.Services.AddTransient<UploadCreateCommandHandler>();
+    builder.Services.AddTransient<UploadMergeCommandHandler>();
     builder.Services.AddTransient<CompareCommandHandler>();
     builder.Services.AddSingleton<IReadOnlyDictionary<string, string?>>(cliOverrides);
     builder.Services.AddTransient<ConfigShowCommandHandler>();

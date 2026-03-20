@@ -10,4 +10,5 @@ public sealed class GlobalOptions
     public bool? Verbose { get; set; }
     public bool? DryRun { get; set; }
     public bool? Recursive { get; set; }
+    public bool? Report { get; set; }
 }

@@ -16,69 +16,173 @@ public class DownloadService
         _dryRun = dryRun;
     }
 
-    public async Task DownloadAsync(string spaceKey, string? pageId, string? pageTitle, string outputDir, bool recursive, string overwriteStrategy = "fail")
+    public async Task<SyncReport> DownloadUpdateAsync(
+        string spaceKey, string? pageId, string? pageTitle,
+        string outputDir, bool recursive)
     {
-        var resolvedPageId = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, pageId, pageTitle);
-        if (resolvedPageId == null)
-        {
-            _logger.LogError("Could not resolve page. ID: {PageId}, Title: {PageTitle}", pageId, pageTitle);
-            return;
-        }
-
-        if (Directory.Exists(outputDir) && Directory.EnumerateFileSystemEntries(outputDir).Any())
-        {
-            switch (overwriteStrategy.ToLower())
-            {
-                case "fail":
-                    throw new InvalidOperationException(
-                        $"Output directory is not empty: {outputDir}. Use --overwrite-strategy to specify how to handle this.");
-                case "skip":
-                    _logger.LogInformation("Output directory is not empty. Skipping download (strategy: skip).");
-                    return;
-                case "overwrite":
-                    _logger.LogInformation("Output directory is not empty. Overwriting existing files.");
-                    break;
-            }
-        }
+        var report = new SyncReport();
+        var resolvedPageId = await ResolvePageId(spaceKey, pageId, pageTitle);
 
         var pageDirectoryIndex = LocalStorageHelper.BuildPageDirectoryIndex(outputDir, _logger);
         var page = await _apiClient.GetPageByIdAsync(resolvedPageId);
-        await DownloadPageAsync(page, outputDir, recursive, overwriteStrategy, pageDirectoryIndex);
+        await DownloadPageUpdateAsync(page, outputDir, recursive, pageDirectoryIndex, report);
+        return report;
     }
 
-    private async Task DownloadPageAsync(
-        PageData page,
-        string parentDir,
-        bool recursive,
-        string overwriteStrategy,
-        Dictionary<string, string> pageDirectoryIndex)
+    public async Task<SyncReport> DownloadMergeAsync(
+        string spaceKey, string? pageId, string? pageTitle,
+        string outputDir, bool recursive, ChangeSourceAnalyzer analyzer)
+    {
+        var report = new SyncReport();
+        var resolvedPageId = await ResolvePageId(spaceKey, pageId, pageTitle);
+
+        var pageDirectoryIndex = LocalStorageHelper.BuildPageDirectoryIndex(outputDir, _logger);
+        var page = await _apiClient.GetPageByIdAsync(resolvedPageId);
+        await DownloadPageMergeAsync(page, outputDir, recursive, pageDirectoryIndex, analyzer, report);
+        return report;
+    }
+
+    private async Task<string> ResolvePageId(string spaceKey, string? pageId, string? pageTitle)
+    {
+        var resolved = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, pageId, pageTitle);
+        return resolved ?? throw new InvalidOperationException(
+            $"Could not resolve page. ID: '{pageId}', Title: '{pageTitle}'");
+    }
+
+    private async Task DownloadPageUpdateAsync(
+        PageData page, string parentDir, bool recursive,
+        Dictionary<string, string> pageDirectoryIndex, SyncReport report)
     {
         var pageDir = ResolvePageDirectoryForDownload(page, parentDir, pageDirectoryIndex);
 
         if (!_dryRun)
-        {
             Directory.CreateDirectory(pageDir);
-        }
 
-        await SavePageContent(page, pageDir, overwriteStrategy);
+        await SavePageContentForUpdate(page, pageDir);
         await SavePageIdMarker(page.Id, page.Version?.Number, pageDir);
 
         var attachments = await _apiClient.GetAttachmentsAsync(page.Id);
-        await SaveAttachments(attachments, pageDir, overwriteStrategy);
+        await SaveAttachments(attachments, pageDir);
 
         if (recursive)
         {
             var children = await _apiClient.GetChildrenPagesAsync(page.Id);
             foreach (var child in children)
-            {
-                await DownloadPageAsync(child, pageDir, recursive, overwriteStrategy, pageDirectoryIndex);
-            }
+                await DownloadPageUpdateAsync(child, pageDir, recursive, pageDirectoryIndex, report);
         }
     }
 
+    private async Task DownloadPageMergeAsync(
+        PageData page, string parentDir, bool recursive,
+        Dictionary<string, string> pageDirectoryIndex,
+        ChangeSourceAnalyzer analyzer, SyncReport report)
+    {
+        var pageDir = ResolvePageDirectoryForDownload(page, parentDir, pageDirectoryIndex);
+
+        if (!_dryRun)
+            Directory.CreateDirectory(pageDir);
+
+        var serverContent = page.Body.Storage.Value;
+        var localContent = await LocalStorageHelper.ReadLocalPageContentOrNull(pageDir);
+
+        if (localContent == null)
+        {
+            await WritePageContent(page.Title, pageDir, serverContent);
+            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir);
+        }
+        else if (string.Equals(localContent, serverContent, StringComparison.Ordinal))
+        {
+            _logger.LogDebug("Page '{Title}' content is unchanged, skipping", page.Title);
+            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir);
+        }
+        else
+        {
+            var markerInfo = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
+            var syncTime = LocalStorageHelper.GetMarkerFileTimeUtc(pageDir);
+            var indexPath = Path.Combine(pageDir, "index.html");
+            DateTime? localFileTime = File.Exists(indexPath) ? File.GetLastWriteTimeUtc(indexPath) : null;
+
+            var sourceInfo = analyzer.AnalyzeContentChange(
+                page.Version?.When?.ToUniversalTime(), localFileTime,
+                markerInfo?.Version, page.Version?.Number, syncTime);
+
+            switch (sourceInfo.Origin)
+            {
+                case ChangeOrigin.Server:
+                    _logger.LogInformation("Page '{Title}' changed on server, downloading", page.Title);
+                    await WritePageContent(page.Title, pageDir, serverContent);
+                    await SavePageIdMarker(page.Id, page.Version?.Number, pageDir);
+                    break;
+
+                case ChangeOrigin.Local:
+                    _logger.LogInformation("Page '{Title}' changed locally, skipping download", page.Title);
+                    report.AddSkipped(page.Id, page.Title, sourceInfo.Reason);
+                    break;
+
+                case ChangeOrigin.Conflict:
+                    _logger.LogWarning("CONFLICT: Page '{Title}' changed both locally and on server", page.Title);
+                    report.AddConflict(page.Id, page.Title, sourceInfo.Reason);
+                    break;
+
+                default:
+                    _logger.LogWarning("Page '{Title}' change source unknown, skipping download", page.Title);
+                    report.AddSkipped(page.Id, page.Title, sourceInfo.Reason);
+                    break;
+            }
+        }
+
+        var attachments = await _apiClient.GetAttachmentsAsync(page.Id);
+        await SaveAttachments(attachments, pageDir);
+
+        if (recursive)
+        {
+            var children = await _apiClient.GetChildrenPagesAsync(page.Id);
+            foreach (var child in children)
+                await DownloadPageMergeAsync(child, pageDir, recursive, pageDirectoryIndex, analyzer, report);
+        }
+    }
+
+    private async Task SavePageContentForUpdate(PageData page, string pageDir)
+    {
+        var filePath = Path.Combine(pageDir, "index.html");
+        var content = page.Body.Storage.Value;
+
+        if (_dryRun)
+        {
+            _logger.LogInformation("DRY RUN: Would save page '{Title}' -> {File}", page.Title, filePath);
+            return;
+        }
+
+        if (File.Exists(filePath))
+        {
+            var existingContent = await File.ReadAllTextAsync(filePath);
+            if (string.Equals(existingContent, content, StringComparison.Ordinal))
+            {
+                _logger.LogDebug("Page '{Title}' content is unchanged, skipping rewrite", page.Title);
+                return;
+            }
+        }
+
+        await File.WriteAllTextAsync(filePath, content);
+        _logger.LogInformation("Saved page '{Title}' -> {File}", page.Title, filePath);
+    }
+
+    private async Task WritePageContent(string title, string pageDir, string content)
+    {
+        var filePath = Path.Combine(pageDir, "index.html");
+
+        if (_dryRun)
+        {
+            _logger.LogInformation("DRY RUN: Would save page '{Title}' -> {File}", title, filePath);
+            return;
+        }
+
+        await File.WriteAllTextAsync(filePath, content);
+        _logger.LogInformation("Saved page '{Title}' -> {File}", title, filePath);
+    }
+
     private string ResolvePageDirectoryForDownload(
-        PageData page,
-        string parentDir,
+        PageData page, string parentDir,
         Dictionary<string, string> pageDirectoryIndex)
     {
         var expectedDir = Path.GetFullPath(Path.Combine(parentDir, LocalStorageHelper.SanitizeFileName(page.Title)));
@@ -103,15 +207,11 @@ public class DownloadService
 
         var expectedParent = Path.GetDirectoryName(expectedDir);
         if (!string.IsNullOrEmpty(expectedParent) && !_dryRun)
-        {
             Directory.CreateDirectory(expectedParent);
-        }
 
         _logger.LogInformation(
             "Page {PageId} location changed on Confluence. Moving local directory: {OldPath} -> {NewPath}",
-            page.Id,
-            normalizedExistingDir,
-            expectedDir);
+            page.Id, normalizedExistingDir, expectedDir);
 
         if (!_dryRun)
         {
@@ -130,8 +230,7 @@ public class DownloadService
                 Directory.Move(expectedDir, backupPath);
                 _logger.LogWarning(
                     "Target directory already existed and was moved aside: {ExpectedDir} -> {BackupPath}",
-                    expectedDir,
-                    backupPath);
+                    expectedDir, backupPath);
                 LocalStorageHelper.UpdateDirectoryIndexPaths(pageDirectoryIndex, expectedDir, backupPath);
             }
 
@@ -141,40 +240,6 @@ public class DownloadService
         LocalStorageHelper.UpdateDirectoryIndexPaths(pageDirectoryIndex, normalizedExistingDir, expectedDir);
         pageDirectoryIndex[page.Id] = expectedDir;
         return expectedDir;
-    }
-
-    private async Task SavePageContent(PageData page, string pageDir, string overwriteStrategy)
-    {
-        var filePath = Path.Combine(pageDir, "index.html");
-        var content = page.Body.Storage.Value;
-
-        if (_dryRun)
-        {
-            _logger.LogInformation("DRY RUN: Would save page '{Title}' -> {File}", page.Title, filePath);
-            return;
-        }
-
-        if (File.Exists(filePath) && overwriteStrategy == "skip")
-        {
-            _logger.LogInformation("Skipping existing file: {File}", filePath);
-            return;
-        }
-
-        if (File.Exists(filePath))
-        {
-            var existingContent = await File.ReadAllTextAsync(filePath);
-            if (string.Equals(existingContent, content, StringComparison.Ordinal))
-            {
-                _logger.LogInformation(
-                    "Page '{Title}' content is unchanged. Keeping existing file without rewrite: {File}",
-                    page.Title,
-                    filePath);
-                return;
-            }
-        }
-
-        await File.WriteAllTextAsync(filePath, content);
-        _logger.LogInformation("Saved page '{Title}' -> {File}", page.Title, filePath);
     }
 
     private async Task SavePageIdMarker(string pageId, int? version, string pageDir)
@@ -196,7 +261,7 @@ public class DownloadService
         await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version);
     }
 
-    private async Task SaveAttachments(List<AttachmentData> attachments, string pageDir, string overwriteStrategy)
+    private async Task SaveAttachments(List<AttachmentData> attachments, string pageDir)
     {
         foreach (var att in attachments)
         {
@@ -207,12 +272,6 @@ public class DownloadService
                 if (_dryRun)
                 {
                     _logger.LogInformation("DRY RUN: Would download attachment '{Title}' -> {Path}", att.Title, filePath);
-                    continue;
-                }
-
-                if (File.Exists(filePath) && overwriteStrategy == "skip")
-                {
-                    _logger.LogInformation("Skipping existing attachment: {Path}", filePath);
                     continue;
                 }
 

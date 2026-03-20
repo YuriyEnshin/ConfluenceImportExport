@@ -9,37 +9,7 @@ namespace ConfluencePageExporter.Tests.Services;
 public class DownloadServiceTests
 {
     [Fact]
-    public async Task DownloadAsync_ShouldThrow_WhenOutputDirectoryIsNonEmpty_AndStrategyFail()
-    {
-        using var temp = new TempDirectoryScope();
-        var outputDir = temp.CreateDirectory("out");
-        File.WriteAllText(Path.Combine(outputDir, "existing.txt"), "x");
-
-        var api = ApiClientMockFactory.CreateStrict();
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
-
-        var act = () => service.DownloadAsync("SPACE", "1", null, outputDir, recursive: false, overwriteStrategy: "fail");
-
-        await act.Should().ThrowAsync<InvalidOperationException>();
-    }
-
-    [Fact]
-    public async Task DownloadAsync_ShouldReturnWithoutDownloading_WhenOutputDirectoryIsNonEmpty_AndStrategySkip()
-    {
-        using var temp = new TempDirectoryScope();
-        var outputDir = temp.CreateDirectory("out");
-        File.WriteAllText(Path.Combine(outputDir, "existing.txt"), "x");
-
-        var api = ApiClientMockFactory.CreateStrict();
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
-
-        await service.DownloadAsync("SPACE", "1", null, outputDir, recursive: false, overwriteStrategy: "skip");
-
-        api.Verify(x => x.GetPageByIdAsync(It.IsAny<string>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task DownloadAsync_ShouldDownloadSinglePageAndAttachments()
+    public async Task DownloadUpdateAsync_ShouldDownloadSinglePageAndAttachments()
     {
         using var temp = new TempDirectoryScope();
         var outputDir = temp.CreateDirectory("out");
@@ -57,18 +27,19 @@ public class DownloadServiceTests
 
         var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
 
-        await service.DownloadAsync("SPACE", "1", null, outputDir, recursive: false, overwriteStrategy: "overwrite");
+        var report = await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
         var pageDir = Path.Combine(outputDir, "Root");
         File.Exists(Path.Combine(pageDir, "index.html")).Should().BeTrue();
         LocalStorageHelper.ReadPageIdFromMarker(pageDir).Should().Be("1");
         File.Exists(Path.Combine(pageDir, "file.txt")).Should().BeTrue();
         api.Verify(x => x.GetChildrenPagesAsync(It.IsAny<string>()), Times.Never);
+        report.HasIssues.Should().BeFalse();
         api.VerifyAll();
     }
 
     [Fact]
-    public async Task DownloadAsync_ShouldDownloadChildPages_WhenRecursiveEnabled()
+    public async Task DownloadUpdateAsync_ShouldDownloadChildPages_WhenRecursiveEnabled()
     {
         using var temp = new TempDirectoryScope();
         var outputDir = temp.CreateDirectory("out");
@@ -85,7 +56,7 @@ public class DownloadServiceTests
 
         var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
 
-        await service.DownloadAsync("SPACE", "1", null, outputDir, recursive: true, overwriteStrategy: "overwrite");
+        await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: true);
 
         File.Exists(Path.Combine(outputDir, "Root", "index.html")).Should().BeTrue();
         File.Exists(Path.Combine(outputDir, "Root", "Child", "index.html")).Should().BeTrue();
@@ -93,7 +64,7 @@ public class DownloadServiceTests
     }
 
     [Fact]
-    public async Task DownloadAsync_ShouldNotWriteFiles_WhenDryRun()
+    public async Task DownloadUpdateAsync_ShouldNotWriteFiles_WhenDryRun()
     {
         using var temp = new TempDirectoryScope();
         var outputDir = temp.CreateDirectory("out");
@@ -105,14 +76,14 @@ public class DownloadServiceTests
 
         var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>(), dryRun: true);
 
-        await service.DownloadAsync("SPACE", "1", null, outputDir, recursive: false, overwriteStrategy: "overwrite");
+        await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
         Directory.Exists(Path.Combine(outputDir, "Root")).Should().BeFalse();
         api.VerifyAll();
     }
 
     [Fact]
-    public async Task DownloadAsync_ShouldMoveDirectory_WhenSamePageIdExistsAtOldLocation()
+    public async Task DownloadUpdateAsync_ShouldMoveDirectory_WhenSamePageIdExistsAtOldLocation()
     {
         using var temp = new TempDirectoryScope();
         var outputDir = temp.CreateDirectory("out");
@@ -125,7 +96,7 @@ public class DownloadServiceTests
 
         var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
 
-        await service.DownloadAsync("SPACE", "1", null, outputDir, recursive: false, overwriteStrategy: "overwrite");
+        await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
         Directory.Exists(oldDir).Should().BeFalse();
         var newDir = Path.Combine(outputDir, "NewTitle");
@@ -134,7 +105,7 @@ public class DownloadServiceTests
     }
 
     [Fact]
-    public async Task DownloadAsync_ShouldKeepIndexTimestamp_WhenContentIsUnchanged()
+    public async Task DownloadUpdateAsync_ShouldKeepIndexTimestamp_WhenContentIsUnchanged()
     {
         using var temp = new TempDirectoryScope();
         var outputDir = temp.CreateDirectory("out");
@@ -150,13 +121,13 @@ public class DownloadServiceTests
 
         var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
 
-        await service.DownloadAsync("SPACE", "1", null, outputDir, recursive: false, overwriteStrategy: "overwrite");
+        await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
         File.GetLastWriteTimeUtc(indexPath).Should().Be(expectedTimestamp);
     }
 
     [Fact]
-    public async Task DownloadAsync_ShouldContinue_WhenAttachmentDownloadFails()
+    public async Task DownloadUpdateAsync_ShouldContinue_WhenAttachmentDownloadFails()
     {
         using var temp = new TempDirectoryScope();
         var outputDir = temp.CreateDirectory("out");
@@ -176,8 +147,92 @@ public class DownloadServiceTests
 
         var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
 
-        await service.DownloadAsync("SPACE", "1", null, outputDir, recursive: false, overwriteStrategy: "overwrite");
+        await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
         File.Exists(Path.Combine(outputDir, "Root", "good.txt")).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task DownloadMergeAsync_ShouldSkipLocallyChangedPage()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var pageDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>local edit</p>", "1", version: 3);
+
+        var indexPath = Path.Combine(pageDir, "index.html");
+        File.SetLastWriteTimeUtc(indexPath, DateTime.UtcNow);
+
+        var markerPath = Directory.GetFiles(pageDir, ".id*").First();
+        File.SetLastWriteTimeUtc(markerPath, DateTime.UtcNow.AddHours(-1));
+
+        var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>server content</p>", versionNumber: 3);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([]);
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+
+        var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: false, analyzer);
+
+        var content = await File.ReadAllTextAsync(indexPath);
+        content.Should().Be("<p>local edit</p>");
+        report.SkippedPages.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task DownloadMergeAsync_ShouldOverwriteServerChangedPage()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var pageDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>old</p>", "1", version: 2);
+
+        var markerPath = Directory.GetFiles(pageDir, ".id*").First();
+        File.SetLastWriteTimeUtc(markerPath, DateTime.UtcNow);
+        var indexPath = Path.Combine(pageDir, "index.html");
+        File.SetLastWriteTimeUtc(indexPath, DateTime.UtcNow.AddHours(-1));
+
+        var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>new server</p>", versionNumber: 5);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([]);
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+
+        var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: false, analyzer);
+
+        var content = await File.ReadAllTextAsync(indexPath);
+        content.Should().Be("<p>new server</p>");
+        report.HasIssues.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DownloadMergeAsync_ShouldWarnOnConflict()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var pageDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>local edit</p>", "1", version: 2);
+
+        var markerPath = Directory.GetFiles(pageDir, ".id*").First();
+        var syncTime = DateTime.UtcNow.AddHours(-2);
+        File.SetLastWriteTimeUtc(markerPath, syncTime);
+
+        var indexPath = Path.Combine(pageDir, "index.html");
+        File.SetLastWriteTimeUtc(indexPath, DateTime.UtcNow);
+
+        var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>server edit</p>", versionNumber: 5);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([]);
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+
+        var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: false, analyzer);
+
+        var content = await File.ReadAllTextAsync(indexPath);
+        content.Should().Be("<p>local edit</p>");
+        report.ConflictPages.Should().HaveCount(1);
     }
 }

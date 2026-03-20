@@ -101,7 +101,8 @@ public class ChangeSourceAnalyzer
         DateTime? serverModifiedUtc,
         DateTime? localFileModifiedUtc,
         int? localMarkerVersion = null,
-        int? serverVersion = null)
+        int? serverVersion = null,
+        DateTime? syncTimeUtc = null)
     {
         if (localMarkerVersion.HasValue && serverVersion.HasValue)
         {
@@ -115,6 +116,16 @@ public class ChangeSourceAnalyzer
 
             if (localMarkerVersion.Value < serverVersion.Value)
             {
+                if (syncTimeUtc.HasValue && localFileModifiedUtc.HasValue && localFileModifiedUtc.Value > syncTimeUtc.Value)
+                {
+                    return new ChangeSourceInfo(
+                        ChangeOrigin.Conflict,
+                        ChangeConfidence.High,
+                        $"Серверная версия ({serverVersion}) новее маркера ({localMarkerVersion}), " +
+                        $"но локальный файл изменён ({FormatDate(localFileModifiedUtc)}) после синхронизации ({FormatDate(syncTimeUtc)}) " +
+                        $"— конфликт: изменения с обеих сторон");
+                }
+
                 return new ChangeSourceInfo(
                     ChangeOrigin.Server,
                     ChangeConfidence.High,

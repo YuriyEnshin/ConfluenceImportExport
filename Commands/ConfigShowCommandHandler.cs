@@ -61,6 +61,7 @@ public sealed class ConfigShowCommandHandler : ICommandHandler
         PrintValue("  Verbose", (g.Verbose ?? false).ToString(), "Global:Verbose");
         PrintValue("  DryRun", (g.DryRun ?? false).ToString(), "Global:DryRun");
         PrintValue("  Recursive", (g.Recursive ?? false).ToString(), "Global:Recursive");
+        PrintValue("  Report", (g.Report ?? false).ToString(), "Global:Report");
         Console.WriteLine();
     }
 
@@ -72,7 +73,6 @@ public sealed class ConfigShowCommandHandler : ICommandHandler
         PrintValue("  PageTitle", d.PageTitle, "Download:PageTitle");
         PrintValue("  OutputDir", d.OutputDir, "Download:OutputDir");
         PrintValue("  Recursive", d.Recursive?.ToString(), "Download:Recursive");
-        PrintValue("  OverwriteStrategy", d.OverwriteStrategy ?? "fail", "Download:OverwriteStrategy");
         Console.WriteLine();
     }
 
@@ -84,8 +84,6 @@ public sealed class ConfigShowCommandHandler : ICommandHandler
         PrintValue("  PageId", u.PageId, "Upload:Update:PageId");
         PrintValue("  PageTitle", u.PageTitle, "Upload:Update:PageTitle");
         PrintValue("  Recursive", u.Recursive?.ToString(), "Upload:Update:Recursive");
-        PrintValue("  OnError", u.OnError ?? "abort", "Upload:Update:OnError");
-        PrintValue("  MovePages", (u.MovePages ?? false).ToString(), "Upload:Update:MovePages");
         Console.WriteLine();
     }
 

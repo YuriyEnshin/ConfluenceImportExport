@@ -36,7 +36,7 @@ public class ExceptionHandlingIntegrationTests
 
         var missingConfigPath = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.json");
         var result = await RunProcessAsync("dotnet",
-            $"run --project \"{projectPath}\" -- --config \"{missingConfigPath}\" download --page-id 1");
+            $"run --project \"{projectPath}\" -- --config \"{missingConfigPath}\" download update --page-id 1");
 
         result.ExitCode.Should().Be(1);
         result.Stderr.Should().Contain("Error:");

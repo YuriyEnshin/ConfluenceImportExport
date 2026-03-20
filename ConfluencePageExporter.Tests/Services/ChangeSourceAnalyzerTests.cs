@@ -114,6 +114,38 @@ public class ChangeSourceAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzeContentChange_ShouldDetectConflict_WhenBothSidesChanged()
+    {
+        var analyzer = CreateAnalyzer();
+        var syncTime = DateTime.UtcNow.AddHours(-2);
+        var localFileTime = DateTime.UtcNow;
+
+        var result = analyzer.AnalyzeContentChange(
+            DateTime.UtcNow, localFileTime,
+            localMarkerVersion: 3, serverVersion: 5,
+            syncTimeUtc: syncTime);
+
+        result.Origin.Should().Be(ChangeOrigin.Conflict);
+        result.Confidence.Should().Be(ChangeConfidence.High);
+    }
+
+    [Fact]
+    public void AnalyzeContentChange_ShouldReturnServer_WhenServerNewer_ButLocalNotChangedSinceSync()
+    {
+        var analyzer = CreateAnalyzer();
+        var syncTime = DateTime.UtcNow;
+        var localFileTime = DateTime.UtcNow.AddHours(-1);
+
+        var result = analyzer.AnalyzeContentChange(
+            DateTime.UtcNow, localFileTime,
+            localMarkerVersion: 3, serverVersion: 5,
+            syncTimeUtc: syncTime);
+
+        result.Origin.Should().Be(ChangeOrigin.Server);
+        result.Confidence.Should().Be(ChangeConfidence.High);
+    }
+
+    [Fact]
     public void AnalyzeContentChange_ShouldFallbackToDates_WhenLocalVersionNull()
     {
         var analyzer = CreateAnalyzer();

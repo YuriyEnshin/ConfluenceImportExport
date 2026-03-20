@@ -6,14 +6,14 @@ using ConfluencePageExporter.Services;
 
 namespace ConfluencePageExporter.Commands;
 
-public sealed class DownloadCommandHandler : ICommandHandler
+public sealed class DownloadMergeCommandHandler : ICommandHandler
 {
     private readonly IOptions<GlobalOptions> _global;
     private readonly IOptions<DownloadOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
     private readonly ILoggerFactory _loggerFactory;
 
-    public DownloadCommandHandler(
+    public DownloadMergeCommandHandler(
         IOptions<GlobalOptions> global,
         IOptions<DownloadOptions> opts,
         IConfluenceApiClient apiClient,
@@ -45,29 +45,27 @@ public sealed class DownloadCommandHandler : ICommandHandler
 
         var recursive = o.Recursive ?? g.Recursive ?? false;
         var dryRun = g.DryRun ?? false;
-        var overwriteStrategy = o.OverwriteStrategy ?? "fail";
-
-        ValidateEnum(overwriteStrategy, "--overwrite-strategy", "skip", "overwrite", "fail");
+        var showReport = g.Report ?? false;
 
         var pageIdentifier = !string.IsNullOrEmpty(pageId) ? $"ID '{pageId}'" : $"title '{pageTitle}'";
-        Console.WriteLine($"Downloading page {pageIdentifier} from space '{spaceKey}'{(recursive ? " (recursive)" : "")}...");
+        Console.WriteLine($"Download merge: page {pageIdentifier} from space '{spaceKey}'{(recursive ? " (recursive)" : "")}...");
         if (dryRun)
             Console.WriteLine("DRY RUN MODE: No files will be written to disk.");
+
+        var analyzer = new ChangeSourceAnalyzer(
+            _apiClient,
+            _loggerFactory.CreateLogger<ChangeSourceAnalyzer>());
 
         var service = new DownloadService(
             _apiClient,
             _loggerFactory.CreateLogger<DownloadService>(),
             dryRun);
 
-        await service.DownloadAsync(spaceKey, pageId, pageTitle, outputDir, recursive, overwriteStrategy);
-        Console.WriteLine($"Download completed. Files saved to: {outputDir}");
-        return 0;
-    }
+        var report = await service.DownloadMergeAsync(spaceKey, pageId, pageTitle, outputDir, recursive, analyzer);
 
-    private static void ValidateEnum(string value, string name, params string[] allowed)
-    {
-        if (!allowed.Contains(value, StringComparer.OrdinalIgnoreCase))
-            throw new ArgumentException(
-                $"Invalid value '{value}' for {name}. Allowed values: {string.Join(", ", allowed)}");
+        Console.WriteLine($"Download merge completed. Files saved to: {outputDir}");
+        if (showReport)
+            report.PrintReport();
+        return 0;
     }
 }

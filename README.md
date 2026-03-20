@@ -1,16 +1,19 @@
-# Confluence Page Exporter
+# Confluence Page Exporter v2.0
 
 Утилита командной строки для синхронизации страниц Confluence с локальной структурой папок.
 
 Инструмент поддерживает:
 
-- выгрузку страниц из Confluence на диск (`download`)
-- загрузку локальных страниц обратно в Confluence (`upload update`, `upload create`)
+- скачивание страниц из Confluence на диск с принудительной перезаписью (`download update`) или умным слиянием (`download merge`)
+- загрузку локальных страниц обратно в Confluence с принудительной перезаписью (`upload update`), умным слиянием (`upload merge`) или созданием новых (`upload create`)
 - сравнение дерева страниц в Confluence с локальным снимком (`compare`)
 - просмотр действующей конфигурации с указанием источников значений (`config show`)
 
 ## Основные возможности
 
+- Git-подобная модель синхронизации: `update` (force) и `merge` (smart)
+- Определение конфликтов: если страница изменена и локально, и на сервере — конфликт выявляется, перезапись не выполняется, пользователь получает предупреждение
+- Отчёт `--report` — сводка страниц, требующих ручного разрешения (конфликты, удалённые страницы)
 - Выбор страницы по `--page-id` или `--page-title`
 - Опциональная рекурсивная обработка (`--recursive`)
 - Формат локального снимка:
@@ -18,16 +21,14 @@
   - файл `index.html` с контентом страницы в storage representation
   - вложения как отдельные файлы
   - файл-маркер `.id<pageId>_<version>` для стабильной идентификации страницы и отслеживания версии
-- Режимы аутентификации:
-  - `--auth-type onprem`
-  - `--auth-type cloud`
+- Режимы аутентификации: `--auth-type onprem` и `--auth-type cloud`
 - Многоуровневая конфигурация с приоритетом: CLI > переменные окружения > файл > значение по умолчанию
 - Глобальный параметр `--verbose` для подробного (debug-level) вывода
 - Поддержка dry-run там, где применимо
 
 ## Локальная структура хранения
 
-При выгрузке (`download`) страницы сохраняются в иерархию папок внутри `--output-dir`.
+При выгрузке (`download update`/`download merge`) страницы сохраняются в иерархию папок внутри `--output-dir`.
 Каждая папка страницы содержит контент, маркер идентификатора и вложения.
 
 ```text
@@ -49,7 +50,7 @@
 
 - имя папки страницы = заголовок страницы в Confluence (с заменой недопустимых символов)
 - `index.html` содержит `body.storage.value`
-- файл `.id<pageId>_<version>` используется для стабильного сопоставления при `download`, `upload update` и `compare`; суффикс `_<version>` отражает номер версии страницы на сервере в момент последней синхронизации
+- файл `.id<pageId>_<version>` используется для стабильного сопоставления при синхронизации и сравнении; суффикс `_<version>` отражает номер версии страницы на сервере в момент последней синхронизации; время последней записи маркера (`LastWriteTimeUtc`) используется как точка отсчёта для определения конфликтов
 - все файлы, кроме `index.html` и `.id*`, считаются вложениями страницы
 
 ## Сборка
@@ -72,6 +73,7 @@ dotnet build
 
 - `--config <path>` — путь к JSON-файлу конфигурации
 - `--verbose` — включить подробный (debug-level) вывод в лог
+- `--report` — вывести сводку страниц, требующих ручной обработки, после завершения команды
 
 ### Пример `confluence-exporter.json`
 
@@ -84,18 +86,19 @@ dotnet build
     "SpaceKey": "DOCS",
     "AuthType": "onprem",
     "DryRun": false,
-    "Recursive": true
+    "Recursive": true,
+    "Report": false
   },
   "Download": {
     "PageId": "12345",
-    "OutputDir": "./export",
-    "OverwriteStrategy": "fail"
+    "OutputDir": "./export"
   },
   "Upload": {
     "Update": {
-      "SourceDir": "./export/MyPage",
-      "OnError": "abort",
-      "MovePages": true
+      "SourceDir": "./export/MyPage"
+    },
+    "Merge": {
+      "SourceDir": "./export/MyPage"
     },
     "Create": {
       "SourceDir": "./export/NewPage",
@@ -124,24 +127,66 @@ export CONFLUENCE_EXPORTER__DOWNLOAD__OUTPUTDIR=./export
 ## Формат вызова
 
 ```text
-ConfluencePageExporter [глобальные параметры] <команда [подкоманда]> [параметры команды]
+ConfluencePageExporter [глобальные параметры] <команда подкоманда> [параметры команды]
 ```
 
 ## Обзор команд
 
 ```text
-ConfluencePageExporter download ...
-ConfluencePageExporter upload update ...
-ConfluencePageExporter upload create ...
-ConfluencePageExporter compare ...
-ConfluencePageExporter config show
+ConfluencePageExporter download update ...    # принудительное скачивание (сервер → локально)
+ConfluencePageExporter download merge ...     # умное скачивание с сохранением локальных правок
+ConfluencePageExporter upload update ...      # принудительная загрузка (локально → сервер)
+ConfluencePageExporter upload merge ...       # умная загрузка с сохранением серверных правок
+ConfluencePageExporter upload create ...      # создание новых страниц
+ConfluencePageExporter compare ...            # сравнение и отчёт
+ConfluencePageExporter config show            # отображение конфигурации
 ```
 
-## Команда download
+## Модель синхронизации
 
-Выгружает страницу Confluence (или поддерево страниц) на локальный диск.
+Утилита использует git-подобную модель с двумя режимами:
 
-### Параметры download
+| Режим | Описание |
+|-------|----------|
+| **update** | Принудительная синхронизация. Источник считается эталоном, целевая сторона перезаписывается. Локальные/серверные правки на целевой стороне будут потеряны. |
+| **merge** | Умная синхронизация. Перезаписываются только страницы, изменённые на стороне-источнике. Правки на целевой стороне сохраняются. Страницы с конфликтом (двойные правки) пропускаются с предупреждением. |
+
+### Типичные сценарии использования
+
+```bash
+# Полностью скачать серверную версию, затерев локальные изменения
+ConfluencePageExporter download update --page-id 12345 --output-dir ./export --recursive
+
+# Скачать только серверные обновления, сохранив локальные правки
+ConfluencePageExporter download merge --page-id 12345 --output-dir ./export --recursive
+
+# Загрузить локальные изменения на сервер, затерев серверные
+ConfluencePageExporter upload update --source-dir ./export/MyPage --recursive
+
+# Загрузить только локальные обновления, сохранив серверные правки
+ConfluencePageExporter upload merge --source-dir ./export/MyPage --recursive
+
+# Двусторонняя синхронизация (сохраняются самые новые изменения с обеих сторон)
+ConfluencePageExporter download merge --page-id 12345 --output-dir ./export --recursive --report
+ConfluencePageExporter upload merge --source-dir ./export/MyPage --recursive --report
+```
+
+### Определение конфликтов
+
+В режиме `merge` утилита использует маркер `.id<pageId>_<version>` для определения конфликтов:
+
+- **syncTimeUtc** = время последней записи маркерного файла (момент последней синхронизации)
+- **serverChanged** = серверная версия новее версии в маркере
+- **localChanged** = файл `index.html` изменён после `syncTimeUtc`
+- Если оба флага `true` → **конфликт**: страница не перезаписывается ни в одну сторону, выводится предупреждение
+
+При наличии ключа `--report` после завершения команды выводится сводка всех страниц, требующих ручного разрешения.
+
+## Команда download update
+
+Принудительно скачивает страницу Confluence (или поддерево) на локальный диск. Различающиеся страницы перезаписываются серверными версиями. Локальные правки будут потеряны.
+
+### Параметры download update
 
 - `--base-url` (обязательный)
 - `--username` (обязательный)
@@ -150,21 +195,44 @@ ConfluencePageExporter config show
 - `--page-id` или `--page-title` (обязательно указать ровно один)
 - `--output-dir` (обязательный)
 - `--recursive` (опционально)
-- `--overwrite-strategy skip|overwrite|fail` (опционально, по умолчанию `fail`)
 - `--auth-type onprem|cloud` (опционально, по умолчанию `onprem`)
 - `--dry-run` (опционально)
+- `--report` (опционально)
 
-### Особенности поведения
-
-- Если локальная страница уже существует по `.id<pageId>_<version>`, утилита может переименовать/переместить папку в соответствии с актуальной иерархией Confluence.
-- Если содержимое локального `index.html` не изменилось, файл не перезаписывается.
-- Маркер `.id<pageId>_<version>` обновляется при изменении версии страницы на сервере.
-- В dry-run выполняется полный алгоритм, но без фактических изменений файлов и папок.
-
-### Пример download
+### Пример download update
 
 ```bash
-ConfluencePageExporter --config ./confluence-exporter.json download \
+ConfluencePageExporter download update \
+  --base-url https://wiki.example.com \
+  --username user@example.com \
+  --token <token> \
+  --space-key DOCS \
+  --page-id 12345 \
+  --recursive \
+  --output-dir ./export
+```
+
+## Команда download merge
+
+Скачивает страницы с сервера, перезаписывая только те, которые новее на сервере. Локальные правки сохраняются. Конфликты (двойные правки) пропускаются с предупреждением.
+
+### Параметры download merge
+
+- `--base-url` (обязательный)
+- `--username` (обязательный)
+- `--token` (обязательный)
+- `--space-key` (обязательный)
+- `--page-id` или `--page-title` (обязательно указать ровно один)
+- `--output-dir` (обязательный)
+- `--recursive` (опционально)
+- `--auth-type onprem|cloud` (опционально, по умолчанию `onprem`)
+- `--dry-run` (опционально)
+- `--report` (опционально)
+
+### Пример download merge
+
+```bash
+ConfluencePageExporter --report download merge \
   --base-url https://wiki.example.com \
   --username user@example.com \
   --token <token> \
@@ -176,7 +244,7 @@ ConfluencePageExporter --config ./confluence-exporter.json download \
 
 ## Команда upload update
 
-Обновляет существующие страницы Confluence по локальному содержимому.
+Принудительно загружает локальные страницы на сервер. Различающиеся страницы перезаписываются локальными версиями. Серверные правки будут потеряны. Перемещение страниц при расхождении родителя выполняется автоматически.
 
 ### Параметры upload update
 
@@ -187,9 +255,9 @@ ConfluencePageExporter --config ./confluence-exporter.json download \
 - `--source-dir` (обязательный)
 - `--page-id` или `--page-title` (опционально, явное указание корневой страницы)
 - `--recursive` (опционально)
-- `--on-error abort|skip` (опционально, по умолчанию `abort`)
 - `--auth-type onprem|cloud` (опционально, по умолчанию `onprem`)
 - `--dry-run` (опционально)
+- `--report` (опционально)
 
 ### Приоритет определения корневой страницы
 
@@ -201,12 +269,45 @@ ConfluencePageExporter --config ./confluence-exporter.json download \
 
 ### Пропуск неизменённых страниц
 
-Перед отправкой обновления на сервер утилита сравнивает локальный контент с серверным. Если заголовок, контент и родительская страница не изменились, обновление пропускается — это предотвращает создание лишних версий на сервере. После успешной отправки или при пропуске неизменённой страницы маркер `.id<pageId>_<version>` обновляется до актуальной серверной версии.
+Перед отправкой обновления утилита сравнивает локальный контент с серверным. Если заголовок, контент и родительская страница не изменились, обновление пропускается — это предотвращает создание лишних версий на сервере.
+
+### Обновление вложений
+
+Вложения обновляются через версионирование Confluence (создание новой версии файла). Перед загрузкой проверяется, изменился ли файл (по размеру и SHA-256 хэшу). Неизменённые вложения пропускаются.
 
 ### Пример upload update
 
 ```bash
-ConfluencePageExporter --config ./confluence-exporter.json upload update \
+ConfluencePageExporter upload update \
+  --base-url https://wiki.example.com \
+  --username user@example.com \
+  --token <token> \
+  --space-key DOCS \
+  --source-dir ./export/MyPage \
+  --recursive
+```
+
+## Команда upload merge
+
+Загружает на сервер только локально изменённые страницы. Серверные правки сохраняются. Конфликты (двойные правки) пропускаются с предупреждением.
+
+### Параметры upload merge
+
+- `--base-url` (обязательный)
+- `--username` (обязательный)
+- `--token` (обязательный)
+- `--space-key` (обязательный)
+- `--source-dir` (обязательный)
+- `--page-id` или `--page-title` (опционально, явное указание корневой страницы)
+- `--recursive` (опционально)
+- `--auth-type onprem|cloud` (опционально, по умолчанию `onprem`)
+- `--dry-run` (опционально)
+- `--report` (опционально)
+
+### Пример upload merge
+
+```bash
+ConfluencePageExporter --report upload merge \
   --base-url https://wiki.example.com \
   --username user@example.com \
   --token <token> \
@@ -234,7 +335,7 @@ ConfluencePageExporter --config ./confluence-exporter.json upload update \
 ### Пример upload create
 
 ```bash
-ConfluencePageExporter --config ./confluence-exporter.json upload create \
+ConfluencePageExporter upload create \
   --base-url https://wiki.example.com \
   --username user@example.com \
   --token <token> \
@@ -278,17 +379,10 @@ ConfluencePageExporter --config ./confluence-exporter.json upload create \
 
 3. **Анализ истории версий** (с `--detect-source`) — для переименований ищет прежний заголовок в истории версий страницы, для перемещений ищет прежнего родителя в ancestors исторических версий. Достоверность: высокая.
 
-### Разделы отчета
-
-- страницы, добавленные в Confluence
-- страницы, удаленные из Confluence
-- переименованные и/или перемещённые страницы (с указанием источника изменения)
-- страницы с изменённым контентом (с указанием источника изменения)
-
 ### Пример compare
 
 ```bash
-ConfluencePageExporter --config ./confluence-exporter.json compare \
+ConfluencePageExporter compare \
   --base-url https://wiki.example.com \
   --username user@example.com \
   --token <token> \
@@ -330,7 +424,7 @@ Content changed: 1
 ### Пример config show
 
 ```bash
-ConfluencePageExporter --config ./confluence-exporter.json config show
+ConfluencePageExporter config show
 ```
 
 Пример вывода:
@@ -348,6 +442,7 @@ Global:
   Verbose                      = False                               [DEFAULT]
   DryRun                       = False                               [DEFAULT]
   Recursive                    = True                                [FILE]
+  Report                       = False                               [DEFAULT]
 ```
 
 ## Подробное логирование
@@ -355,7 +450,21 @@ Global:
 Для включения debug-level вывода используйте глобальный параметр `--verbose`:
 
 ```bash
-ConfluencePageExporter --verbose download \
+ConfluencePageExporter --verbose download update \
   --page-id 12345 \
   --output-dir ./export
 ```
+
+## Миграция с v1.x
+
+В версии 2.0 произведены ломающие изменения в структуре команд:
+
+| v1.x | v2.0 | Описание |
+|------|------|----------|
+| `download` | `download update` | Принудительное скачивание |
+| — | `download merge` | Умное скачивание (новая команда) |
+| `upload update --on-error abort` | `upload update` | Параметр `--on-error` удалён; при ошибке выполнение прерывается |
+| `upload update --move-pages` | `upload update` | Параметр `--move-pages` удалён; перемещение выполняется автоматически |
+| `download --overwrite-strategy overwrite` | `download update` | Параметр `--overwrite-strategy` удалён |
+| — | `upload merge` | Умная загрузка (новая команда) |
+| — | `--report` | Отчёт о страницах с конфликтами (новый глобальный ключ) |
