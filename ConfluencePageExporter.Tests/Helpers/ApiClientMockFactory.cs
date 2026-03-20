@@ -45,12 +45,14 @@ public static class ApiClientMockFactory
     public static AttachmentData CreateAttachment(
         string id,
         string title,
-        string downloadUrl = "/download/mock")
+        string downloadUrl = "/download/mock",
+        long? fileSize = null)
     {
         return new AttachmentData
         {
             Id = id,
             Title = title,
+            Extensions = fileSize.HasValue ? new AttachmentExtensions { FileSize = fileSize.Value } : null,
             Links = new AttachmentLinks
             {
                 DownloadUrl = downloadUrl

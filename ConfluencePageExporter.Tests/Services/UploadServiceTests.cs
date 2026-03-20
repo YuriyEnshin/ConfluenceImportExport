@@ -185,7 +185,7 @@ public class UploadServiceTests
     }
 
     [Fact]
-    public async Task UploadUpdateAsync_ShouldReplaceAttachmentWithSameName()
+    public async Task UploadUpdateAsync_ShouldUpdateAttachmentVersion_WhenContentChanged()
     {
         using var temp = new TempDirectoryScope();
         var sourceDir = LocalPageTreeBuilder.CreatePage(
@@ -194,20 +194,103 @@ public class UploadServiceTests
             "<p>content</p>",
             textAttachments: [("file.txt", "new data")]);
 
+        var oldRemoteContent = System.Text.Encoding.UTF8.GetBytes("old data");
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
         api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
         api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("100", 2));
-        api.Setup(x => x.GetAttachmentsAsync("100")).ReturnsAsync([ApiClientMockFactory.CreateAttachment("ATT-1", "file.txt")]);
-        api.Setup(x => x.DeleteAttachmentAsync("100", "ATT-1")).ReturnsAsync(true);
-        api.Setup(x => x.UploadAttachmentAsync("100", It.Is<string>(p => p.EndsWith("file.txt")), "file.txt")).ReturnsAsync(true);
+        api.Setup(x => x.GetAttachmentsAsync("100")).ReturnsAsync(
+            [ApiClientMockFactory.CreateAttachment("ATT-1", "file.txt", fileSize: oldRemoteContent.Length)]);
+        api.Setup(x => x.DownloadAttachmentAsync(It.IsAny<string>())).ReturnsAsync(oldRemoteContent);
+        api.Setup(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.Is<string>(p => p.EndsWith("file.txt")), "file.txt")).ReturnsAsync(true);
 
         var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, "100", null, recursive: false);
 
-        api.Verify(x => x.DeleteAttachmentAsync("100", "ATT-1"), Times.Once);
-        api.Verify(x => x.UploadAttachmentAsync("100", It.IsAny<string>(), "file.txt"), Times.Once);
+        api.Verify(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.IsAny<string>(), "file.txt"), Times.Once);
+        api.Verify(x => x.DeleteAttachmentAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        api.Verify(x => x.UploadAttachmentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldSkipUnchangedAttachment()
+    {
+        var localContent = "same data";
+        var localBytes = System.Text.Encoding.UTF8.GetBytes(localContent);
+
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(
+            temp.RootPath,
+            "Root",
+            "<p>content</p>",
+            textAttachments: [("file.txt", localContent)]);
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("100", 2));
+        api.Setup(x => x.GetAttachmentsAsync("100")).ReturnsAsync(
+            [ApiClientMockFactory.CreateAttachment("ATT-1", "file.txt", fileSize: localBytes.Length)]);
+        api.Setup(x => x.DownloadAttachmentAsync(It.IsAny<string>())).ReturnsAsync(localBytes);
+
+        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadUpdateAsync("SPACE", sourceDir, "100", null, recursive: false);
+
+        api.Verify(x => x.UpdateAttachmentDataAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        api.Verify(x => x.UploadAttachmentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        api.Verify(x => x.DeleteAttachmentAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldUploadNewAttachment_WhenNotExistOnServer()
+    {
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(
+            temp.RootPath,
+            "Root",
+            "<p>content</p>",
+            textAttachments: [("new-file.txt", "data")]);
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("100", 2));
+        api.Setup(x => x.GetAttachmentsAsync("100")).ReturnsAsync([]);
+        api.Setup(x => x.UploadAttachmentAsync("100", It.Is<string>(p => p.EndsWith("new-file.txt")), "new-file.txt")).ReturnsAsync(true);
+
+        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadUpdateAsync("SPACE", sourceDir, "100", null, recursive: false);
+
+        api.Verify(x => x.UploadAttachmentAsync("100", It.IsAny<string>(), "new-file.txt"), Times.Once);
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldDetectChangeByFileSize_WithoutDownloading()
+    {
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(
+            temp.RootPath,
+            "Root",
+            "<p>content</p>",
+            textAttachments: [("file.txt", "much longer new content here")]);
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("100", 2));
+        api.Setup(x => x.GetAttachmentsAsync("100")).ReturnsAsync(
+            [ApiClientMockFactory.CreateAttachment("ATT-1", "file.txt", fileSize: 5)]);
+        api.Setup(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.Is<string>(p => p.EndsWith("file.txt")), "file.txt")).ReturnsAsync(true);
+
+        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadUpdateAsync("SPACE", sourceDir, "100", null, recursive: false);
+
+        api.Verify(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.IsAny<string>(), "file.txt"), Times.Once);
+        api.Verify(x => x.DownloadAttachmentAsync(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]

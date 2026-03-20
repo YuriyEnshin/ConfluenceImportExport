@@ -15,6 +15,7 @@ public interface IConfluenceApiClient
     Task<PageUpdateResult?> CreatePageAsync(string spaceKey, string? parentId, string title, string content);
     Task<PageUpdateResult?> UpdatePageAsync(string pageId, string title, string content, string? parentId);
     Task<bool> UploadAttachmentAsync(string pageId, string filePath, string fileName);
+    Task<bool> UpdateAttachmentDataAsync(string pageId, string attachmentId, string filePath, string fileName);
     Task<bool> DeleteAttachmentAsync(string pageId, string attachmentId);
     Task<byte[]> DownloadAttachmentAsync(string downloadUrl);
     Task<List<PageVersionSummary>> GetPageVersionsAsync(string pageId, int limit = 10);

@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using ConfluencePageExporter.Models;
 
@@ -342,11 +343,63 @@ public class UploadService
                 a => a.Title.Equals(fileName, StringComparison.OrdinalIgnoreCase));
 
             if (existing != null)
-                await _apiClient.DeleteAttachmentAsync(pageId, existing.Id);
+            {
+                bool changed = await IsAttachmentChangedAsync(file, existing);
+                if (!changed)
+                {
+                    _logger.LogDebug("Attachment '{FileName}' on page {PageId} is unchanged, skipping", fileName, pageId);
+                    continue;
+                }
 
-            await _apiClient.UploadAttachmentAsync(pageId, file, fileName);
-            _logger.LogInformation("Uploaded attachment '{FileName}' to page {PageId}", fileName, pageId);
+                var updated = await _apiClient.UpdateAttachmentDataAsync(pageId, existing.Id, file, fileName);
+                if (updated)
+                    _logger.LogInformation("Updated attachment '{FileName}' (new version) on page {PageId}", fileName, pageId);
+            }
+            else
+            {
+                var uploaded = await _apiClient.UploadAttachmentAsync(pageId, file, fileName);
+                if (uploaded)
+                    _logger.LogInformation("Uploaded new attachment '{FileName}' to page {PageId}", fileName, pageId);
+            }
         }
+    }
+
+    private async Task<bool> IsAttachmentChangedAsync(string localFilePath, AttachmentData serverAttachment)
+    {
+        var localFileInfo = new FileInfo(localFilePath);
+        if (!localFileInfo.Exists)
+            return false;
+
+        if (serverAttachment.Extensions?.FileSize is long remoteSize && localFileInfo.Length != remoteSize)
+        {
+            _logger.LogDebug(
+                "Attachment '{FileName}' size differs: local={LocalSize}, server={ServerSize}",
+                serverAttachment.Title, localFileInfo.Length, remoteSize);
+            return true;
+        }
+
+        var remoteContent = await _apiClient.DownloadAttachmentAsync(serverAttachment.Links.DownloadUrl);
+        var localHash = await ComputeFileHashAsync(localFilePath);
+        var remoteHash = ComputeHash(remoteContent);
+
+        bool differs = !localHash.SequenceEqual(remoteHash);
+        if (differs)
+        {
+            _logger.LogDebug("Attachment '{FileName}' content hash differs", serverAttachment.Title);
+        }
+
+        return differs;
+    }
+
+    private static async Task<byte[]> ComputeFileHashAsync(string filePath)
+    {
+        await using var stream = File.OpenRead(filePath);
+        return await SHA256.HashDataAsync(stream);
+    }
+
+    private static byte[] ComputeHash(byte[] data)
+    {
+        return SHA256.HashData(data);
     }
 
     private void LogDryRunAttachments(string pageDir)

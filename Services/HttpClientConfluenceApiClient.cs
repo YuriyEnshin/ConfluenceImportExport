@@ -91,7 +91,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
 
         while (true)
         {
-            var url = $"{_baseUrl}/rest/api/content/{pageId}/child/attachment?limit={limit}&start={start}";
+            var url = $"{_baseUrl}/rest/api/content/{pageId}/child/attachment?limit={limit}&start={start}&expand=extensions,version";
             using var response = await _httpClient.GetAsync(url);
             if (!response.IsSuccessStatusCode)
             {
@@ -317,16 +317,14 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
             var fileContent = await File.ReadAllBytesAsync(filePath);
             using var content = new MultipartFormDataContent();
 
-            // Add file content
             var fileContentPart = new ByteArrayContent(fileContent);
             content.Add(fileContentPart, "file", fileName);
 
-            // Add comment
-            var commentContent = new StringContent($"Uploaded attachment: {fileName}");
-            content.Add(commentContent, "comment");
-
             var url = $"{_baseUrl}/rest/api/content/{pageId}/child/attachment";
-            using var response = await _httpClient.PostAsync(url, content);
+            using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
+            request.Headers.Add("X-Atlassian-Token", "nocheck");
+
+            using var response = await _httpClient.SendAsync(request);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -335,7 +333,6 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
                 return false;
             }
 
-            _logger.LogInformation("Uploaded attachment '{FileName}' to page {PageId}", fileName, pageId);
             return true;
         }
         catch (Exception ex)
@@ -345,12 +342,51 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         }
     }
 
+    public async Task<bool> UpdateAttachmentDataAsync(string pageId, string attachmentId, string filePath, string fileName)
+    {
+        try
+        {
+            var fileContent = await File.ReadAllBytesAsync(filePath);
+            using var content = new MultipartFormDataContent();
+
+            var fileContentPart = new ByteArrayContent(fileContent);
+            content.Add(fileContentPart, "file", fileName);
+
+            content.Add(new StringContent("true"), "minorEdit");
+
+            var url = $"{_baseUrl}/rest/api/content/{pageId}/child/attachment/{attachmentId}/data";
+            using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
+            request.Headers.Add("X-Atlassian-Token", "nocheck");
+
+            using var response = await _httpClient.SendAsync(request);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning(
+                    "Failed to update attachment '{FileName}' (ID: {AttachmentId}) on page {PageId}. Status code: {StatusCode}, Error: {Error}",
+                    fileName, attachmentId, pageId, response.StatusCode, errorContent);
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating attachment '{FileName}' (ID: {AttachmentId}) on page {PageId}", fileName, attachmentId, pageId);
+            return false;
+        }
+    }
+
     public async Task<bool> DeleteAttachmentAsync(string pageId, string attachmentId)
     {
         try
         {
-            var url = $"{_baseUrl}/rest/api/content/{pageId}/child/attachment/{attachmentId}";
-            using var response = await _httpClient.DeleteAsync(url);
+            var url = $"{_baseUrl}/rest/api/content/{attachmentId}";
+            using var request = new HttpRequestMessage(HttpMethod.Delete, url);
+            request.Headers.Add("X-Atlassian-Token", "nocheck");
+
+            using var response = await _httpClient.SendAsync(request);
 
             if (!response.IsSuccessStatusCode)
             {
