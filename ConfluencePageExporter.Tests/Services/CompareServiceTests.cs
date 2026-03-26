@@ -122,6 +122,26 @@ public class CompareServiceTests
     }
 
     [Fact]
+    public async Task CompareAsync_ShouldNotReportContentChanged_WhenOnlyLineEndingsDiffer()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var rootDir = LocalPageTreeBuilder.CreatePage(
+            outputDir, "Root", "<p>Hello</p>\r\n<p>World</p>", "1");
+
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>Hello</p>\n<p>World</p>");
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+
+        var service = CreateService(api);
+
+        var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: false);
+
+        report.ContentChanged.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task CompareAsync_ShouldNotReportAdded_WhenTitleFallbackMatchesWithoutId()
     {
         using var temp = new TempDirectoryScope();

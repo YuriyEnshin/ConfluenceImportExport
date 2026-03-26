@@ -115,7 +115,7 @@ public class CompareService
             var localDir = localById?.DirectoryPath ?? localByTitlePath!.DirectoryPath;
             var localContent = await LocalStorageHelper.ReadLocalPageContentOrNull(localDir);
 
-            if (!string.Equals(localContent, remote.Content, StringComparison.Ordinal))
+            if (!StorageFormatNormalizer.ContentEquals(localContent, remote.Content))
             {
                 var contentFileDate = localById?.ContentLastModifiedUtc;
                 if (contentFileDate == null)

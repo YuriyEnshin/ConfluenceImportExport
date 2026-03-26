@@ -237,7 +237,7 @@ public class UploadService
         }
 
         var serverPage = await _apiClient.GetPageByIdAsync(pageId);
-        bool contentChanged = !string.Equals(localContent, serverPage.Body.Storage.Value, StringComparison.Ordinal);
+        bool contentChanged = !StorageFormatNormalizer.ContentEquals(localContent, serverPage.Body.Storage.Value);
         bool titleChanged = !string.Equals(title, serverPage.Title, StringComparison.Ordinal);
 
         if (!contentChanged && !titleChanged)
@@ -405,7 +405,7 @@ public class UploadService
         var serverVersion = serverPage.Version?.Number;
 
         bool titleChanged = !string.Equals(title, serverPage.Title, StringComparison.Ordinal);
-        bool contentChanged = !string.Equals(localContent, serverPage.Body.Storage.Value, StringComparison.Ordinal);
+        bool contentChanged = !StorageFormatNormalizer.ContentEquals(localContent, serverPage.Body.Storage.Value);
         bool parentChanged = moveToParentId != null;
 
         if (!titleChanged && !contentChanged && !parentChanged)

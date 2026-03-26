@@ -90,7 +90,7 @@ public class DownloadService
             await WritePageContent(page.Title, pageDir, serverContent);
             await SavePageIdMarker(page.Id, page.Version?.Number, pageDir);
         }
-        else if (string.Equals(localContent, serverContent, StringComparison.Ordinal))
+        else if (StorageFormatNormalizer.ContentEquals(localContent, serverContent))
         {
             _logger.LogDebug("Page '{Title}' content is unchanged, skipping", page.Title);
             await SavePageIdMarker(page.Id, page.Version?.Number, pageDir);
@@ -156,7 +156,7 @@ public class DownloadService
         if (File.Exists(filePath))
         {
             var existingContent = await File.ReadAllTextAsync(filePath);
-            if (string.Equals(existingContent, content, StringComparison.Ordinal))
+            if (StorageFormatNormalizer.ContentEquals(existingContent, content))
             {
                 _logger.LogDebug("Page '{Title}' content is unchanged, skipping rewrite", page.Title);
                 return;
