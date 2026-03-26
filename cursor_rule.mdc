@@ -1,0 +1,132 @@
+---
+description: Structure and format of a local Confluence page mirror exported by ConfluencePageExporter
+alwaysApply: true
+---
+
+# Local Confluence Mirror — Storage Structure and Format
+
+This rule describes the local storage format for Confluence pages exported by the ConfluencePageExporter tool. Use it to correctly read, edit, and create pages in the local mirror.
+
+## Directory Hierarchy
+
+Pages are stored as a folder tree that mirrors the Confluence page hierarchy:
+
+```
+<output-dir>/
+  Root Page/
+    index.html
+    .id12345_7
+    image.png
+    spec.pdf
+    Child Page A/
+      index.html
+      .id23456_3
+    Child Page B/
+      index.html
+      .id34567_1
+      Nested Page/
+        index.html
+        .id45678_2
+```
+
+- Folder name = Confluence page title (filesystem-unsafe characters are replaced)
+- Folder nesting = parent-child relationships between pages
+- One folder = one Confluence page
+
+## Page Folder Contents
+
+Each page folder contains three types of files:
+
+### index.html — Page Content
+
+The `index.html` file contains the page body in **Confluence Storage Format** — the `body.storage.value` field from the Confluence REST API.
+
+This is **not** regular HTML. Storage format is an XHTML subset with Confluence-specific namespaces and macros.
+
+### .id<pageId>_<version> — Identity Marker
+
+A file named like `.id12345_7`, where:
+- `12345` — the page identifier (pageId) in Confluence
+- `7` — the page version number on the server at the time of last sync
+
+The marker is used for:
+- Stable mapping of a local folder to a Confluence page (even after renames)
+- Detecting whether the page was updated on the server (version comparison)
+- Conflict tracking (`LastWriteTimeUtc` of the marker = timestamp of the last sync)
+
+### Attachments
+
+All other files in the folder (except `index.html` and `.id*`) are Confluence page attachments.
+
+## Confluence Storage Format
+
+Content in `index.html` is Confluence Storage Format (XHTML-based). Key characteristics:
+
+### Namespaces
+
+- `ac:` — Confluence macros and structural elements (`ac:structured-macro`, `ac:rich-text-body`, `ac:parameter`)
+- `ri:` — resource identifiers (`ri:page`, `ri:attachment`, `ri:space`, `ri:user`)
+- `at:` — templates (`at:var`)
+
+### Common Constructs
+
+Link to another page:
+```xml
+<ac:link>
+  <ri:page ri:content-title="Page Title" ri:space-key="SPACE" />
+</ac:link>
+```
+
+Embedded attachment image:
+```xml
+<ac:image>
+  <ri:attachment ri:filename="diagram.png" />
+</ac:image>
+```
+
+Macro (e.g. code block):
+```xml
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="language">python</ac:parameter>
+  <ac:plain-text-body><![CDATA[print("hello")]]></ac:plain-text-body>
+</ac:structured-macro>
+```
+
+Table — standard HTML:
+```html
+<table>
+  <tbody>
+    <tr>
+      <th>Header</th>
+      <td>Value</td>
+    </tr>
+  </tbody>
+</table>
+```
+
+### Basic Formatting
+
+Standard HTML tags: `<p>`, `<h1>`–`<h6>`, `<ul>`, `<ol>`, `<li>`, `<strong>`, `<em>`, `<code>`, `<a>`, `<table>`, `<br />`.
+
+### Editing Rules
+
+- Content must be valid XHTML (all tags closed, attributes quoted)
+- Do not use HTML tags or attributes unsupported by Confluence
+- For cross-page links use `<ac:link>` with `<ri:page>`, not plain `<a href>`
+- For attachment images use `<ac:image>` with `<ri:attachment>`, not `<img src>`
+- Wrap macros in `<ac:structured-macro>`; do not generate arbitrary HTML in place of macros
+
+### Documentation
+
+Full Confluence Storage Format specification:
+- Cloud: https://developer.atlassian.com/cloud/confluence/storage-format/
+- Server/Data Center: https://developer.atlassian.com/server/confluence/confluence-storage-format/
+
+## Creating New Pages
+
+To add a new page to the local mirror:
+
+1. Create a folder named after the desired page title inside the parent page's folder
+2. Create an `index.html` file with content in Confluence Storage Format
+3. Add attachment files if needed
+4. Do not create the `.id*` marker — it will be generated automatically after uploading to the server via the `upload create` command
