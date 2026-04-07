@@ -16,6 +16,9 @@ public class AttachmentData
     [JsonProperty("extensions")]
     public AttachmentExtensions? Extensions { get; set; }
 
+    [JsonProperty("version")]
+    public VersionInfo? Version { get; set; }
+
     [JsonProperty("_links")]
     public AttachmentLinks Links { get; set; } = new();
 }

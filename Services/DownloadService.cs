@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using ConfluencePageExporter.Models;
 
@@ -275,7 +276,24 @@ public class DownloadService
                     continue;
                 }
 
+                if (IsLocalFileSizeMatch(filePath, att))
+                {
+                    _logger.LogDebug(
+                        "Attachment '{Title}' is up to date (size: {Size}), skipping download",
+                        att.Title, att.Extensions!.FileSize);
+                    continue;
+                }
+
                 var fileContent = await _apiClient.DownloadAttachmentAsync(att.Links.DownloadUrl);
+
+                if (await IsLocalContentMatchAsync(filePath, fileContent))
+                {
+                    _logger.LogDebug(
+                        "Attachment '{Title}' content is unchanged after download (API fileSize mismatch: {ApiSize} vs actual {ActualSize}), skipping rewrite",
+                        att.Title, att.Extensions?.FileSize, fileContent.Length);
+                    continue;
+                }
+
                 await File.WriteAllBytesAsync(filePath, fileContent);
                 _logger.LogInformation("Downloaded attachment '{Title}' -> {Path}", att.Title, filePath);
             }
@@ -284,5 +302,31 @@ public class DownloadService
                 _logger.LogError(ex, "Failed to download attachment: {Title}", att.Title);
             }
         }
+    }
+
+    private static bool IsLocalFileSizeMatch(string filePath, AttachmentData serverAttachment)
+    {
+        if (!File.Exists(filePath))
+            return false;
+
+        if (serverAttachment.Extensions?.FileSize is not long remoteSize)
+            return false;
+
+        return new FileInfo(filePath).Length == remoteSize;
+    }
+
+    private static async Task<bool> IsLocalContentMatchAsync(string filePath, byte[] downloadedContent)
+    {
+        if (!File.Exists(filePath))
+            return false;
+
+        var localFileInfo = new FileInfo(filePath);
+        if (localFileInfo.Length != downloadedContent.Length)
+            return false;
+
+        var downloadedHash = SHA256.HashData(downloadedContent);
+        await using var stream = File.OpenRead(filePath);
+        var localHash = await SHA256.HashDataAsync(stream);
+        return localHash.AsSpan().SequenceEqual(downloadedHash);
     }
 }

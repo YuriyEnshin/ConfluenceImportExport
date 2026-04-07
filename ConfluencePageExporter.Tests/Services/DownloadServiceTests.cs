@@ -153,6 +153,125 @@ public class DownloadServiceTests
     }
 
     [Fact]
+    public async Task DownloadUpdateAsync_ShouldSkipAttachment_WhenLocalFileSizeMatchesServer()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var existingContent = new byte[] { 1, 2, 3 };
+        var pageDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
+        await File.WriteAllBytesAsync(Path.Combine(pageDir, "file.txt"), existingContent);
+
+        var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var attachments = new List<AttachmentData>
+        {
+            ApiClientMockFactory.CreateAttachment("a1", "file.txt", "/download/file.txt", fileSize: 3)
+        };
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync(attachments);
+
+        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+
+        await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
+
+        api.Verify(x => x.DownloadAttachmentAsync(It.IsAny<string>()), Times.Never);
+        api.VerifyAll();
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_ShouldRedownloadAttachment_WhenLocalFileSizeDiffers()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var oldContent = new byte[] { 1, 2 };
+        var pageDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
+        await File.WriteAllBytesAsync(Path.Combine(pageDir, "file.txt"), oldContent);
+
+        var newContent = new byte[] { 1, 2, 3, 4, 5 };
+        var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var attachments = new List<AttachmentData>
+        {
+            ApiClientMockFactory.CreateAttachment("a1", "file.txt", "/download/file.txt", fileSize: 5)
+        };
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync(attachments);
+        api.Setup(x => x.DownloadAttachmentAsync("/download/file.txt")).ReturnsAsync(newContent);
+
+        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+
+        await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
+
+        var downloaded = await File.ReadAllBytesAsync(Path.Combine(pageDir, "file.txt"));
+        downloaded.Should().Equal(newContent);
+        api.VerifyAll();
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_ShouldSkipRewrite_WhenApiFileSizeMismatchButContentIdentical()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var actualContent = new byte[] { 10, 20, 30, 40, 50 };
+        var pageDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
+        var filePath = Path.Combine(pageDir, "image.jpg");
+        await File.WriteAllBytesAsync(filePath, actualContent);
+        var originalTimestamp = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(filePath, originalTimestamp);
+
+        var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var attachments = new List<AttachmentData>
+        {
+            ApiClientMockFactory.CreateAttachment("a1", "image.jpg", "/download/image.jpg", fileSize: 3)
+        };
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync(attachments);
+        api.Setup(x => x.DownloadAttachmentAsync("/download/image.jpg")).ReturnsAsync(actualContent);
+
+        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+
+        await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
+
+        File.GetLastWriteTimeUtc(filePath).Should().Be(originalTimestamp);
+        (await File.ReadAllBytesAsync(filePath)).Should().Equal(actualContent);
+        api.VerifyAll();
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_ShouldDownloadAttachment_WhenServerFileSizeNotAvailable()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var existingContent = new byte[] { 1, 2, 3 };
+        var pageDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
+        await File.WriteAllBytesAsync(Path.Combine(pageDir, "file.txt"), existingContent);
+
+        var serverContent = new byte[] { 4, 5, 6 };
+        var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var attachments = new List<AttachmentData>
+        {
+            ApiClientMockFactory.CreateAttachment("a1", "file.txt", "/download/file.txt", fileSize: null)
+        };
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync(attachments);
+        api.Setup(x => x.DownloadAttachmentAsync("/download/file.txt")).ReturnsAsync(serverContent);
+
+        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+
+        await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
+
+        var downloaded = await File.ReadAllBytesAsync(Path.Combine(pageDir, "file.txt"));
+        downloaded.Should().Equal(serverContent);
+        api.VerifyAll();
+    }
+
+    [Fact]
     public async Task DownloadMergeAsync_ShouldSkipLocallyChangedPage()
     {
         using var temp = new TempDirectoryScope();
