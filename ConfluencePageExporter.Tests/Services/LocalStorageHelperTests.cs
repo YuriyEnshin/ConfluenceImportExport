@@ -19,6 +19,20 @@ public class LocalStorageHelperTests
         result.Should().NotBeNullOrWhiteSpace();
     }
 
+    [Theory]
+    [InlineData("Title.", "Title")]
+    [InlineData("Title...", "Title")]
+    [InlineData("Title. ", "Title")]
+    [InlineData("Title ", "Title")]
+    [InlineData("  Title  ", "  Title")]
+    [InlineData("...", "_")]
+    public void SanitizeFileName_ShouldTrimTrailingDotsAndSpaces(string input, string expected)
+    {
+        var result = LocalStorageHelper.SanitizeFileName(input);
+
+        result.Should().Be(expected);
+    }
+
     [Fact]
     public void ReadPageIdFromMarker_ShouldReturnNull_WhenDirectoryDoesNotExist()
     {

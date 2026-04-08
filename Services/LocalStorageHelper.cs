@@ -8,7 +8,9 @@ public static class LocalStorageHelper
     public static string SanitizeFileName(string title)
     {
         var invalidChars = Path.GetInvalidFileNameChars();
-        return string.Join("_", title.Split(invalidChars, StringSplitOptions.RemoveEmptyEntries));
+        var sanitized = string.Join("_", title.Split(invalidChars, StringSplitOptions.RemoveEmptyEntries));
+        sanitized = sanitized.TrimEnd('.', ' ');
+        return string.IsNullOrEmpty(sanitized) ? "_" : sanitized;
     }
 
     public static PageMarkerInfo ParseMarkerFileName(string fileName)
