@@ -8,15 +8,30 @@ namespace ConfluencePageExporter.Tests.Services;
 public class LocalStorageHelperTests
 {
     [Fact]
-    public void SanitizeFileName_ShouldRemoveInvalidCharacters()
+    public void SanitizeFileName_ShouldReplaceEachInvalidCharWithUnderscore()
     {
         var invalid = Path.GetInvalidFileNameChars()[0];
         var input = $"ab{invalid}cd";
 
         var result = LocalStorageHelper.SanitizeFileName(input);
 
-        result.Should().NotContain(invalid.ToString());
-        result.Should().NotBeNullOrWhiteSpace();
+        result.Should().Be("ab_cd");
+    }
+
+    [Fact]
+    public void SanitizeFileName_ShouldReplaceTrailingInvalidCharConsistently()
+    {
+        var result = LocalStorageHelper.SanitizeFileName("Модуль \"Провайдеры\"");
+
+        result.Should().Be("Модуль _Провайдеры_");
+    }
+
+    [Fact]
+    public void SanitizeFileName_ShouldReplaceMultipleAdjacentInvalidChars()
+    {
+        var result = LocalStorageHelper.SanitizeFileName("a<>b");
+
+        result.Should().Be("a__b");
     }
 
     [Theory]
@@ -402,5 +417,144 @@ public class LocalStorageHelperTests
         var result = await LocalStorageHelper.ResolvePageIdAsync(mock.Object, "SPACE", null, null);
 
         result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task WritePageIdMarkerAsync_ShouldStoreOriginalTitle()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, "123", 5, "Модуль \"Провайдеры\"");
+
+        var markerPath = Path.Combine(pageDir, ".id123_5");
+        File.Exists(markerPath).Should().BeTrue();
+        (await File.ReadAllTextAsync(markerPath)).Should().Be("Модуль \"Провайдеры\"");
+    }
+
+    [Fact]
+    public async Task WritePageIdMarkerAsync_ShouldWriteEmptyContent_WhenNoTitle()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, "123", 5);
+
+        var content = await File.ReadAllTextAsync(Path.Combine(pageDir, ".id123_5"));
+        content.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ReadOriginalTitle_ShouldReturnTitle_WhenMarkerHasContent()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        File.WriteAllText(Path.Combine(pageDir, ".id123_5"), "Original Title");
+
+        var result = LocalStorageHelper.ReadOriginalTitle(pageDir);
+
+        result.Should().Be("Original Title");
+    }
+
+    [Fact]
+    public void ReadOriginalTitle_ShouldReturnNull_WhenMarkerIsEmpty()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        File.WriteAllText(Path.Combine(pageDir, ".id123_5"), string.Empty);
+
+        var result = LocalStorageHelper.ReadOriginalTitle(pageDir);
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void ReadOriginalTitle_ShouldReturnNull_WhenNoMarkerExists()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+
+        var result = LocalStorageHelper.ReadOriginalTitle(pageDir);
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void ReadOriginalTitle_ShouldReturnNull_WhenDirectoryDoesNotExist()
+    {
+        var result = LocalStorageHelper.ReadOriginalTitle("X:\\not-existing-dir");
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void GetPageTitle_ShouldReturnOriginalTitle_WhenFolderMatchesSanitized()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Модуль _Провайдеры_");
+        File.WriteAllText(Path.Combine(pageDir, ".id123"), "Модуль \"Провайдеры\"");
+
+        var result = LocalStorageHelper.GetPageTitle(pageDir);
+
+        result.Should().Be("Модуль \"Провайдеры\"");
+    }
+
+    [Fact]
+    public void GetPageTitle_ShouldReturnFolderName_WhenFolderRenamed()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Новый модуль");
+        File.WriteAllText(Path.Combine(pageDir, ".id123"), "Модуль \"Провайдеры\"");
+
+        var result = LocalStorageHelper.GetPageTitle(pageDir);
+
+        result.Should().Be("Новый модуль");
+    }
+
+    [Fact]
+    public void GetPageTitle_ShouldReturnFolderName_WhenMarkerIsEmpty()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("SomeFolder");
+        File.WriteAllText(Path.Combine(pageDir, ".id123"), string.Empty);
+
+        var result = LocalStorageHelper.GetPageTitle(pageDir);
+
+        result.Should().Be("SomeFolder");
+    }
+
+    [Fact]
+    public void GetPageTitle_ShouldReturnFolderName_WhenNoMarkerExists()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("SomeFolder");
+
+        var result = LocalStorageHelper.GetPageTitle(pageDir);
+
+        result.Should().Be("SomeFolder");
+    }
+
+    [Fact]
+    public void GetPageTitle_ShouldReturnOriginalTitle_WhenTitleHasNoSpecialChars()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Simple Title");
+        File.WriteAllText(Path.Combine(pageDir, ".id123"), "Simple Title");
+
+        var result = LocalStorageHelper.GetPageTitle(pageDir);
+
+        result.Should().Be("Simple Title");
+    }
+
+    [Fact]
+    public void GetPageTitle_ShouldReturnFolderName_WhenMarkerContentEdited()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Модуль _Провайдеры_");
+        File.WriteAllText(Path.Combine(pageDir, ".id123"), "Другой заголовок");
+
+        var result = LocalStorageHelper.GetPageTitle(pageDir);
+
+        result.Should().Be("Модуль _Провайдеры_");
     }
 }

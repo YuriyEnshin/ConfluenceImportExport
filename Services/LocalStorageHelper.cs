@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.Extensions.Logging;
 using ConfluencePageExporter.Models;
 
@@ -5,11 +6,14 @@ namespace ConfluencePageExporter.Services;
 
 public static class LocalStorageHelper
 {
+    private static readonly HashSet<char> InvalidFileNameChars = new(Path.GetInvalidFileNameChars());
+
     public static string SanitizeFileName(string title)
     {
-        var invalidChars = Path.GetInvalidFileNameChars();
-        var sanitized = string.Join("_", title.Split(invalidChars, StringSplitOptions.RemoveEmptyEntries));
-        sanitized = sanitized.TrimEnd('.', ' ');
+        var sb = new StringBuilder(title.Length);
+        foreach (var c in title)
+            sb.Append(InvalidFileNameChars.Contains(c) ? '_' : c);
+        var sanitized = sb.ToString().TrimEnd('.', ' ');
         return string.IsNullOrEmpty(sanitized) ? "_" : sanitized;
     }
 
@@ -53,7 +57,8 @@ public static class LocalStorageHelper
         return null;
     }
 
-    public static async Task WritePageIdMarkerAsync(string pageDir, string pageId, int? version = null)
+    public static async Task WritePageIdMarkerAsync(
+        string pageDir, string pageId, int? version = null, string? originalTitle = null)
     {
         if (!Directory.Exists(pageDir))
             throw new DirectoryNotFoundException($"Page directory does not exist: {pageDir}");
@@ -65,7 +70,44 @@ public static class LocalStorageHelper
 
         var markerName = version.HasValue ? $".id{pageId}_{version.Value}" : $".id{pageId}";
         var markerPath = Path.Combine(pageDir, markerName);
-        await File.WriteAllTextAsync(markerPath, string.Empty);
+        await File.WriteAllTextAsync(markerPath, originalTitle ?? string.Empty);
+    }
+
+    public static string? ReadOriginalTitle(string pageDir)
+    {
+        if (!Directory.Exists(pageDir)) return null;
+
+        foreach (var file in Directory.GetFiles(pageDir, ".id*"))
+        {
+            var fileName = Path.GetFileName(file);
+            if (fileName.StartsWith(".id") && fileName.Length > 3)
+            {
+                var content = File.ReadAllText(file).Trim();
+                return string.IsNullOrEmpty(content) ? null : content;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the effective page title for upload/comparison.
+    /// If the original title is stored in the .id marker and the folder name matches
+    /// the sanitized form of that title, returns the original title (preserving special characters).
+    /// If the folder was renamed by the user, returns the folder name (user intent to rename).
+    /// </summary>
+    public static string GetPageTitle(string pageDir)
+    {
+        var storedTitle = ReadOriginalTitle(pageDir);
+        var folderName = GetPageTitleFromDirectory(pageDir);
+
+        if (storedTitle == null)
+            return folderName;
+
+        var expectedFolderName = SanitizeFileName(storedTitle);
+        if (string.Equals(expectedFolderName, folderName, StringComparison.OrdinalIgnoreCase))
+            return storedTitle;
+
+        return folderName;
     }
 
     public static async Task<string> ReadPageContent(string pageDir)

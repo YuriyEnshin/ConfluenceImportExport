@@ -60,7 +60,7 @@ public class DownloadService
             Directory.CreateDirectory(pageDir);
 
         await SavePageContentForUpdate(page, pageDir);
-        await SavePageIdMarker(page.Id, page.Version?.Number, pageDir);
+        await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title);
 
         var attachments = await _apiClient.GetAttachmentsAsync(page.Id);
         await SaveAttachments(attachments, pageDir);
@@ -89,12 +89,12 @@ public class DownloadService
         if (localContent == null)
         {
             await WritePageContent(page.Title, pageDir, serverContent);
-            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir);
+            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title);
         }
         else if (StorageFormatNormalizer.ContentEquals(localContent, serverContent))
         {
             _logger.LogDebug("Page '{Title}' content is unchanged, skipping", page.Title);
-            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir);
+            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title);
         }
         else
         {
@@ -112,7 +112,7 @@ public class DownloadService
                 case ChangeOrigin.Server:
                     _logger.LogInformation("Page '{Title}' changed on server, downloading", page.Title);
                     await WritePageContent(page.Title, pageDir, serverContent);
-                    await SavePageIdMarker(page.Id, page.Version?.Number, pageDir);
+                    await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title);
                     break;
 
                 case ChangeOrigin.Local:
@@ -243,7 +243,7 @@ public class DownloadService
         return expectedDir;
     }
 
-    private async Task SavePageIdMarker(string pageId, int? version, string pageDir)
+    private async Task SavePageIdMarker(string pageId, int? version, string pageDir, string? originalTitle = null)
     {
         if (_dryRun)
         {
@@ -252,14 +252,16 @@ public class DownloadService
         }
 
         var existing = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
+        var existingTitle = LocalStorageHelper.ReadOriginalTitle(pageDir);
         if (existing != null
             && string.Equals(existing.PageId, pageId, StringComparison.OrdinalIgnoreCase)
-            && existing.Version == version)
+            && existing.Version == version
+            && existingTitle != null)
         {
             return;
         }
 
-        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version);
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version, originalTitle);
     }
 
     private async Task SaveAttachments(List<AttachmentData> attachments, string pageDir)

@@ -232,7 +232,7 @@ public class CompareService
 
             var normalizedDir = Path.GetFullPath(pageDir);
             var relativePath = LocalStorageHelper.NormalizeRelativePath(Path.GetRelativePath(outputDir, normalizedDir));
-            var title = Path.GetFileName(normalizedDir);
+            var title = LocalStorageHelper.ReadOriginalTitle(normalizedDir) ?? Path.GetFileName(normalizedDir);
 
             if (pagesById.ContainsKey(pageId))
             {
@@ -302,7 +302,7 @@ public class CompareService
             .FirstOrDefault(r => string.Equals(r.PageId, rootPage.Id, StringComparison.OrdinalIgnoreCase));
 
         var serverParentTitle = rootPage.Ancestors.Count > 0 ? rootPage.Ancestors[^1].Title : "";
-        var localParentTitle = LocalStorageHelper.GetPageTitleFromDirectory(localParentDir);
+        var localParentTitle = LocalStorageHelper.GetPageTitle(localParentDir);
 
         var moveSource = await _changeSourceAnalyzer.AnalyzeMoveAsync(
             rootPage.Id, serverParentTitle, localParentTitle,

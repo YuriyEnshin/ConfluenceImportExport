@@ -17,7 +17,7 @@ public static class LocalPageTreeBuilder
         if (!string.IsNullOrEmpty(pageId))
         {
             var markerName = version.HasValue ? $".id{pageId}_{version.Value}" : $".id{pageId}";
-            File.WriteAllText(Path.Combine(pageDir, markerName), string.Empty);
+            File.WriteAllText(Path.Combine(pageDir, markerName), title);
         }
 
         if (textAttachments == null)

@@ -29,9 +29,9 @@ public class UploadService
         var (rootPageId, _) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle);
 
         var moveToParentId = await DetectRootPageMoveAsync(rootPageId, sourceDir);
-        var result = await UpdatePageContentAndAttachments(spaceKey, rootPageId, sourceDir, moveToParentId);
+        var (result, effectiveTitle) = await UpdatePageContentAndAttachments(spaceKey, rootPageId, sourceDir, moveToParentId);
         if (result != null)
-            await UpdatePageIdMarker(sourceDir, result.Id, result.VersionNumber);
+            await UpdatePageIdMarker(sourceDir, result.Id, result.VersionNumber, effectiveTitle);
 
         if (recursive)
         {
@@ -79,9 +79,9 @@ public class UploadService
                     $"Parent page not found. ID: '{parentId}', Title: '{parentTitle}'");
         }
 
-        var createResult = await CreatePageFromDirectory(spaceKey, sourceDir, resolvedParentId);
+        var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, sourceDir, resolvedParentId);
         if (createResult == null) return;
-        await UpdatePageIdMarker(sourceDir, createResult.Id, createResult.VersionNumber);
+        await UpdatePageIdMarker(sourceDir, createResult.Id, createResult.VersionNumber, effectiveTitle);
 
         if (recursive)
         {
@@ -140,7 +140,7 @@ public class UploadService
             _logger.LogWarning("Page with ID '{PageId}' from .id marker not found, falling back to title search", markerPageId);
         }
 
-        var folderName = LocalStorageHelper.GetPageTitleFromDirectory(sourceDir);
+        var folderName = LocalStorageHelper.GetPageTitle(sourceDir);
         var foundByTitle = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName);
         if (foundByTitle != null)
             return (foundByTitle, true);
@@ -152,7 +152,7 @@ public class UploadService
 
     private async Task ProcessChildForUpdate(string spaceKey, string childDir, string parentPageId, SyncReport report)
     {
-        var folderName = LocalStorageHelper.GetPageTitleFromDirectory(childDir);
+        var folderName = LocalStorageHelper.GetPageTitle(childDir);
         var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(childDir);
         string? resolvedPageId = null;
         string? moveToParentId = null;
@@ -201,19 +201,19 @@ public class UploadService
 
         if (shouldCreate)
         {
-            var createResult = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
+            var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
             if (createResult == null) return;
             resolvedPageId = createResult.Id;
-            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber);
+            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle);
 
             foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
                 await ProcessChildForCreate(spaceKey, grandchildDir, resolvedPageId);
         }
         else
         {
-            var updateResult = await UpdatePageContentAndAttachments(spaceKey, resolvedPageId!, childDir, moveToParentId);
+            var (updateResult, effectiveTitle) = await UpdatePageContentAndAttachments(spaceKey, resolvedPageId!, childDir, moveToParentId);
             if (updateResult != null)
-                await UpdatePageIdMarker(childDir, updateResult.Id, updateResult.VersionNumber);
+                await UpdatePageIdMarker(childDir, updateResult.Id, updateResult.VersionNumber, effectiveTitle);
 
             foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
                 await ProcessChildForUpdate(spaceKey, grandchildDir, resolvedPageId!, report);
@@ -226,7 +226,7 @@ public class UploadService
         string spaceKey, string pageId, string pageDir,
         ChangeSourceAnalyzer analyzer, SyncReport report)
     {
-        var title = LocalStorageHelper.GetPageTitleFromDirectory(pageDir);
+        var title = LocalStorageHelper.GetPageTitle(pageDir);
         var localContent = await LocalStorageHelper.ReadPageContent(pageDir);
 
         if (_dryRun)
@@ -237,13 +237,20 @@ public class UploadService
         }
 
         var serverPage = await _apiClient.GetPageByIdAsync(pageId);
+
+        if (LocalStorageHelper.ReadOriginalTitle(pageDir) == null
+            && string.Equals(LocalStorageHelper.SanitizeFileName(serverPage.Title), title, StringComparison.OrdinalIgnoreCase))
+        {
+            title = serverPage.Title;
+        }
+
         bool contentChanged = !StorageFormatNormalizer.ContentEquals(localContent, serverPage.Body.Storage.Value);
         bool titleChanged = !string.Equals(title, serverPage.Title, StringComparison.Ordinal);
 
         if (!contentChanged && !titleChanged)
         {
             _logger.LogDebug("Page {PageId} '{Title}' is unchanged, skipping merge-upload", pageId, title);
-            await UpdatePageIdMarker(pageDir, pageId, serverPage.Version?.Number);
+            await UpdatePageIdMarker(pageDir, pageId, serverPage.Version?.Number, title);
             return;
         }
 
@@ -263,7 +270,7 @@ public class UploadService
                 var result = await _apiClient.UpdatePageAsync(pageId, title, localContent, null);
                 if (result != null)
                 {
-                    await UpdatePageIdMarker(pageDir, result.Id, result.VersionNumber);
+                    await UpdatePageIdMarker(pageDir, result.Id, result.VersionNumber, title);
                     await UploadPageAttachments(pageId, pageDir);
                 }
                 break;
@@ -289,7 +296,7 @@ public class UploadService
         string spaceKey, string childDir, string parentPageId,
         ChangeSourceAnalyzer analyzer, SyncReport report)
     {
-        var folderName = LocalStorageHelper.GetPageTitleFromDirectory(childDir);
+        var folderName = LocalStorageHelper.GetPageTitle(childDir);
         var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(childDir);
         string? resolvedPageId = null;
 
@@ -317,10 +324,10 @@ public class UploadService
 
         if (resolvedPageId == null)
         {
-            var createResult = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
+            var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
             if (createResult == null) return;
             resolvedPageId = createResult.Id;
-            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber);
+            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle);
 
             foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
                 await ProcessChildForCreate(spaceKey, grandchildDir, resolvedPageId);
@@ -338,51 +345,51 @@ public class UploadService
 
     private async Task ProcessChildForCreate(string spaceKey, string childDir, string? parentPageId)
     {
-        var createResult = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
+        var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
         if (createResult == null) return;
-        await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber);
+        await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle);
 
         foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
             await ProcessChildForCreate(spaceKey, grandchildDir, createResult.Id);
     }
 
-    private async Task<PageUpdateResult?> CreatePageFromDirectory(string spaceKey, string pageDir, string? parentId)
+    private async Task<(PageUpdateResult? Result, string? Title)> CreatePageFromDirectory(string spaceKey, string pageDir, string? parentId)
     {
-        var title = LocalStorageHelper.GetPageTitleFromDirectory(pageDir);
+        var title = LocalStorageHelper.GetPageTitle(pageDir);
         var content = await LocalStorageHelper.ReadPageContent(pageDir);
 
         var existingId = await _apiClient.FindPageByTitleAsync(spaceKey, null, title);
         if (existingId != null)
         {
             _logger.LogError("Cannot create page '{Title}': a page with this title already exists (ID: {ExistingId})", title, existingId);
-            return null;
+            return (null, null);
         }
 
         if (_dryRun)
         {
             _logger.LogInformation("DRY RUN: Would create page '{Title}' under parent {ParentId}", title, parentId ?? "(space root)");
             LogDryRunAttachments(pageDir);
-            return new PageUpdateResult($"dry-run-{title}", 1);
+            return (new PageUpdateResult($"dry-run-{title}", 1), title);
         }
 
         var result = await _apiClient.CreatePageAsync(spaceKey, parentId, title, content);
         if (result == null)
         {
             _logger.LogError("Failed to create page '{Title}'", title);
-            return null;
+            return (null, null);
         }
 
         _logger.LogInformation("Created page '{Title}' with ID {PageId}", title, result.Id);
         await UploadPageAttachments(result.Id, pageDir);
-        return result;
+        return (result, title);
     }
 
     // ── shared: page content update ───────────────────────────────────
 
-    private async Task<PageUpdateResult?> UpdatePageContentAndAttachments(
+    private async Task<(PageUpdateResult? Result, string? Title)> UpdatePageContentAndAttachments(
         string spaceKey, string pageId, string pageDir, string? moveToParentId = null)
     {
-        var title = LocalStorageHelper.GetPageTitleFromDirectory(pageDir);
+        var title = LocalStorageHelper.GetPageTitle(pageDir);
         var localContent = await LocalStorageHelper.ReadPageContent(pageDir);
 
         if (_dryRun)
@@ -398,10 +405,17 @@ public class UploadService
                     pageId, title, existingByTitle);
 
             LogDryRunAttachments(pageDir);
-            return null;
+            return (null, null);
         }
 
         var serverPage = await _apiClient.GetPageByIdAsync(pageId);
+
+        if (LocalStorageHelper.ReadOriginalTitle(pageDir) == null
+            && string.Equals(LocalStorageHelper.SanitizeFileName(serverPage.Title), title, StringComparison.OrdinalIgnoreCase))
+        {
+            title = serverPage.Title;
+        }
+
         var serverVersion = serverPage.Version?.Number;
 
         bool titleChanged = !string.Equals(title, serverPage.Title, StringComparison.Ordinal);
@@ -413,7 +427,7 @@ public class UploadService
             _logger.LogInformation(
                 "Page {PageId} '{Title}' is unchanged (title, content, parent match server), skipping update",
                 pageId, title);
-            return new PageUpdateResult(pageId, serverVersion ?? 0);
+            return (new PageUpdateResult(pageId, serverVersion ?? 0), title);
         }
 
         _logger.LogDebug("Page {PageId} changes detected: title={TitleChanged}, content={ContentChanged}, parent={ParentChanged}",
@@ -423,7 +437,7 @@ public class UploadService
         if (result == null)
         {
             _logger.LogError("Failed to update page {PageId} with title '{Title}'", pageId, title);
-            return null;
+            return (null, null);
         }
 
         if (moveToParentId != null)
@@ -431,7 +445,7 @@ public class UploadService
         else
             _logger.LogInformation("Updated page {PageId} with title '{Title}'", pageId, title);
         await UploadPageAttachments(pageId, pageDir);
-        return result;
+        return (result, title);
     }
 
     // ── shared: attachments ───────────────────────────────────────────
@@ -512,19 +526,21 @@ public class UploadService
             _logger.LogInformation("DRY RUN: Would upload attachment '{FileName}'", Path.GetFileName(file));
     }
 
-    private async Task UpdatePageIdMarker(string pageDir, string pageId, int? version)
+    private async Task UpdatePageIdMarker(string pageDir, string pageId, int? version, string? originalTitle = null)
     {
         if (_dryRun) return;
 
         var existing = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
+        var existingTitle = LocalStorageHelper.ReadOriginalTitle(pageDir);
         if (existing != null
             && string.Equals(existing.PageId, pageId, StringComparison.OrdinalIgnoreCase)
-            && existing.Version == version)
+            && existing.Version == version
+            && existingTitle != null)
         {
             return;
         }
 
-        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version);
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version, originalTitle);
         _logger.LogInformation("Saved page ID marker '.id{PageId}_{Version}' in '{PageDir}'", pageId, version, pageDir);
     }
 }
