@@ -60,16 +60,24 @@ try
     builder.Services.AddOptions<GlobalOptions>()
         .Bind(builder.Configuration.GetSection("Global"));
 
-    builder.Services.AddOptions<DownloadOptions>()
-        .Bind(builder.Configuration.GetSection("Download"));
+    builder.Services.AddOptions<DownloadUpdateOptions>()
+        .Bind(builder.Configuration.GetSection("Download"))
+        .Bind(builder.Configuration.GetSection("Download:Update"));
+
+    builder.Services.AddOptions<DownloadMergeOptions>()
+        .Bind(builder.Configuration.GetSection("Download"))
+        .Bind(builder.Configuration.GetSection("Download:Merge"));
 
     builder.Services.AddOptions<UploadUpdateOptions>()
+        .Bind(builder.Configuration.GetSection("Upload"))
         .Bind(builder.Configuration.GetSection("Upload:Update"));
 
     builder.Services.AddOptions<UploadCreateOptions>()
+        .Bind(builder.Configuration.GetSection("Upload"))
         .Bind(builder.Configuration.GetSection("Upload:Create"));
 
     builder.Services.AddOptions<UploadMergeOptions>()
+        .Bind(builder.Configuration.GetSection("Upload"))
         .Bind(builder.Configuration.GetSection("Upload:Merge"));
 
     builder.Services.AddOptions<CompareOptions>()

@@ -6,6 +6,19 @@
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-04-14
+
+### Изменено
+
+- Конфигурация download теперь поддерживает отдельные подсекции `Download:Update` и `Download:Merge` с наследованием общих параметров из `Download`
+- Конфигурация upload поддерживает общие параметры на уровне `Upload` (например, `SourceDir`), наследуемые подкомандами `Update`, `Create`, `Merge`
+- Команда `config show` отображает все подкоманды единообразно: `Download > Update`, `Download > Merge`, `Upload > Update`, `Upload > Create`, `Upload > Merge`, `Compare`
+
+### Добавлено
+
+- Секция `Upload > Merge` в выводе `config show`
+- Параметр `DetectSource` в секции `Compare` в выводе `config show`
+
 ## [2.3.0] — 2026-04-11
 
 ### Добавлено

@@ -9,13 +9,13 @@ namespace ConfluencePageExporter.Commands;
 public sealed class DownloadUpdateCommandHandler : ICommandHandler
 {
     private readonly IOptions<GlobalOptions> _global;
-    private readonly IOptions<DownloadOptions> _opts;
+    private readonly IOptions<DownloadUpdateOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
     private readonly ILoggerFactory _loggerFactory;
 
     public DownloadUpdateCommandHandler(
         IOptions<GlobalOptions> global,
-        IOptions<DownloadOptions> opts,
+        IOptions<DownloadUpdateOptions> opts,
         IConfluenceApiClient apiClient,
         ILoggerFactory loggerFactory)
     {

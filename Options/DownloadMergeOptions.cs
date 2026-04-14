@@ -1,6 +1,6 @@
 namespace ConfluencePageExporter.Options;
 
-public sealed class DownloadOptions
+public sealed class DownloadMergeOptions
 {
     public string? PageId { get; set; }
     public string? PageTitle { get; set; }

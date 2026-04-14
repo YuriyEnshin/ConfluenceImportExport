@@ -9,13 +9,13 @@ namespace ConfluencePageExporter.Commands;
 public sealed class DownloadMergeCommandHandler : ICommandHandler
 {
     private readonly IOptions<GlobalOptions> _global;
-    private readonly IOptions<DownloadOptions> _opts;
+    private readonly IOptions<DownloadMergeOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
     private readonly ILoggerFactory _loggerFactory;
 
     public DownloadMergeCommandHandler(
         IOptions<GlobalOptions> global,
-        IOptions<DownloadOptions> opts,
+        IOptions<DownloadMergeOptions> opts,
         IConfluenceApiClient apiClient,
         ILoggerFactory loggerFactory)
     {

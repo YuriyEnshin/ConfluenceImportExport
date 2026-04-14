@@ -26,8 +26,10 @@ public static class CliOverrideBuilder
         switch (commandPath)
         {
             case "download update":
+                MapDownloadUpdate(parseResult, result);
+                break;
             case "download merge":
-                MapDownload(parseResult, result);
+                MapDownloadMerge(parseResult, result);
                 break;
             case "upload update":
                 MapUploadUpdate(parseResult, result);
@@ -49,12 +51,20 @@ public static class CliOverrideBuilder
         return result;
     }
 
-    private static void MapDownload(ParseResult pr, Dictionary<string, string?> d)
+    private static void MapDownloadUpdate(ParseResult pr, Dictionary<string, string?> d)
     {
-        AddIfExplicit(pr, "page-id", "Download:PageId", d);
-        AddIfExplicit(pr, "page-title", "Download:PageTitle", d);
-        AddIfExplicitPath(pr, "output-dir", "Download:OutputDir", d);
-        AddIfExplicit(pr, "recursive", "Download:Recursive", d, isFlag: true);
+        AddIfExplicit(pr, "page-id", "Download:Update:PageId", d);
+        AddIfExplicit(pr, "page-title", "Download:Update:PageTitle", d);
+        AddIfExplicitPath(pr, "output-dir", "Download:Update:OutputDir", d);
+        AddIfExplicit(pr, "recursive", "Download:Update:Recursive", d, isFlag: true);
+    }
+
+    private static void MapDownloadMerge(ParseResult pr, Dictionary<string, string?> d)
+    {
+        AddIfExplicit(pr, "page-id", "Download:Merge:PageId", d);
+        AddIfExplicit(pr, "page-title", "Download:Merge:PageTitle", d);
+        AddIfExplicitPath(pr, "output-dir", "Download:Merge:OutputDir", d);
+        AddIfExplicit(pr, "recursive", "Download:Merge:Recursive", d, isFlag: true);
     }
 
     private static void MapUploadUpdate(ParseResult pr, Dictionary<string, string?> d)
@@ -93,10 +103,15 @@ public static class CliOverrideBuilder
 
     private static void MapConfigShow(ParseResult pr, Dictionary<string, string?> d)
     {
-        AddIfExplicit(pr, "page-id", "Download:PageId", d);
-        AddIfExplicit(pr, "page-title", "Download:PageTitle", d);
-        AddIfExplicitPath(pr, "output-dir", "Download:OutputDir", d);
-        AddIfExplicit(pr, "recursive", "Download:Recursive", d, isFlag: true);
+        AddIfExplicit(pr, "page-id", "Download:Update:PageId", d);
+        AddIfExplicit(pr, "page-title", "Download:Update:PageTitle", d);
+        AddIfExplicitPath(pr, "output-dir", "Download:Update:OutputDir", d);
+        AddIfExplicit(pr, "recursive", "Download:Update:Recursive", d, isFlag: true);
+
+        AddIfExplicit(pr, "page-id", "Download:Merge:PageId", d);
+        AddIfExplicit(pr, "page-title", "Download:Merge:PageTitle", d);
+        AddIfExplicitPath(pr, "output-dir", "Download:Merge:OutputDir", d);
+        AddIfExplicit(pr, "recursive", "Download:Merge:Recursive", d, isFlag: true);
 
         AddIfExplicitPath(pr, "source-dir", "Upload:Update:SourceDir", d);
         AddIfExplicit(pr, "page-id", "Upload:Update:PageId", d);
@@ -107,6 +122,11 @@ public static class CliOverrideBuilder
         AddIfExplicit(pr, "parent-id", "Upload:Create:ParentId", d);
         AddIfExplicit(pr, "parent-title", "Upload:Create:ParentTitle", d);
         AddIfExplicit(pr, "recursive", "Upload:Create:Recursive", d, isFlag: true);
+
+        AddIfExplicitPath(pr, "source-dir", "Upload:Merge:SourceDir", d);
+        AddIfExplicit(pr, "page-id", "Upload:Merge:PageId", d);
+        AddIfExplicit(pr, "page-title", "Upload:Merge:PageTitle", d);
+        AddIfExplicit(pr, "recursive", "Upload:Merge:Recursive", d, isFlag: true);
 
         AddIfExplicit(pr, "page-id", "Compare:PageId", d);
         AddIfExplicit(pr, "page-title", "Compare:PageTitle", d);

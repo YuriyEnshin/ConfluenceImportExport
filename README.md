@@ -107,18 +107,21 @@ dotnet build
   },
   "Download": {
     "PageId": "12345",
-    "OutputDir": "./export"
+    "OutputDir": "./export",
+    "Merge": {
+      "OutputDir": "./export-merge"
+    }
   },
   "Upload": {
+    "SourceDir": "./export",
     "Update": {
-      "SourceDir": "./export/MyPage"
-    },
-    "Merge": {
-      "SourceDir": "./export/MyPage"
+      "PageId": "67890"
     },
     "Create": {
-      "SourceDir": "./export/NewPage",
       "ParentTitle": "Architecture"
+    },
+    "Merge": {
+      "PageTitle": "MyPage"
     }
   },
   "Compare": {
@@ -129,6 +132,21 @@ dotnet build
 }
 ```
 
+### Наследование параметров
+
+Конфигурация поддерживает двухуровневую модель: общие параметры команды наследуются подкомандами и могут быть переопределены на уровне подкоманды.
+
+Цепочка разрешения значений (от высшего приоритета к низшему):
+
+1. **Секция подкоманды** — например, `Download:Update:OutputDir`
+2. **Секция команды** — например, `Download:OutputDir`
+3. **Global** — для параметра `Recursive` (fallback в коде хэндлера)
+4. **Значение по умолчанию** — `false` / `null`
+
+Пример: если в JSON указан `"Download": { "PageId": "12345", "OutputDir": "./export", "Merge": { "OutputDir": "./export-merge" } }`, то:
+- `download update` получит `PageId = 12345`, `OutputDir = ./export` (наследование от `Download`)
+- `download merge` получит `PageId = 12345` (наследование), `OutputDir = ./export-merge` (переопределение)
+
 ### Переменные окружения
 
 Переменные окружения именуются по формату `CONFLUENCE_EXPORTER__<Секция>__<Параметр>` (всё в верхнем регистре):
@@ -138,6 +156,8 @@ export CONFLUENCE_EXPORTER__GLOBAL__BASEURL=https://wiki.example.com
 export CONFLUENCE_EXPORTER__GLOBAL__USERNAME=user@example.com
 export CONFLUENCE_EXPORTER__GLOBAL__TOKEN=secret
 export CONFLUENCE_EXPORTER__DOWNLOAD__OUTPUTDIR=./export
+export CONFLUENCE_EXPORTER__DOWNLOAD__UPDATE__PAGEID=12345
+export CONFLUENCE_EXPORTER__UPLOAD__SOURCEDIR=./export
 ```
 
 ## Формат вызова
