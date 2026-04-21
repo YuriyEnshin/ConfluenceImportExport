@@ -9,7 +9,7 @@ public class ExceptionHandlingIntegrationTests
     private static string GetProjectPath()
     {
         var assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".";
-        return Path.GetFullPath(Path.Combine(assemblyDir, "..", "..", "..", "..", "ConfluencePageExporter.csproj"));
+        return Path.GetFullPath(Path.Combine(assemblyDir, "..", "..", "..", "..", "..", "src", "ConfluencePageExporter", "ConfluencePageExporter.csproj"));
     }
 
     [Fact]

@@ -102,3 +102,10 @@ _ReSharper*/
 *.bak
 *.tmp
 *.swp
+
+############################
+# AI assistants
+############################
+.cursor/
+.claude/
+CLAUDE.md
