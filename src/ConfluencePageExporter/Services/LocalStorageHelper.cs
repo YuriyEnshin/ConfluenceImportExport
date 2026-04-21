@@ -199,7 +199,13 @@ public static class LocalStorageHelper
         if (!Directory.Exists(rootDir))
             return index;
 
-        foreach (var markerFile in Directory.EnumerateFiles(rootDir, ".id*", SearchOption.AllDirectories))
+        // Sort deterministically: Directory.EnumerateFiles order is filesystem-defined
+        // (alphabetic on NTFS, inode-order on ext4/tmpfs), which makes the "first marker wins"
+        // dedup pick non-reproducible across OSes/filesystems.
+        var markerFiles = Directory.EnumerateFiles(rootDir, ".id*", SearchOption.AllDirectories)
+            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var markerFile in markerFiles)
         {
             var markerName = Path.GetFileName(markerFile);
             if (!markerName.StartsWith(".id", StringComparison.OrdinalIgnoreCase) || markerName.Length <= 3)

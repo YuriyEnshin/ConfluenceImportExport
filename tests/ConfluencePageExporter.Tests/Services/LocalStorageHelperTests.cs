@@ -21,6 +21,10 @@ public class LocalStorageHelperTests
     [Fact]
     public void SanitizeFileName_ShouldReplaceTrailingInvalidCharConsistently()
     {
+        // " is invalid only on Windows; Linux/macOS accept it as a filename char.
+        if (!OperatingSystem.IsWindows())
+            Assert.Skip("Quote character is a valid filename char on non-Windows filesystems.");
+
         var result = LocalStorageHelper.SanitizeFileName("Модуль \"Провайдеры\"");
 
         result.Should().Be("Модуль _Провайдеры_");
@@ -29,6 +33,10 @@ public class LocalStorageHelperTests
     [Fact]
     public void SanitizeFileName_ShouldReplaceMultipleAdjacentInvalidChars()
     {
+        // < and > are invalid only on Windows; Linux/macOS accept them as filename chars.
+        if (!OperatingSystem.IsWindows())
+            Assert.Skip("Angle bracket characters are valid filename chars on non-Windows filesystems.");
+
         var result = LocalStorageHelper.SanitizeFileName("a<>b");
 
         result.Should().Be("a__b");
@@ -490,6 +498,12 @@ public class LocalStorageHelperTests
     [Fact]
     public void GetPageTitle_ShouldReturnOriginalTitle_WhenFolderMatchesSanitized()
     {
+        // Setup presumes " gets sanitized into _, which only happens on Windows.
+        // On Linux/macOS the original title would produce a folder named Модуль "Провайдеры"
+        // directly, so the pre-sanitized folder setup below is not a natural state.
+        if (!OperatingSystem.IsWindows())
+            Assert.Skip("Quote character is a valid filename char on non-Windows filesystems.");
+
         using var temp = new TempDirectoryScope();
         var pageDir = temp.CreateDirectory("Модуль _Провайдеры_");
         File.WriteAllText(Path.Combine(pageDir, ".id123"), "Модуль \"Провайдеры\"");
