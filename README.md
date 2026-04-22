@@ -68,11 +68,35 @@
 
 Инструкции по подключению для разных инструментов — в [`docs/ai-rules/README.md`](docs/ai-rules/README.md).
 
-## Сборка
+## Установка
+
+Готовые сборки публикуются на [GitHub Releases](https://github.com/YuriyEnshin/ConfluenceImportExport/releases) как self-contained single-file архивы — .NET Runtime ставить не нужно.
+
+| Платформа     | Архив                                                     |
+|---------------|-----------------------------------------------------------|
+| Windows x64   | `ConfluencePageExporter-v<версия>-win-x64.zip`            |
+| Linux x64     | `ConfluencePageExporter-v<версия>-linux-x64.tar.gz`       |
+| macOS arm64   | `ConfluencePageExporter-v<версия>-osx-arm64.tar.gz`       |
+
+После распаковки архива получаете один исполняемый файл (`ConfluencePageExporter.exe` или `ConfluencePageExporter`), `README.md` и `LICENSE`. На macOS/Linux потребуется `chmod +x ConfluencePageExporter`.
+
+## Сборка из исходников
 
 ```bash
 dotnet build
 ```
+
+Самостоятельная публикация self-contained single-file сборки:
+
+```bash
+dotnet publish src/ConfluencePageExporter -c Release -r <RID> \
+  --self-contained true \
+  -p:PublishSingleFile=true \
+  -p:IncludeNativeLibrariesForSelfExtract=true \
+  -p:EnableCompressionInSingleFile=true
+```
+
+где `<RID>` — один из `win-x64`, `linux-x64`, `linux-arm64`, `osx-arm64`, `osx-x64`.
 
 ## Конфигурация
 
