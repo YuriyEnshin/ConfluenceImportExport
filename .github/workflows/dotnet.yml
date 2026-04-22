@@ -30,18 +30,18 @@ jobs:
     - name: Build
       run: dotnet build --no-restore
     - name: Test
-      run: dotnet test --no-build -- --report-trx --report-trx-filename tests.trx
+      run: dotnet test --no-build -- --report-trx --report-trx-filename tests.trx --results-directory ${{ github.workspace }}/TestResults
     - name: Upload TRX report
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: test-results
-        path: '**/TestResults/tests.trx'
+        path: TestResults/tests.trx
     - name: Publish test report
       if: always()
       uses: dorny/test-reporter@v2
       with:
         name: xUnit tests
-        path: '**/TestResults/tests.trx'
+        path: TestResults/tests.trx
         reporter: dotnet-trx
         fail-on-error: false
