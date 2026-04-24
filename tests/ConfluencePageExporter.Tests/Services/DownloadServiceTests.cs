@@ -354,4 +354,92 @@ public class DownloadServiceTests
         content.Should().Be("<p>local edit</p>");
         report.ConflictPages.Should().HaveCount(1);
     }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_ShouldDownloadAllSiblings_UnderParallelism()
+    {
+        // Регрессионный: параллельный обход 5 сиблингов (upper bound для реалистичного
+        // recursive-сценария) не должен терять страницы, путать пути или ломать SyncReport.
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var children = Enumerable.Range(1, 5)
+            .Select(i => ApiClientMockFactory.CreatePage($"ch{i}", $"Child{i}", $"<p>child {i}</p>", "1", "Root"))
+            .ToList();
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([]);
+        api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync(children);
+        foreach (var ch in children)
+        {
+            api.Setup(x => x.GetAttachmentsAsync(ch.Id)).ReturnsAsync([]);
+            api.Setup(x => x.GetChildrenPagesAsync(ch.Id)).ReturnsAsync([]);
+        }
+
+        var service = new DownloadService(
+            api.Object,
+            LoggerTestHelper.CreateLogger<DownloadService>(),
+            maxParallelism: 8);
+
+        await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: true);
+
+        foreach (var ch in children)
+        {
+            var childDir = Path.Combine(outputDir, "Root", ch.Title);
+            File.Exists(Path.Combine(childDir, "index.html")).Should().BeTrue();
+            LocalStorageHelper.ReadPageIdFromMarker(childDir).Should().Be(ch.Id);
+        }
+
+        foreach (var ch in children)
+            api.Verify(x => x.GetAttachmentsAsync(ch.Id), Times.Once);
+        api.VerifyAll();
+    }
+
+    [Fact]
+    public async Task DownloadMergeAsync_ShouldCollectAllSkipReasons_UnderParallelism()
+    {
+        // Параллельный обход не должен терять записи в SyncReport (ConcurrentBag).
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+
+        // Версии маркера и сервера совпадают → ChangeOrigin.Local → AddSkipped.
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", versionNumber: 3);
+        var children = Enumerable.Range(1, 5)
+            .Select(i => ApiClientMockFactory.CreatePage($"ch{i}", $"Child{i}", $"<p>server {i}</p>", "1", "Root", versionNumber: 3))
+            .ToList();
+
+        LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1", version: 3);
+        var rootLocalDir = Path.Combine(outputDir, "Root");
+        foreach (var i in Enumerable.Range(1, 5))
+        {
+            var childDir = LocalPageTreeBuilder.CreatePage(rootLocalDir, $"Child{i}", $"<p>local {i}</p>", $"ch{i}", version: 3);
+            File.SetLastWriteTimeUtc(Path.Combine(childDir, "index.html"), DateTime.UtcNow);
+            var markerPath = Directory.GetFiles(childDir, ".id*").First();
+            File.SetLastWriteTimeUtc(markerPath, DateTime.UtcNow.AddHours(-1));
+        }
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([]);
+        api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync(children);
+        foreach (var ch in children)
+        {
+            api.Setup(x => x.GetAttachmentsAsync(ch.Id)).ReturnsAsync([]);
+            api.Setup(x => x.GetChildrenPagesAsync(ch.Id)).ReturnsAsync([]);
+        }
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new DownloadService(
+            api.Object,
+            LoggerTestHelper.CreateLogger<DownloadService>(),
+            maxParallelism: 8);
+
+        var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: true, analyzer);
+
+        report.SkippedPages.Should().HaveCount(5);
+        report.SkippedPages.Select(x => x.PageId).Should().BeEquivalentTo(
+            new[] { "ch1", "ch2", "ch3", "ch4", "ch5" });
+    }
 }
