@@ -5,8 +5,6 @@
     <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
-    <!-- xUnit1051: recommends TestContext.Current.CancellationToken; existing tests pre-date v3. -->
-    <WarningsNotAsErrors>xUnit1051</WarningsNotAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
