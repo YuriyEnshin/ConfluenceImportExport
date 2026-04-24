@@ -1,4 +1,4 @@
-# Confluence Page Exporter v2.3
+# Confluence Page Exporter v2.5
 
 Утилита командной строки для синхронизации страниц Confluence с локальной структурой папок.
 
@@ -113,6 +113,7 @@ dotnet publish src/ConfluencePageExporter -c Release -r <RID> \
 - `--config <path>` — путь к JSON-файлу конфигурации
 - `--verbose` — включить подробный (debug-level) вывод в лог
 - `--report` — вывести сводку страниц, требующих ручной обработки, после завершения команды
+- `--max-parallelism N` — максимальное число одновременных операций при обходе дерева страниц в `download`/`upload` (по умолчанию `8`; `1` отключает параллелизм)
 
 ### Пример `confluence-exporter.json`
 
@@ -126,7 +127,8 @@ dotnet publish src/ConfluencePageExporter -c Release -r <RID> \
     "AuthType": "onprem",
     "DryRun": false,
     "Recursive": true,
-    "Report": false
+    "Report": false,
+    "MaxParallelism": 8
   },
   "Download": {
     "PageId": "12345",
