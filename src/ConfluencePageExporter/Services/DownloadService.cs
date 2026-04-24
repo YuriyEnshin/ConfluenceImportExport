@@ -69,10 +69,13 @@ public class DownloadService
         await SavePageContentForUpdate(page, pageDir);
         await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title);
 
-        var attachments = await _apiClient.GetAttachmentsAsync(page.Id);
-        await SaveAttachments(attachments, pageDir);
+        if (page.ChildTypes?.HasAttachments ?? true)
+        {
+            var attachments = await _apiClient.GetAttachmentsAsync(page.Id);
+            await SaveAttachments(attachments, pageDir);
+        }
 
-        if (recursive)
+        if (recursive && (page.ChildTypes?.HasPages ?? true))
         {
             var children = await _apiClient.GetChildrenPagesAsync(page.Id);
             await Parallel.ForEachAsync(
@@ -141,10 +144,13 @@ public class DownloadService
             }
         }
 
-        var attachments = await _apiClient.GetAttachmentsAsync(page.Id);
-        await SaveAttachments(attachments, pageDir);
+        if (page.ChildTypes?.HasAttachments ?? true)
+        {
+            var attachments = await _apiClient.GetAttachmentsAsync(page.Id);
+            await SaveAttachments(attachments, pageDir);
+        }
 
-        if (recursive)
+        if (recursive && (page.ChildTypes?.HasPages ?? true))
         {
             var children = await _apiClient.GetChildrenPagesAsync(page.Id);
             await Parallel.ForEachAsync(

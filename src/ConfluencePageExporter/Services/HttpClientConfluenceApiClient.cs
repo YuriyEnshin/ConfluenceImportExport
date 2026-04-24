@@ -35,17 +35,17 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
 
     public async Task<PageData> GetPageByIdAsync(string pageId)
     {
-        var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors,version";
+        var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors,version,childTypes.all";
         using var response = await _httpClient.GetAsync(url);
         response.EnsureSuccessStatusCode();
         var content = await response.Content.ReadAsStringAsync();
-        return JsonConvert.DeserializeObject<PageData>(content) 
+        return JsonConvert.DeserializeObject<PageData>(content)
             ?? throw new Exception($"Could not deserialize page with ID {pageId}");
     }
 
     public async Task<PageData?> TryGetPageByIdAsync(string pageId)
     {
-        var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors,version";
+        var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors,version,childTypes.all";
         using var response = await _httpClient.GetAsync(url);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             return null;
@@ -62,7 +62,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
 
         while (true)
         {
-            var url = $"{_baseUrl}/rest/api/content/{parentId}/child/page?limit={limit}&start={start}&expand=body.storage,version";
+            var url = $"{_baseUrl}/rest/api/content/{parentId}/child/page?limit={limit}&start={start}&expand=body.storage,version,childTypes.all";
             using var response = await _httpClient.GetAsync(url);
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsStringAsync();

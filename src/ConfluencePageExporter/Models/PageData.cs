@@ -22,7 +22,28 @@ public class PageData
     [JsonProperty("ancestors")]
     public List<PageAncestor> Ancestors { get; set; } = new();
 
+    [JsonProperty("childTypes")]
+    public ChildTypes? ChildTypes { get; set; }
+
     public string? ParentId => Ancestors.Count > 0 ? Ancestors[^1].Id : null;
+}
+
+public class ChildTypes
+{
+    [JsonProperty("page")]
+    public ChildTypeFlag? Page { get; set; }
+
+    [JsonProperty("attachment")]
+    public ChildTypeFlag? Attachment { get; set; }
+
+    public bool HasPages => Page?.Value ?? true;
+    public bool HasAttachments => Attachment?.Value ?? true;
+}
+
+public class ChildTypeFlag
+{
+    [JsonProperty("value")]
+    public bool Value { get; set; }
 }
 
 public class PageAncestor
