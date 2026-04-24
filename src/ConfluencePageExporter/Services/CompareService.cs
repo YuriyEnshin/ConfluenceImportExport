@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using ConfluencePageExporter.Models;
 
@@ -8,15 +10,18 @@ public class CompareService
     private readonly IConfluenceApiClient _apiClient;
     private readonly ChangeSourceAnalyzer _changeSourceAnalyzer;
     private readonly ILogger<CompareService> _logger;
+    private readonly int _maxParallelism;
 
     public CompareService(
         IConfluenceApiClient apiClient,
         ChangeSourceAnalyzer changeSourceAnalyzer,
-        ILogger<CompareService> logger)
+        ILogger<CompareService> logger,
+        int maxParallelism = 8)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
         _changeSourceAnalyzer = changeSourceAnalyzer ?? throw new ArgumentNullException(nameof(changeSourceAnalyzer));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _maxParallelism = maxParallelism < 1 ? 1 : maxParallelism;
     }
 
     public async Task<CompareReport> CompareAsync(
@@ -28,6 +33,28 @@ public class CompareService
         bool matchByTitleWhenNoId = false,
         bool detectSource = false)
     {
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            return await CompareInternalAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitleWhenNoId, detectSource);
+        }
+        finally
+        {
+            _logger.LogInformation(
+                "[PROFILE] Compare completed in {ElapsedMs}ms",
+                (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        }
+    }
+
+    private async Task<CompareReport> CompareInternalAsync(
+        string spaceKey,
+        string? pageId,
+        string? pageTitle,
+        string outputDir,
+        bool recursive,
+        bool matchByTitleWhenNoId,
+        bool detectSource)
+    {
         var report = new CompareReport { DetectSourceEnabled = detectSource };
         var resolvedRootPageId = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, pageId, pageTitle);
         if (resolvedRootPageId == null)
@@ -36,7 +63,7 @@ public class CompareService
         var rootPage = await _apiClient.GetPageByIdAsync(resolvedRootPageId);
         var rootRelativePath = LocalStorageHelper.NormalizeRelativePath(LocalStorageHelper.SanitizeFileName(rootPage.Title));
 
-        var remotePages = new Dictionary<string, RemotePageSnapshot>(StringComparer.OrdinalIgnoreCase);
+        var remotePages = new ConcurrentDictionary<string, RemotePageSnapshot>(StringComparer.OrdinalIgnoreCase);
         await CollectRemotePagesAsync(rootPage, rootRelativePath, recursive, remotePages);
 
         var localSnapshot = BuildLocalPagesForComparison(
@@ -160,7 +187,7 @@ public class CompareService
         PageData page,
         string relativePath,
         bool recursive,
-        Dictionary<string, RemotePageSnapshot> remotePages)
+        ConcurrentDictionary<string, RemotePageSnapshot> remotePages)
     {
         remotePages[page.Id] = new RemotePageSnapshot(
             page.Id,
@@ -173,13 +200,19 @@ public class CompareService
         if (!recursive)
             return;
 
+        if (!(page.ChildTypes?.HasPages ?? true))
+            return;
+
         var children = await _apiClient.GetChildrenPagesAsync(page.Id);
-        foreach (var child in children)
-        {
-            var childRelativePath = LocalStorageHelper.NormalizeRelativePath(
-                Path.Combine(relativePath, LocalStorageHelper.SanitizeFileName(child.Title)));
-            await CollectRemotePagesAsync(child, childRelativePath, recursive, remotePages);
-        }
+        await Parallel.ForEachAsync(
+            children,
+            new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+            async (child, _) =>
+            {
+                var childRelativePath = LocalStorageHelper.NormalizeRelativePath(
+                    Path.Combine(relativePath, LocalStorageHelper.SanitizeFileName(child.Title)));
+                await CollectRemotePagesAsync(child, childRelativePath, recursive, remotePages);
+            });
     }
 
     private LocalComparisonSnapshot BuildLocalPagesForComparison(

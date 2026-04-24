@@ -304,4 +304,79 @@ public class CompareServiceTests
 
         report.RenamedOrMovedInConfluence.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task CompareAsync_ShouldSkipChildrenApi_WhenChildTypesHasPagesFalse()
+    {
+        // Оптимизация: для листьев (childTypes.page.value=false) запрос /child/page
+        // не должен делаться — strict mock без setup зафейлит тест, если мы всё-таки его вызовем.
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        LocalPageTreeBuilder.CreatePage(outputDir, "Leaf", "<p>leaf</p>", "1");
+
+        var leaf = ApiClientMockFactory.CreatePage(
+            "1", "Leaf", "<p>leaf</p>",
+            hasPages: false, hasAttachments: false);
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(leaf);
+
+        var service = CreateService(api);
+
+        var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
+
+        report.AddedInConfluence.Should().BeEmpty();
+        report.DeletedInConfluence.Should().BeEmpty();
+        api.Verify(x => x.GetChildrenPagesAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CompareAsync_ShouldStillCallChildrenApi_WhenChildTypesIsNull()
+    {
+        // Backward-compat: если сервер не вернул childTypes (старая версия API),
+        // должны fallback к старому поведению и запросить /child/page.
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
+
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+        api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([]);
+
+        var service = CreateService(api);
+
+        await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
+
+        api.Verify(x => x.GetChildrenPagesAsync("1"), Times.Once);
+    }
+
+    [Fact]
+    public async Task CompareAsync_ShouldCollectAllChildren_UnderParallelism()
+    {
+        // Параллельный обход не должен терять страницы из ConcurrentDictionary.
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
+
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var children = Enumerable.Range(1, 10)
+            .Select(i => ApiClientMockFactory.CreatePage($"ch{i}", $"Child{i}", $"<p>child {i}</p>", "1", "Root"))
+            .ToList();
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+        api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync(children);
+        foreach (var ch in children)
+            api.Setup(x => x.GetChildrenPagesAsync(ch.Id)).ReturnsAsync([]);
+
+        var service = CreateService(api);
+
+        var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
+
+        report.AddedInConfluence.Should().HaveCount(10);
+        report.AddedInConfluence.Select(p => p.PageId).Should()
+            .BeEquivalentTo(children.Select(c => c.Id));
+    }
 }
