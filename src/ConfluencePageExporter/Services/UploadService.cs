@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using ConfluencePageExporter.Models;
@@ -23,6 +24,7 @@ public class UploadService
         string spaceKey, string sourceDir, string? explicitPageId,
         string? explicitPageTitle, bool recursive)
     {
+        var started = Stopwatch.GetTimestamp();
         var report = new SyncReport();
         LocalStorageHelper.ValidateSourceDirectory(sourceDir);
 
@@ -39,6 +41,9 @@ public class UploadService
                 await ProcessChildForUpdate(spaceKey, childDir, rootPageId, report);
         }
 
+        _logger.LogInformation(
+            "[PROFILE] UploadUpdate completed in {ElapsedMs}ms",
+            (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         return report;
     }
 
@@ -48,6 +53,7 @@ public class UploadService
         string spaceKey, string sourceDir, string? explicitPageId,
         string? explicitPageTitle, bool recursive, ChangeSourceAnalyzer analyzer)
     {
+        var started = Stopwatch.GetTimestamp();
         var report = new SyncReport();
         LocalStorageHelper.ValidateSourceDirectory(sourceDir);
 
@@ -61,6 +67,9 @@ public class UploadService
                 await ProcessChildForMerge(spaceKey, childDir, rootPageId, analyzer, report);
         }
 
+        _logger.LogInformation(
+            "[PROFILE] UploadMerge completed in {ElapsedMs}ms",
+            (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         return report;
     }
 
@@ -68,6 +77,7 @@ public class UploadService
 
     public async Task UploadCreateAsync(string spaceKey, string sourceDir, string? parentId, string? parentTitle, bool recursive)
     {
+        var started = Stopwatch.GetTimestamp();
         LocalStorageHelper.ValidateSourceDirectory(sourceDir);
 
         string? resolvedParentId = null;
@@ -88,6 +98,10 @@ public class UploadService
             foreach (var childDir in LocalStorageHelper.GetPageSubdirectories(sourceDir))
                 await ProcessChildForCreate(spaceKey, childDir, createResult.Id);
         }
+
+        _logger.LogInformation(
+            "[PROFILE] UploadCreate completed in {ElapsedMs}ms",
+            (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
     }
 
     // ── update internals ──────────────────────────────────────────────
@@ -500,8 +514,15 @@ public class UploadService
         }
 
         var remoteContent = await _apiClient.DownloadAttachmentAsync(serverAttachment.Links.DownloadUrl);
+
+        var started = Stopwatch.GetTimestamp();
         var localHash = await ComputeFileHashAsync(localFilePath);
         var remoteHash = ComputeHash(remoteContent);
+        var elapsedMs = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+
+        _logger.LogDebug(
+            "[PROFILE] SHA256 compared ({Bytes} bytes) in {ElapsedMs}ms: {FileName}",
+            remoteContent.Length, elapsedMs, serverAttachment.Title);
 
         bool differs = !localHash.SequenceEqual(remoteHash);
         if (differs)
