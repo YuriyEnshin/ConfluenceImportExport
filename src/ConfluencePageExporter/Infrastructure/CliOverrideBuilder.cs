@@ -22,6 +22,7 @@ public static class CliOverrideBuilder
         AddIfExplicit(parseResult, "auth-type", "Global:AuthType", result);
         AddIfExplicit(parseResult, "dry-run", "Global:DryRun", result, isFlag: true);
         AddIfExplicit(parseResult, "report", "Global:Report", result, isFlag: true);
+        AddIfExplicit(parseResult, "max-parallelism", "Global:MaxParallelism", result);
 
         switch (commandPath)
         {

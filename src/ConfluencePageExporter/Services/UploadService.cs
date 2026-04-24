@@ -9,12 +9,18 @@ public class UploadService
     private readonly IConfluenceApiClient _apiClient;
     private readonly ILogger<UploadService> _logger;
     private readonly bool _dryRun;
+    private readonly int _maxParallelism;
 
-    public UploadService(IConfluenceApiClient apiClient, ILogger<UploadService> logger, bool dryRun = false)
+    public UploadService(
+        IConfluenceApiClient apiClient,
+        ILogger<UploadService> logger,
+        bool dryRun = false,
+        int maxParallelism = 8)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _dryRun = dryRun;
+        _maxParallelism = maxParallelism < 1 ? 1 : maxParallelism;
     }
 
     // ── upload update (force: local → server) ─────────────────────────
@@ -35,8 +41,10 @@ public class UploadService
 
         if (recursive)
         {
-            foreach (var childDir in LocalStorageHelper.GetPageSubdirectories(sourceDir))
-                await ProcessChildForUpdate(spaceKey, childDir, rootPageId, report);
+            await Parallel.ForEachAsync(
+                LocalStorageHelper.GetPageSubdirectories(sourceDir),
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+                async (childDir, _) => await ProcessChildForUpdate(spaceKey, childDir, rootPageId, report));
         }
 
         return report;
@@ -57,8 +65,10 @@ public class UploadService
 
         if (recursive)
         {
-            foreach (var childDir in LocalStorageHelper.GetPageSubdirectories(sourceDir))
-                await ProcessChildForMerge(spaceKey, childDir, rootPageId, analyzer, report);
+            await Parallel.ForEachAsync(
+                LocalStorageHelper.GetPageSubdirectories(sourceDir),
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+                async (childDir, _) => await ProcessChildForMerge(spaceKey, childDir, rootPageId, analyzer, report));
         }
 
         return report;
@@ -85,8 +95,10 @@ public class UploadService
 
         if (recursive)
         {
-            foreach (var childDir in LocalStorageHelper.GetPageSubdirectories(sourceDir))
-                await ProcessChildForCreate(spaceKey, childDir, createResult.Id);
+            await Parallel.ForEachAsync(
+                LocalStorageHelper.GetPageSubdirectories(sourceDir),
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+                async (childDir, _) => await ProcessChildForCreate(spaceKey, childDir, createResult.Id));
         }
     }
 
@@ -206,8 +218,10 @@ public class UploadService
             resolvedPageId = createResult.Id;
             await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle);
 
-            foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
-                await ProcessChildForCreate(spaceKey, grandchildDir, resolvedPageId);
+            await Parallel.ForEachAsync(
+                LocalStorageHelper.GetPageSubdirectories(childDir),
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+                async (grandchildDir, _) => await ProcessChildForCreate(spaceKey, grandchildDir, resolvedPageId));
         }
         else
         {
@@ -215,8 +229,10 @@ public class UploadService
             if (updateResult != null)
                 await UpdatePageIdMarker(childDir, updateResult.Id, updateResult.VersionNumber, effectiveTitle);
 
-            foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
-                await ProcessChildForUpdate(spaceKey, grandchildDir, resolvedPageId!, report);
+            await Parallel.ForEachAsync(
+                LocalStorageHelper.GetPageSubdirectories(childDir),
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+                async (grandchildDir, _) => await ProcessChildForUpdate(spaceKey, grandchildDir, resolvedPageId!, report));
         }
     }
 
@@ -329,15 +345,19 @@ public class UploadService
             resolvedPageId = createResult.Id;
             await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle);
 
-            foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
-                await ProcessChildForCreate(spaceKey, grandchildDir, resolvedPageId);
+            await Parallel.ForEachAsync(
+                LocalStorageHelper.GetPageSubdirectories(childDir),
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+                async (grandchildDir, _) => await ProcessChildForCreate(spaceKey, grandchildDir, resolvedPageId));
         }
         else
         {
             await MergeUploadPageAsync(spaceKey, resolvedPageId, childDir, analyzer, report);
 
-            foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
-                await ProcessChildForMerge(spaceKey, grandchildDir, resolvedPageId, analyzer, report);
+            await Parallel.ForEachAsync(
+                LocalStorageHelper.GetPageSubdirectories(childDir),
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+                async (grandchildDir, _) => await ProcessChildForMerge(spaceKey, grandchildDir, resolvedPageId, analyzer, report));
         }
     }
 
@@ -349,8 +369,10 @@ public class UploadService
         if (createResult == null) return;
         await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle);
 
-        foreach (var grandchildDir in LocalStorageHelper.GetPageSubdirectories(childDir))
-            await ProcessChildForCreate(spaceKey, grandchildDir, createResult.Id);
+        await Parallel.ForEachAsync(
+            LocalStorageHelper.GetPageSubdirectories(childDir),
+            new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+            async (grandchildDir, _) => await ProcessChildForCreate(spaceKey, grandchildDir, createResult.Id));
     }
 
     private async Task<(PageUpdateResult? Result, string? Title)> CreatePageFromDirectory(string spaceKey, string pageDir, string? parentId)
@@ -457,32 +479,35 @@ public class UploadService
 
         var existingAttachments = await _apiClient.GetAttachmentsAsync(pageId);
 
-        foreach (var file in files)
-        {
-            var fileName = Path.GetFileName(file);
-            var existing = existingAttachments.FirstOrDefault(
-                a => a.Title.Equals(fileName, StringComparison.OrdinalIgnoreCase));
-
-            if (existing != null)
+        await Parallel.ForEachAsync(
+            files,
+            new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+            async (file, _) =>
             {
-                bool changed = await IsAttachmentChangedAsync(file, existing);
-                if (!changed)
+                var fileName = Path.GetFileName(file);
+                var existing = existingAttachments.FirstOrDefault(
+                    a => a.Title.Equals(fileName, StringComparison.OrdinalIgnoreCase));
+
+                if (existing != null)
                 {
-                    _logger.LogDebug("Attachment '{FileName}' on page {PageId} is unchanged, skipping", fileName, pageId);
-                    continue;
-                }
+                    bool changed = await IsAttachmentChangedAsync(file, existing);
+                    if (!changed)
+                    {
+                        _logger.LogDebug("Attachment '{FileName}' on page {PageId} is unchanged, skipping", fileName, pageId);
+                        return;
+                    }
 
-                var updated = await _apiClient.UpdateAttachmentDataAsync(pageId, existing.Id, file, fileName);
-                if (updated)
-                    _logger.LogInformation("Updated attachment '{FileName}' (new version) on page {PageId}", fileName, pageId);
-            }
-            else
-            {
-                var uploaded = await _apiClient.UploadAttachmentAsync(pageId, file, fileName);
-                if (uploaded)
-                    _logger.LogInformation("Uploaded new attachment '{FileName}' to page {PageId}", fileName, pageId);
-            }
-        }
+                    var updated = await _apiClient.UpdateAttachmentDataAsync(pageId, existing.Id, file, fileName);
+                    if (updated)
+                        _logger.LogInformation("Updated attachment '{FileName}' (new version) on page {PageId}", fileName, pageId);
+                }
+                else
+                {
+                    var uploaded = await _apiClient.UploadAttachmentAsync(pageId, file, fileName);
+                    if (uploaded)
+                        _logger.LogInformation("Uploaded new attachment '{FileName}' to page {PageId}", fileName, pageId);
+                }
+            });
     }
 
     private async Task<bool> IsAttachmentChangedAsync(string localFilePath, AttachmentData serverAttachment)
