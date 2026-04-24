@@ -398,6 +398,54 @@ public class DownloadServiceTests
     }
 
     [Fact]
+    public async Task DownloadUpdateAsync_ShouldSkipAttachmentsAndChildrenApi_WhenChildTypesFlagsAreFalse()
+    {
+        // Оптимизация: для листьев (childTypes.page.value=false, childTypes.attachment.value=false)
+        // запросы /child/attachment и /child/page не должны делаться — strict mock без setup
+        // зафейлит тест, если мы всё-таки их вызовем.
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+
+        var page = ApiClientMockFactory.CreatePage(
+            "1", "Leaf", "<p>leaf</p>",
+            hasPages: false, hasAttachments: false);
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
+
+        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+
+        await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: true);
+
+        File.Exists(Path.Combine(outputDir, "Leaf", "index.html")).Should().BeTrue();
+        api.Verify(x => x.GetAttachmentsAsync(It.IsAny<string>()), Times.Never);
+        api.Verify(x => x.GetChildrenPagesAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_ShouldStillCallChildrenApi_WhenChildTypesIsNull()
+    {
+        // Backward-compat: если сервер не вернул childTypes (старая версия API
+        // или expand не поддержан), должны fallback к старому поведению и запросить.
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+
+        var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([]);
+        api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([]);
+
+        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+
+        await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: true);
+
+        api.Verify(x => x.GetAttachmentsAsync("1"), Times.Once);
+        api.Verify(x => x.GetChildrenPagesAsync("1"), Times.Once);
+    }
+
+    [Fact]
     public async Task DownloadMergeAsync_ShouldCollectAllSkipReasons_UnderParallelism()
     {
         // Параллельный обход не должен терять записи в SyncReport (ConcurrentBag).
