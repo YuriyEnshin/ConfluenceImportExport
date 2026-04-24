@@ -16,7 +16,9 @@ public static class ApiClientMockFactory
         string content,
         string? parentId = null,
         string? parentTitle = null,
-        int versionNumber = 1)
+        int versionNumber = 1,
+        bool? hasPages = null,
+        bool? hasAttachments = null)
     {
         return new PageData
         {
@@ -33,7 +35,14 @@ public static class ApiClientMockFactory
             Version = new VersionInfo { Number = versionNumber },
             Ancestors = parentId == null
                 ? []
-                : [new PageAncestor { Id = parentId, Title = parentTitle ?? $"parent-{parentId}" }]
+                : [new PageAncestor { Id = parentId, Title = parentTitle ?? $"parent-{parentId}" }],
+            ChildTypes = (hasPages.HasValue || hasAttachments.HasValue)
+                ? new ChildTypes
+                {
+                    Page = hasPages.HasValue ? new ChildTypeFlag { Value = hasPages.Value } : null,
+                    Attachment = hasAttachments.HasValue ? new ChildTypeFlag { Value = hasAttachments.Value } : null
+                }
+                : null
         };
     }
 
