@@ -10,6 +10,7 @@ public class DownloadService
     private readonly ILogger<DownloadService> _logger;
     private readonly bool _dryRun;
     private readonly int _maxParallelism;
+    private readonly Lock _fsLock = new();
 
     public DownloadService(
         IConfluenceApiClient apiClient,
@@ -74,8 +75,10 @@ public class DownloadService
         if (recursive)
         {
             var children = await _apiClient.GetChildrenPagesAsync(page.Id);
-            foreach (var child in children)
-                await DownloadPageUpdateAsync(child, pageDir, recursive, pageDirectoryIndex, report);
+            await Parallel.ForEachAsync(
+                children,
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+                async (child, _) => await DownloadPageUpdateAsync(child, pageDir, recursive, pageDirectoryIndex, report));
         }
     }
 
@@ -144,8 +147,10 @@ public class DownloadService
         if (recursive)
         {
             var children = await _apiClient.GetChildrenPagesAsync(page.Id);
-            foreach (var child in children)
-                await DownloadPageMergeAsync(child, pageDir, recursive, pageDirectoryIndex, analyzer, report);
+            await Parallel.ForEachAsync(
+                children,
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+                async (child, _) => await DownloadPageMergeAsync(child, pageDir, recursive, pageDirectoryIndex, analyzer, report));
         }
     }
 
@@ -192,61 +197,68 @@ public class DownloadService
         PageData page, string parentDir,
         Dictionary<string, string> pageDirectoryIndex)
     {
-        var expectedDir = Path.GetFullPath(Path.Combine(parentDir, LocalStorageHelper.SanitizeFileName(page.Title)));
-        if (!pageDirectoryIndex.TryGetValue(page.Id, out var existingDir))
+        // Критическая секция: под параллельным обходом дерева несколько сиблингов
+        // могут одновременно запрашивать expectedDir, делать Directory.Move/Delete
+        // и мутировать общий индекс. Сетевой I/O здесь не происходит, операция
+        // быстрая — сериализация безопасна и не влияет на производительность.
+        lock (_fsLock)
         {
-            pageDirectoryIndex[page.Id] = expectedDir;
-            return expectedDir;
-        }
-
-        var normalizedExistingDir = Path.GetFullPath(existingDir);
-        if (!Directory.Exists(normalizedExistingDir))
-        {
-            pageDirectoryIndex[page.Id] = expectedDir;
-            return expectedDir;
-        }
-
-        if (LocalStorageHelper.PathsEqual(normalizedExistingDir, expectedDir))
-        {
-            pageDirectoryIndex[page.Id] = expectedDir;
-            return expectedDir;
-        }
-
-        var expectedParent = Path.GetDirectoryName(expectedDir);
-        if (!string.IsNullOrEmpty(expectedParent) && !_dryRun)
-            Directory.CreateDirectory(expectedParent);
-
-        _logger.LogInformation(
-            "Page {PageId} location changed on Confluence. Moving local directory: {OldPath} -> {NewPath}",
-            page.Id, normalizedExistingDir, expectedDir);
-
-        if (!_dryRun)
-        {
-            if (Directory.Exists(expectedDir))
+            var expectedDir = Path.GetFullPath(Path.Combine(parentDir, LocalStorageHelper.SanitizeFileName(page.Title)));
+            if (!pageDirectoryIndex.TryGetValue(page.Id, out var existingDir))
             {
-                var markerAtExpected = LocalStorageHelper.ReadPageIdFromMarker(expectedDir);
-                if (string.Equals(markerAtExpected, page.Id, StringComparison.OrdinalIgnoreCase))
-                {
-                    Directory.Delete(normalizedExistingDir, true);
-                    LocalStorageHelper.UpdateDirectoryIndexPaths(pageDirectoryIndex, normalizedExistingDir, expectedDir);
-                    pageDirectoryIndex[page.Id] = expectedDir;
-                    return expectedDir;
-                }
-
-                var backupPath = $"{expectedDir}.conflict_{DateTime.UtcNow:yyyyMMddHHmmssfff}";
-                Directory.Move(expectedDir, backupPath);
-                _logger.LogWarning(
-                    "Target directory already existed and was moved aside: {ExpectedDir} -> {BackupPath}",
-                    expectedDir, backupPath);
-                LocalStorageHelper.UpdateDirectoryIndexPaths(pageDirectoryIndex, expectedDir, backupPath);
+                pageDirectoryIndex[page.Id] = expectedDir;
+                return expectedDir;
             }
 
-            Directory.Move(normalizedExistingDir, expectedDir);
-        }
+            var normalizedExistingDir = Path.GetFullPath(existingDir);
+            if (!Directory.Exists(normalizedExistingDir))
+            {
+                pageDirectoryIndex[page.Id] = expectedDir;
+                return expectedDir;
+            }
 
-        LocalStorageHelper.UpdateDirectoryIndexPaths(pageDirectoryIndex, normalizedExistingDir, expectedDir);
-        pageDirectoryIndex[page.Id] = expectedDir;
-        return expectedDir;
+            if (LocalStorageHelper.PathsEqual(normalizedExistingDir, expectedDir))
+            {
+                pageDirectoryIndex[page.Id] = expectedDir;
+                return expectedDir;
+            }
+
+            var expectedParent = Path.GetDirectoryName(expectedDir);
+            if (!string.IsNullOrEmpty(expectedParent) && !_dryRun)
+                Directory.CreateDirectory(expectedParent);
+
+            _logger.LogInformation(
+                "Page {PageId} location changed on Confluence. Moving local directory: {OldPath} -> {NewPath}",
+                page.Id, normalizedExistingDir, expectedDir);
+
+            if (!_dryRun)
+            {
+                if (Directory.Exists(expectedDir))
+                {
+                    var markerAtExpected = LocalStorageHelper.ReadPageIdFromMarker(expectedDir);
+                    if (string.Equals(markerAtExpected, page.Id, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Directory.Delete(normalizedExistingDir, true);
+                        LocalStorageHelper.UpdateDirectoryIndexPaths(pageDirectoryIndex, normalizedExistingDir, expectedDir);
+                        pageDirectoryIndex[page.Id] = expectedDir;
+                        return expectedDir;
+                    }
+
+                    var backupPath = $"{expectedDir}.conflict_{DateTime.UtcNow:yyyyMMddHHmmssfff}";
+                    Directory.Move(expectedDir, backupPath);
+                    _logger.LogWarning(
+                        "Target directory already existed and was moved aside: {ExpectedDir} -> {BackupPath}",
+                        expectedDir, backupPath);
+                    LocalStorageHelper.UpdateDirectoryIndexPaths(pageDirectoryIndex, expectedDir, backupPath);
+                }
+
+                Directory.Move(normalizedExistingDir, expectedDir);
+            }
+
+            LocalStorageHelper.UpdateDirectoryIndexPaths(pageDirectoryIndex, normalizedExistingDir, expectedDir);
+            pageDirectoryIndex[page.Id] = expectedDir;
+            return expectedDir;
+        }
     }
 
     private async Task SavePageIdMarker(string pageId, int? version, string pageDir, string? originalTitle = null)
@@ -272,44 +284,47 @@ public class DownloadService
 
     private async Task SaveAttachments(List<AttachmentData> attachments, string pageDir)
     {
-        foreach (var att in attachments)
-        {
-            var filePath = Path.Combine(pageDir, LocalStorageHelper.SanitizeFileName(att.Title));
-
-            try
+        await Parallel.ForEachAsync(
+            attachments,
+            new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+            async (att, _) =>
             {
-                if (_dryRun)
+                var filePath = Path.Combine(pageDir, LocalStorageHelper.SanitizeFileName(att.Title));
+
+                try
                 {
-                    _logger.LogInformation("DRY RUN: Would download attachment '{Title}' -> {Path}", att.Title, filePath);
-                    continue;
-                }
+                    if (_dryRun)
+                    {
+                        _logger.LogInformation("DRY RUN: Would download attachment '{Title}' -> {Path}", att.Title, filePath);
+                        return;
+                    }
 
-                if (IsLocalFileSizeMatch(filePath, att))
+                    if (IsLocalFileSizeMatch(filePath, att))
+                    {
+                        _logger.LogDebug(
+                            "Attachment '{Title}' is up to date (size: {Size}), skipping download",
+                            att.Title, att.Extensions!.FileSize);
+                        return;
+                    }
+
+                    var fileContent = await _apiClient.DownloadAttachmentAsync(att.Links.DownloadUrl);
+
+                    if (await IsLocalContentMatchAsync(filePath, fileContent))
+                    {
+                        _logger.LogDebug(
+                            "Attachment '{Title}' content is unchanged after download (API fileSize mismatch: {ApiSize} vs actual {ActualSize}), skipping rewrite",
+                            att.Title, att.Extensions?.FileSize, fileContent.Length);
+                        return;
+                    }
+
+                    await File.WriteAllBytesAsync(filePath, fileContent);
+                    _logger.LogInformation("Downloaded attachment '{Title}' -> {Path}", att.Title, filePath);
+                }
+                catch (Exception ex)
                 {
-                    _logger.LogDebug(
-                        "Attachment '{Title}' is up to date (size: {Size}), skipping download",
-                        att.Title, att.Extensions!.FileSize);
-                    continue;
+                    _logger.LogError(ex, "Failed to download attachment: {Title}", att.Title);
                 }
-
-                var fileContent = await _apiClient.DownloadAttachmentAsync(att.Links.DownloadUrl);
-
-                if (await IsLocalContentMatchAsync(filePath, fileContent))
-                {
-                    _logger.LogDebug(
-                        "Attachment '{Title}' content is unchanged after download (API fileSize mismatch: {ApiSize} vs actual {ActualSize}), skipping rewrite",
-                        att.Title, att.Extensions?.FileSize, fileContent.Length);
-                    continue;
-                }
-
-                await File.WriteAllBytesAsync(filePath, fileContent);
-                _logger.LogInformation("Downloaded attachment '{Title}' -> {Path}", att.Title, filePath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to download attachment: {Title}", att.Title);
-            }
-        }
+            });
     }
 
     private static bool IsLocalFileSizeMatch(string filePath, AttachmentData serverAttachment)
