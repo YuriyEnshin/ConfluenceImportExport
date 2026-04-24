@@ -78,30 +78,35 @@ public class UploadService
     public async Task UploadCreateAsync(string spaceKey, string sourceDir, string? parentId, string? parentTitle, bool recursive)
     {
         var started = Stopwatch.GetTimestamp();
-        LocalStorageHelper.ValidateSourceDirectory(sourceDir);
-
-        string? resolvedParentId = null;
-        if (!string.IsNullOrEmpty(parentId) || !string.IsNullOrEmpty(parentTitle))
+        try
         {
-            resolvedParentId = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, parentId, parentTitle);
-            if (resolvedParentId == null)
-                throw new InvalidOperationException(
-                    $"Parent page not found. ID: '{parentId}', Title: '{parentTitle}'");
+            LocalStorageHelper.ValidateSourceDirectory(sourceDir);
+
+            string? resolvedParentId = null;
+            if (!string.IsNullOrEmpty(parentId) || !string.IsNullOrEmpty(parentTitle))
+            {
+                resolvedParentId = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, parentId, parentTitle);
+                if (resolvedParentId == null)
+                    throw new InvalidOperationException(
+                        $"Parent page not found. ID: '{parentId}', Title: '{parentTitle}'");
+            }
+
+            var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, sourceDir, resolvedParentId);
+            if (createResult == null) return;
+            await UpdatePageIdMarker(sourceDir, createResult.Id, createResult.VersionNumber, effectiveTitle);
+
+            if (recursive)
+            {
+                foreach (var childDir in LocalStorageHelper.GetPageSubdirectories(sourceDir))
+                    await ProcessChildForCreate(spaceKey, childDir, createResult.Id);
+            }
         }
-
-        var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, sourceDir, resolvedParentId);
-        if (createResult == null) return;
-        await UpdatePageIdMarker(sourceDir, createResult.Id, createResult.VersionNumber, effectiveTitle);
-
-        if (recursive)
+        finally
         {
-            foreach (var childDir in LocalStorageHelper.GetPageSubdirectories(sourceDir))
-                await ProcessChildForCreate(spaceKey, childDir, createResult.Id);
+            _logger.LogInformation(
+                "[PROFILE] UploadCreate completed in {ElapsedMs}ms",
+                (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         }
-
-        _logger.LogInformation(
-            "[PROFILE] UploadCreate completed in {ElapsedMs}ms",
-            (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
     }
 
     // ── update internals ──────────────────────────────────────────────
