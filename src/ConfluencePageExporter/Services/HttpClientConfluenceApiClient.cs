@@ -3,6 +3,7 @@ using System.Text;
 using System.Web;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using ConfluencePageExporter.Infrastructure;
 using ConfluencePageExporter.Models;
 
 namespace ConfluencePageExporter.Services;
@@ -26,7 +27,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
     }
 
     public HttpClientConfluenceApiClient(string baseUrl, string username, string authSecret, ILogger<HttpClientConfluenceApiClient> logger, string authType = "onprem")
-        : this(baseUrl, new HttpClient(), logger)
+        : this(baseUrl, new HttpClient(new HttpTimingHandler(logger)), logger)
     {
         // Basic Auth works the same for both on-prem and cloud.
         var credentials = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{username}:{authSecret}"));

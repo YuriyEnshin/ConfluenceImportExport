@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using ConfluencePageExporter.Models;
@@ -28,12 +29,16 @@ public class DownloadService
         string spaceKey, string? pageId, string? pageTitle,
         string outputDir, bool recursive)
     {
+        var started = Stopwatch.GetTimestamp();
         var report = new SyncReport();
         var resolvedPageId = await ResolvePageId(spaceKey, pageId, pageTitle);
 
         var pageDirectoryIndex = LocalStorageHelper.BuildPageDirectoryIndex(outputDir, _logger);
         var page = await _apiClient.GetPageByIdAsync(resolvedPageId);
         await DownloadPageUpdateAsync(page, outputDir, recursive, pageDirectoryIndex, report);
+        _logger.LogInformation(
+            "[PROFILE] DownloadUpdate completed in {ElapsedMs}ms",
+            (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         return report;
     }
 
@@ -41,12 +46,16 @@ public class DownloadService
         string spaceKey, string? pageId, string? pageTitle,
         string outputDir, bool recursive, ChangeSourceAnalyzer analyzer)
     {
+        var started = Stopwatch.GetTimestamp();
         var report = new SyncReport();
         var resolvedPageId = await ResolvePageId(spaceKey, pageId, pageTitle);
 
         var pageDirectoryIndex = LocalStorageHelper.BuildPageDirectoryIndex(outputDir, _logger);
         var page = await _apiClient.GetPageByIdAsync(resolvedPageId);
         await DownloadPageMergeAsync(page, outputDir, recursive, pageDirectoryIndex, analyzer, report);
+        _logger.LogInformation(
+            "[PROFILE] DownloadMerge completed in {ElapsedMs}ms",
+            (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         return report;
     }
 
@@ -344,7 +353,7 @@ public class DownloadService
         return new FileInfo(filePath).Length == remoteSize;
     }
 
-    private static async Task<bool> IsLocalContentMatchAsync(string filePath, byte[] downloadedContent)
+    private async Task<bool> IsLocalContentMatchAsync(string filePath, byte[] downloadedContent)
     {
         if (!File.Exists(filePath))
             return false;
@@ -353,9 +362,16 @@ public class DownloadService
         if (localFileInfo.Length != downloadedContent.Length)
             return false;
 
+        var started = Stopwatch.GetTimestamp();
         var downloadedHash = SHA256.HashData(downloadedContent);
         await using var stream = File.OpenRead(filePath);
         var localHash = await SHA256.HashDataAsync(stream);
+        var elapsedMs = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+
+        _logger.LogDebug(
+            "[PROFILE] SHA256 compared ({Bytes} bytes) in {ElapsedMs}ms: {Path}",
+            downloadedContent.Length, elapsedMs, filePath);
+
         return localHash.AsSpan().SequenceEqual(downloadedHash);
     }
 }
