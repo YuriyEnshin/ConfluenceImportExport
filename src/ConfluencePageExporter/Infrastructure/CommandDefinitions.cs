@@ -23,6 +23,7 @@ public static class CommandDefinitions
         root.Options.Add(Flag("--dry-run", "Perform a dry run without writing changes", recursive: true));
         root.Options.Add(Flag("--recursive", "Recursively process child pages", recursive: true));
         root.Options.Add(Flag("--report", "Print summary report of pages requiring manual attention", recursive: true));
+        root.Options.Add(Opt<int?>("--max-parallelism", "Maximum parallel operations when traversing page tree (default: 8, set 1 to disable)", recursive: true));
 
         root.Add(BuildDownloadCommand());
         root.Add(BuildUploadCommand());

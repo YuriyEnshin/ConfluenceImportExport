@@ -9,12 +9,18 @@ public class UploadService
     private readonly IConfluenceApiClient _apiClient;
     private readonly ILogger<UploadService> _logger;
     private readonly bool _dryRun;
+    private readonly int _maxParallelism;
 
-    public UploadService(IConfluenceApiClient apiClient, ILogger<UploadService> logger, bool dryRun = false)
+    public UploadService(
+        IConfluenceApiClient apiClient,
+        ILogger<UploadService> logger,
+        bool dryRun = false,
+        int maxParallelism = 8)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _dryRun = dryRun;
+        _maxParallelism = maxParallelism < 1 ? 1 : maxParallelism;
     }
 
     // ── upload update (force: local → server) ─────────────────────────

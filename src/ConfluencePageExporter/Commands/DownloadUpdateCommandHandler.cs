@@ -46,6 +46,7 @@ public sealed class DownloadUpdateCommandHandler : ICommandHandler
         var recursive = o.Recursive ?? g.Recursive ?? false;
         var dryRun = g.DryRun ?? false;
         var showReport = g.Report ?? false;
+        var maxParallelism = g.MaxParallelism ?? 8;
 
         var pageIdentifier = !string.IsNullOrEmpty(pageId) ? $"ID '{pageId}'" : $"title '{pageTitle}'";
         Console.WriteLine($"Download update: page {pageIdentifier} from space '{spaceKey}'{(recursive ? " (recursive)" : "")}...");
@@ -55,7 +56,8 @@ public sealed class DownloadUpdateCommandHandler : ICommandHandler
         var service = new DownloadService(
             _apiClient,
             _loggerFactory.CreateLogger<DownloadService>(),
-            dryRun);
+            dryRun,
+            maxParallelism);
 
         var report = await service.DownloadUpdateAsync(spaceKey, pageId, pageTitle, outputDir, recursive);
 

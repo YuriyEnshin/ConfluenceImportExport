@@ -9,12 +9,18 @@ public class DownloadService
     private readonly IConfluenceApiClient _apiClient;
     private readonly ILogger<DownloadService> _logger;
     private readonly bool _dryRun;
+    private readonly int _maxParallelism;
 
-    public DownloadService(IConfluenceApiClient apiClient, ILogger<DownloadService> logger, bool dryRun = false)
+    public DownloadService(
+        IConfluenceApiClient apiClient,
+        ILogger<DownloadService> logger,
+        bool dryRun = false,
+        int maxParallelism = 8)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _dryRun = dryRun;
+        _maxParallelism = maxParallelism < 1 ? 1 : maxParallelism;
     }
 
     public async Task<SyncReport> DownloadUpdateAsync(

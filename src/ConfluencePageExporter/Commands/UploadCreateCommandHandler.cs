@@ -42,6 +42,7 @@ public sealed class UploadCreateCommandHandler : ICommandHandler
 
         var recursive = o.Recursive ?? g.Recursive ?? false;
         var dryRun = g.DryRun ?? false;
+        var maxParallelism = g.MaxParallelism ?? 8;
 
         if (dryRun)
             Console.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
@@ -55,7 +56,8 @@ public sealed class UploadCreateCommandHandler : ICommandHandler
         var service = new UploadService(
             _apiClient,
             _loggerFactory.CreateLogger<UploadService>(),
-            dryRun);
+            dryRun,
+            maxParallelism);
 
         await service.UploadCreateAsync(spaceKey, sourceDir, parentId, parentTitle, recursive);
         Console.WriteLine("Upload create completed.");
