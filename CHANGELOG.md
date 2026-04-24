@@ -6,6 +6,28 @@
 
 ## [Unreleased]
 
+## [2.5.1] — 2026-04-24
+
+### Добавлено
+
+- Инфраструктурное логирование таймингов на уровне Information для команд
+  `download update`, `download merge`, `upload update`, `upload merge`,
+  `upload create`: после завершения операции выводится строка
+  `[PROFILE] <Command> completed in <Ms>ms` для оценки длительности
+  синхронизации в продуктивной нагрузке.
+- HTTP-трейсинг (`HttpTimingHandler`) на уровне Debug: для каждого запроса
+  к Confluence REST API фиксируется метод, URL, статус, длительность и
+  размер ответа.
+- Тайминги SHA-256 сравнений контента и вложений на уровне Debug
+  (размер буфера + миллисекунды) в `DownloadService` и `UploadService`.
+
+### Исправлено
+
+- `UploadCreateAsync`: тайминг-лог `[PROFILE] UploadCreate completed`
+  теперь пишется на всех путях выхода (включая ранний `return` при
+  `createResult == null`) — тело обёрнуто в `try/finally`. Ранее на пути
+  отказа профилировочные данные терялись.
+
 ## [2.5.0] — 2026-04-24
 
 ### Добавлено
