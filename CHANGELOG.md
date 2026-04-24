@@ -6,6 +6,26 @@
 
 ## [Unreleased]
 
+## [2.5.2] — 2026-04-24
+
+### Изменено
+
+- Команда `compare` теперь использует параллельный обход дерева страниц
+  (`Parallel.ForEachAsync` с `--max-parallelism`) — ускорение сопоставимо
+  с `download`/`upload` v2.5.0.
+- Команда `compare` пропускает HTTP-запрос `/child/page` для листовых
+  страниц, если сервер вернул `childTypes.page.value = false` в рамках
+  основного GET. Экономия ~N запросов, где N — число листьев в дереве.
+
+### Добавлено
+
+- Тайминг-лог `[PROFILE] Compare completed in <Ms>ms` на уровне
+  Information — тело `CompareAsync` обёрнуто в `try/finally`, лог
+  пишется на всех путях выхода (включая ошибки).
+- Регрессионные тесты leaf-skip и параллельной корректности
+  `CollectRemotePagesAsync` (сбор 10 детей из `ConcurrentDictionary`
+  без потерь под параллелизмом).
+
 ## [2.5.1] — 2026-04-24
 
 ### Добавлено

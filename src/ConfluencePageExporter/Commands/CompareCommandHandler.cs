@@ -47,6 +47,7 @@ public sealed class CompareCommandHandler : ICommandHandler
         var recursive = o.Recursive ?? g.Recursive ?? false;
         var matchByTitle = o.MatchByTitle ?? false;
         var detectSource = o.DetectSource ?? false;
+        var maxParallelism = g.MaxParallelism ?? 8;
 
         var pageIdentifier = !string.IsNullOrEmpty(pageId) ? $"ID '{pageId}'" : $"title '{pageTitle}'";
         Console.WriteLine($"Comparing page {pageIdentifier} in space '{spaceKey}' with local folder '{outputDir}'{(recursive ? " (recursive)" : "")}{(detectSource ? " (detect-source)" : "")}...");
@@ -58,7 +59,8 @@ public sealed class CompareCommandHandler : ICommandHandler
         var service = new CompareService(
             _apiClient,
             analyzer,
-            _loggerFactory.CreateLogger<CompareService>());
+            _loggerFactory.CreateLogger<CompareService>(),
+            maxParallelism);
 
         var report = await service.CompareAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitle, detectSource);
         PrintReport(report);
