@@ -159,7 +159,7 @@ public class DownloadServiceTests
         var outputDir = temp.CreateDirectory("out");
         var existingContent = new byte[] { 1, 2, 3 };
         var pageDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
-        await File.WriteAllBytesAsync(Path.Combine(pageDir, "file.txt"), existingContent);
+        await File.WriteAllBytesAsync(Path.Combine(pageDir, "file.txt"), existingContent, TestContext.Current.CancellationToken);
 
         var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
         var attachments = new List<AttachmentData>
@@ -186,7 +186,7 @@ public class DownloadServiceTests
         var outputDir = temp.CreateDirectory("out");
         var oldContent = new byte[] { 1, 2 };
         var pageDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
-        await File.WriteAllBytesAsync(Path.Combine(pageDir, "file.txt"), oldContent);
+        await File.WriteAllBytesAsync(Path.Combine(pageDir, "file.txt"), oldContent, TestContext.Current.CancellationToken);
 
         var newContent = new byte[] { 1, 2, 3, 4, 5 };
         var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
@@ -204,7 +204,7 @@ public class DownloadServiceTests
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
-        var downloaded = await File.ReadAllBytesAsync(Path.Combine(pageDir, "file.txt"));
+        var downloaded = await File.ReadAllBytesAsync(Path.Combine(pageDir, "file.txt"), TestContext.Current.CancellationToken);
         downloaded.Should().Equal(newContent);
         api.VerifyAll();
     }
@@ -217,7 +217,7 @@ public class DownloadServiceTests
         var actualContent = new byte[] { 10, 20, 30, 40, 50 };
         var pageDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
         var filePath = Path.Combine(pageDir, "image.jpg");
-        await File.WriteAllBytesAsync(filePath, actualContent);
+        await File.WriteAllBytesAsync(filePath, actualContent, TestContext.Current.CancellationToken);
         var originalTimestamp = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc);
         File.SetLastWriteTimeUtc(filePath, originalTimestamp);
 
@@ -237,7 +237,7 @@ public class DownloadServiceTests
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
         File.GetLastWriteTimeUtc(filePath).Should().Be(originalTimestamp);
-        (await File.ReadAllBytesAsync(filePath)).Should().Equal(actualContent);
+        (await File.ReadAllBytesAsync(filePath, TestContext.Current.CancellationToken)).Should().Equal(actualContent);
         api.VerifyAll();
     }
 
@@ -248,7 +248,7 @@ public class DownloadServiceTests
         var outputDir = temp.CreateDirectory("out");
         var existingContent = new byte[] { 1, 2, 3 };
         var pageDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
-        await File.WriteAllBytesAsync(Path.Combine(pageDir, "file.txt"), existingContent);
+        await File.WriteAllBytesAsync(Path.Combine(pageDir, "file.txt"), existingContent, TestContext.Current.CancellationToken);
 
         var serverContent = new byte[] { 4, 5, 6 };
         var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
@@ -266,7 +266,7 @@ public class DownloadServiceTests
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
-        var downloaded = await File.ReadAllBytesAsync(Path.Combine(pageDir, "file.txt"));
+        var downloaded = await File.ReadAllBytesAsync(Path.Combine(pageDir, "file.txt"), TestContext.Current.CancellationToken);
         downloaded.Should().Equal(serverContent);
         api.VerifyAll();
     }
@@ -294,7 +294,7 @@ public class DownloadServiceTests
 
         var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: false, analyzer);
 
-        var content = await File.ReadAllTextAsync(indexPath);
+        var content = await File.ReadAllTextAsync(indexPath, TestContext.Current.CancellationToken);
         content.Should().Be("<p>local edit</p>");
         report.SkippedPages.Should().HaveCount(1);
     }
@@ -321,7 +321,7 @@ public class DownloadServiceTests
 
         var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: false, analyzer);
 
-        var content = await File.ReadAllTextAsync(indexPath);
+        var content = await File.ReadAllTextAsync(indexPath, TestContext.Current.CancellationToken);
         content.Should().Be("<p>new server</p>");
         report.HasIssues.Should().BeFalse();
     }
@@ -350,7 +350,7 @@ public class DownloadServiceTests
 
         var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: false, analyzer);
 
-        var content = await File.ReadAllTextAsync(indexPath);
+        var content = await File.ReadAllTextAsync(indexPath, TestContext.Current.CancellationToken);
         content.Should().Be("<p>local edit</p>");
         report.ConflictPages.Should().HaveCount(1);
     }

@@ -437,7 +437,7 @@ public class LocalStorageHelperTests
 
         var markerPath = Path.Combine(pageDir, ".id123_5");
         File.Exists(markerPath).Should().BeTrue();
-        (await File.ReadAllTextAsync(markerPath)).Should().Be("Модуль \"Провайдеры\"");
+        (await File.ReadAllTextAsync(markerPath, TestContext.Current.CancellationToken)).Should().Be("Модуль \"Провайдеры\"");
     }
 
     [Fact]
@@ -448,7 +448,7 @@ public class LocalStorageHelperTests
 
         await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, "123", 5);
 
-        var content = await File.ReadAllTextAsync(Path.Combine(pageDir, ".id123_5"));
+        var content = await File.ReadAllTextAsync(Path.Combine(pageDir, ".id123_5"), TestContext.Current.CancellationToken);
         content.Should().BeEmpty();
     }
 
