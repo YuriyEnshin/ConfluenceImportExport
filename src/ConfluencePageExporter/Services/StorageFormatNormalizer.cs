@@ -84,29 +84,53 @@ public static partial class StorageFormatNormalizer
     /// Replaces HTML named entities (e.g. &amp;mdash; → &amp;#8212;) with numeric
     /// XML equivalents so the content can be parsed by a standard XML parser.
     /// The five predefined XML entities (amp, lt, gt, quot, apos) are left intact.
+    ///
+    /// Implementation note: WebUtility.HtmlDecode is called outside the regex callback
+    /// to avoid AccessViolationException on macOS ARM64 caused by a JIT bug when
+    /// HtmlDecode is invoked within a GeneratedRegex MatchEvaluator.
     /// </summary>
     private static string ReplaceHtmlNamedEntities(string content)
     {
-        return HtmlEntityPattern().Replace(content, match =>
+        var matches = HtmlEntityPattern().Matches(content);
+        if (matches.Count == 0)
+            return content;
+
+        var replacements = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (Match match in matches)
         {
+            var entity = match.Value;
+            if (replacements.ContainsKey(entity))
+                continue;
+
             var entityName = match.Groups[1].Value;
             if (entityName is "amp" or "lt" or "gt" or "quot" or "apos")
-                return match.Value;
+                continue;
 
-            var decoded = WebUtility.HtmlDecode(match.Value);
-            if (decoded == match.Value)
-                return match.Value;
+            var decoded = WebUtility.HtmlDecode(entity);
+            if (decoded == entity)
+                continue;
 
             if (decoded.Length == 1)
-                return $"&#{(int)decoded[0]};";
+            {
+                replacements[entity] = $"&#{(int)decoded[0]};";
+            }
+            else if (decoded.Length == 2
+                     && char.IsHighSurrogate(decoded[0])
+                     && char.IsLowSurrogate(decoded[1]))
+            {
+                replacements[entity] = $"&#{char.ConvertToUtf32(decoded[0], decoded[1])};";
+            }
+        }
 
-            if (decoded.Length == 2
-                && char.IsHighSurrogate(decoded[0])
-                && char.IsLowSurrogate(decoded[1]))
-                return $"&#{char.ConvertToUtf32(decoded[0], decoded[1])};";
+        if (replacements.Count == 0)
+            return content;
 
-            return match.Value;
-        });
+        var result = content;
+        foreach (var (original, replacement) in replacements)
+            result = result.Replace(original, replacement);
+
+        return result;
     }
 
     /// <summary>

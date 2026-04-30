@@ -6,6 +6,15 @@
 
 ## [Unreleased]
 
+## [2.5.3] — 2026-04-30
+
+### Исправлено
+
+- Аварийное завершение (AccessViolationException) на macOS ARM64 при выполнении
+  `download merge` и `upload merge`: вызов `WebUtility.HtmlDecode` внутри callback'а
+  `GeneratedRegex` приводил к краху из-за JIT-бага .NET runtime. Декодирование
+  HTML-сущностей вынесено за пределы regex-callback'а.
+
 ## [2.5.2] — 2026-04-24
 
 ### Изменено
