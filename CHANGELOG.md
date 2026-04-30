@@ -6,14 +6,18 @@
 
 ## [Unreleased]
 
-## [2.5.3] — 2026-04-30
+## [2.5.4] — 2026-04-30
 
 ### Исправлено
 
 - Аварийное завершение (AccessViolationException) на macOS ARM64 при выполнении
-  `download merge` и `upload merge`: вызов `WebUtility.HtmlDecode` внутри callback'а
-  `GeneratedRegex` приводил к краху из-за JIT-бага .NET runtime. Декодирование
-  HTML-сущностей вынесено за пределы regex-callback'а.
+  `download merge` и `upload merge` с параллелизмом ≥4: корневая причина —
+  баг .NET runtime (dotnet/runtime#123324) в single-file compressed приложениях
+  на Apple Silicon. Исправления:
+  - Отключено сжатие single-file для сборки osx-arm64
+  - Полностью удалена зависимость от `System.Xml` и `WebUtility.HtmlDecode`
+    в нормализаторе контента — заменены на regex-based каноникализацию
+    со статическим словарём HTML-сущностей
 
 ## [2.5.2] — 2026-04-24
 

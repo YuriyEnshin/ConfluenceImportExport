@@ -36,13 +36,17 @@ jobs:
 
       - name: Publish self-contained single-file
         run: |
+          COMPRESSION=true
+          if [ "${{ matrix.rid }}" = "osx-arm64" ]; then
+            COMPRESSION=false
+          fi
           dotnet publish src/ConfluencePageExporter/ConfluencePageExporter.csproj \
             -c Release \
             -r ${{ matrix.rid }} \
             --self-contained true \
             -p:PublishSingleFile=true \
             -p:IncludeNativeLibrariesForSelfExtract=true \
-            -p:EnableCompressionInSingleFile=true \
+            -p:EnableCompressionInSingleFile=$COMPRESSION \
             -p:DebugType=embedded \
             -p:Version=${{ steps.version.outputs.value }} \
             -o publish/${{ matrix.rid }}
