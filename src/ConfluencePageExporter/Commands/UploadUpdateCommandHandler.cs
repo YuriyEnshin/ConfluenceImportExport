@@ -12,17 +12,20 @@ public sealed class UploadUpdateCommandHandler : ICommandHandler
     private readonly IOptions<UploadUpdateOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly IConsoleWriter _writer;
 
     public UploadUpdateCommandHandler(
         IOptions<GlobalOptions> global,
         IOptions<UploadUpdateOptions> opts,
         IConfluenceApiClient apiClient,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IConsoleWriter writer)
     {
         _global = global;
         _opts = opts;
         _apiClient = apiClient;
         _loggerFactory = loggerFactory;
+        _writer = writer;
     }
 
     public async Task<int> ExecuteAsync(CancellationToken ct)
@@ -46,10 +49,10 @@ public sealed class UploadUpdateCommandHandler : ICommandHandler
         var maxParallelism = g.MaxParallelism ?? 8;
 
         if (dryRun)
-            Console.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
+            _writer.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
 
         var desc = recursive ? " (recursive)" : "";
-        Console.WriteLine($"Upload update: pages in space '{spaceKey}' from '{sourceDir}'{desc}...");
+        _writer.WriteLine($"Upload update: pages in space '{spaceKey}' from '{sourceDir}'{desc}...");
 
         var service = new UploadService(
             _apiClient,
@@ -59,9 +62,9 @@ public sealed class UploadUpdateCommandHandler : ICommandHandler
 
         var report = await service.UploadUpdateAsync(spaceKey, sourceDir, pageId, pageTitle, recursive);
 
-        Console.WriteLine("Upload update completed.");
+        _writer.WriteLine("Upload update completed.");
         if (showReport)
-            report.PrintReport();
+            report.PrintReport(_writer);
         return 0;
     }
 }

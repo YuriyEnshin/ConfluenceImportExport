@@ -68,6 +68,27 @@
 
 Инструкции по подключению для разных инструментов — в [`docs/ai-rules/README.md`](docs/ai-rules/README.md).
 
+## MCP-сервер для ИИ-агентов
+
+Утилиту можно запустить как [MCP](https://modelcontextprotocol.io)-сервер
+по stdio — это даёт ИИ-агентам (Claude Desktop, Cursor, Codex и др.)
+возможность выполнять те же шесть операций синхронизации
+(`download update`/`merge`, `upload update`/`create`/`merge`, `compare`)
+прямо из чата, без перехода в терминал.
+
+```bash
+ConfluencePageExporter mcp --root-dir <path> [--read-only]
+```
+
+- `--root-dir` — обязательная песочница: агент не может писать вне неё.
+- `--read-only` — блокирует upload-инструменты (download/compare остаются).
+- Параметры подключения к Confluence (BaseUrl/Username/Token/SpaceKey/AuthType)
+  задаются через env-переменные `CONFLUENCE_EXPORTER__*` или JSON-конфиг —
+  они никогда не попадают в context window LLM.
+
+Подробное описание инструментов, формата результатов, кодов ошибок и
+готовые конфиги для Claude Desktop / Cursor / Codex — в [`docs/mcp/`](docs/mcp/).
+
 ## Установка
 
 Готовые сборки публикуются на [GitHub Releases](https://github.com/YuriyEnshin/ConfluenceImportExport/releases) как self-contained single-file архивы — .NET Runtime ставить не нужно.

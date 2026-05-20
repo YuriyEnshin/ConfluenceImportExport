@@ -24,6 +24,15 @@ if (string.IsNullOrEmpty(boot.CommandPath))
     return await parseResult.InvokeAsync();
 }
 
+// ── MCP mode: separate bootstrap (stdout reserved for JSON-RPC) ───────
+if (boot.CommandPath == "mcp")
+{
+    var mcpOpts = McpCommandLineParser.Parse(parseResult);
+    if (mcpOpts == null)
+        return 1;
+    return await McpServerRunner.RunAsync(boot, cliOverrides, mcpOpts);
+}
+
 // ── Phase 2: build host ───────────────────────────────────────────────
 try
 {
@@ -96,6 +105,7 @@ try
             opts.AuthType ?? "onprem");
     });
 
+    builder.Services.AddSingleton<IConsoleWriter, StdConsoleWriter>();
     builder.Services.AddTransient<DownloadUpdateCommandHandler>();
     builder.Services.AddTransient<DownloadMergeCommandHandler>();
     builder.Services.AddTransient<UploadUpdateCommandHandler>();

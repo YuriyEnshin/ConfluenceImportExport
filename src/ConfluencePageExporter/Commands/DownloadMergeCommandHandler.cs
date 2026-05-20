@@ -12,17 +12,20 @@ public sealed class DownloadMergeCommandHandler : ICommandHandler
     private readonly IOptions<DownloadMergeOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly IConsoleWriter _writer;
 
     public DownloadMergeCommandHandler(
         IOptions<GlobalOptions> global,
         IOptions<DownloadMergeOptions> opts,
         IConfluenceApiClient apiClient,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IConsoleWriter writer)
     {
         _global = global;
         _opts = opts;
         _apiClient = apiClient;
         _loggerFactory = loggerFactory;
+        _writer = writer;
     }
 
     public async Task<int> ExecuteAsync(CancellationToken ct)
@@ -49,9 +52,9 @@ public sealed class DownloadMergeCommandHandler : ICommandHandler
         var maxParallelism = g.MaxParallelism ?? 8;
 
         var pageIdentifier = !string.IsNullOrEmpty(pageId) ? $"ID '{pageId}'" : $"title '{pageTitle}'";
-        Console.WriteLine($"Download merge: page {pageIdentifier} from space '{spaceKey}'{(recursive ? " (recursive)" : "")}...");
+        _writer.WriteLine($"Download merge: page {pageIdentifier} from space '{spaceKey}'{(recursive ? " (recursive)" : "")}...");
         if (dryRun)
-            Console.WriteLine("DRY RUN MODE: No files will be written to disk.");
+            _writer.WriteLine("DRY RUN MODE: No files will be written to disk.");
 
         var analyzer = new ChangeSourceAnalyzer(
             _apiClient,
@@ -65,9 +68,9 @@ public sealed class DownloadMergeCommandHandler : ICommandHandler
 
         var report = await service.DownloadMergeAsync(spaceKey, pageId, pageTitle, outputDir, recursive, analyzer);
 
-        Console.WriteLine($"Download merge completed. Files saved to: {outputDir}");
+        _writer.WriteLine($"Download merge completed. Files saved to: {outputDir}");
         if (showReport)
-            report.PrintReport();
+            report.PrintReport(_writer);
         return 0;
     }
 }

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
+using ConfluencePageExporter.Infrastructure;
 using ConfluencePageExporter.Options;
 
 namespace ConfluencePageExporter.Commands;
@@ -17,6 +18,7 @@ public sealed class ConfigShowCommandHandler : ICommandHandler
     private readonly IOptions<UploadMergeOptions> _uploadMerge;
     private readonly IOptions<CompareOptions> _compare;
     private readonly IReadOnlyDictionary<string, string?> _cliOverrides;
+    private readonly IConsoleWriter _writer;
 
     public ConfigShowCommandHandler(
         IConfiguration configuration,
@@ -27,7 +29,8 @@ public sealed class ConfigShowCommandHandler : ICommandHandler
         IOptions<UploadCreateOptions> uploadCreate,
         IOptions<UploadMergeOptions> uploadMerge,
         IOptions<CompareOptions> compare,
-        IReadOnlyDictionary<string, string?> cliOverrides)
+        IReadOnlyDictionary<string, string?> cliOverrides,
+        IConsoleWriter writer)
     {
         _configuration = configuration;
         _global = global;
@@ -38,13 +41,14 @@ public sealed class ConfigShowCommandHandler : ICommandHandler
         _uploadMerge = uploadMerge;
         _compare = compare;
         _cliOverrides = cliOverrides;
+        _writer = writer;
     }
 
     public Task<int> ExecuteAsync(CancellationToken ct)
     {
-        Console.WriteLine("Effective configuration");
-        Console.WriteLine("=======================");
-        Console.WriteLine();
+        _writer.WriteLine("Effective configuration");
+        _writer.WriteLine("=======================");
+        _writer.WriteLine();
 
         PrintGlobal();
         PrintDownloadUpdate();
@@ -60,7 +64,7 @@ public sealed class ConfigShowCommandHandler : ICommandHandler
     private void PrintGlobal()
     {
         var g = _global.Value;
-        Console.WriteLine("Global:");
+        _writer.WriteLine("Global:");
         PrintValue("  BaseUrl", g.BaseUrl, "Global:BaseUrl");
         PrintValue("  Username", g.Username, "Global:Username");
         PrintValue("  Token", Mask(g.Token), "Global:Token");
@@ -70,82 +74,82 @@ public sealed class ConfigShowCommandHandler : ICommandHandler
         PrintValue("  DryRun", (g.DryRun ?? false).ToString(), "Global:DryRun");
         PrintValue("  Recursive", (g.Recursive ?? false).ToString(), "Global:Recursive");
         PrintValue("  Report", (g.Report ?? false).ToString(), "Global:Report");
-        Console.WriteLine();
+        _writer.WriteLine();
     }
 
     private void PrintDownloadUpdate()
     {
         var d = _downloadUpdate.Value;
-        Console.WriteLine("Download > Update:");
+        _writer.WriteLine("Download > Update:");
         PrintValue("  PageId", d.PageId, "Download:Update:PageId", "Download:PageId");
         PrintValue("  PageTitle", d.PageTitle, "Download:Update:PageTitle", "Download:PageTitle");
         PrintValue("  OutputDir", d.OutputDir, "Download:Update:OutputDir", "Download:OutputDir");
         PrintValue("  Recursive", d.Recursive?.ToString(), "Download:Update:Recursive", "Download:Recursive");
-        Console.WriteLine();
+        _writer.WriteLine();
     }
 
     private void PrintDownloadMerge()
     {
         var d = _downloadMerge.Value;
-        Console.WriteLine("Download > Merge:");
+        _writer.WriteLine("Download > Merge:");
         PrintValue("  PageId", d.PageId, "Download:Merge:PageId", "Download:PageId");
         PrintValue("  PageTitle", d.PageTitle, "Download:Merge:PageTitle", "Download:PageTitle");
         PrintValue("  OutputDir", d.OutputDir, "Download:Merge:OutputDir", "Download:OutputDir");
         PrintValue("  Recursive", d.Recursive?.ToString(), "Download:Merge:Recursive", "Download:Recursive");
-        Console.WriteLine();
+        _writer.WriteLine();
     }
 
     private void PrintUploadUpdate()
     {
         var u = _uploadUpdate.Value;
-        Console.WriteLine("Upload > Update:");
+        _writer.WriteLine("Upload > Update:");
         PrintValue("  SourceDir", u.SourceDir, "Upload:Update:SourceDir", "Upload:SourceDir");
         PrintValue("  PageId", u.PageId, "Upload:Update:PageId");
         PrintValue("  PageTitle", u.PageTitle, "Upload:Update:PageTitle");
         PrintValue("  Recursive", u.Recursive?.ToString(), "Upload:Update:Recursive", "Upload:Recursive");
-        Console.WriteLine();
+        _writer.WriteLine();
     }
 
     private void PrintUploadCreate()
     {
         var c = _uploadCreate.Value;
-        Console.WriteLine("Upload > Create:");
+        _writer.WriteLine("Upload > Create:");
         PrintValue("  SourceDir", c.SourceDir, "Upload:Create:SourceDir", "Upload:SourceDir");
         PrintValue("  ParentId", c.ParentId, "Upload:Create:ParentId");
         PrintValue("  ParentTitle", c.ParentTitle, "Upload:Create:ParentTitle");
         PrintValue("  Recursive", c.Recursive?.ToString(), "Upload:Create:Recursive", "Upload:Recursive");
-        Console.WriteLine();
+        _writer.WriteLine();
     }
 
     private void PrintUploadMerge()
     {
         var m = _uploadMerge.Value;
-        Console.WriteLine("Upload > Merge:");
+        _writer.WriteLine("Upload > Merge:");
         PrintValue("  SourceDir", m.SourceDir, "Upload:Merge:SourceDir", "Upload:SourceDir");
         PrintValue("  PageId", m.PageId, "Upload:Merge:PageId");
         PrintValue("  PageTitle", m.PageTitle, "Upload:Merge:PageTitle");
         PrintValue("  Recursive", m.Recursive?.ToString(), "Upload:Merge:Recursive", "Upload:Recursive");
-        Console.WriteLine();
+        _writer.WriteLine();
     }
 
     private void PrintCompare()
     {
         var c = _compare.Value;
-        Console.WriteLine("Compare:");
+        _writer.WriteLine("Compare:");
         PrintValue("  PageId", c.PageId, "Compare:PageId");
         PrintValue("  PageTitle", c.PageTitle, "Compare:PageTitle");
         PrintValue("  OutputDir", c.OutputDir, "Compare:OutputDir");
         PrintValue("  Recursive", c.Recursive?.ToString(), "Compare:Recursive");
         PrintValue("  MatchByTitle", (c.MatchByTitle ?? false).ToString(), "Compare:MatchByTitle");
         PrintValue("  DetectSource", (c.DetectSource ?? false).ToString(), "Compare:DetectSource");
-        Console.WriteLine();
+        _writer.WriteLine();
     }
 
     private void PrintValue(string label, string? value, string configKey, string? parentConfigKey = null)
     {
         var display = string.IsNullOrEmpty(value) ? "(not set)" : value;
         var source = DetectSource(configKey, parentConfigKey, value);
-        Console.WriteLine($"{label,-28} = {display,-36} {source}");
+        _writer.WriteLine($"{label,-28} = {display,-36} {source}");
     }
 
     private string DetectSource(string configKey, string? parentConfigKey, string? effectiveValue)
