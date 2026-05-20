@@ -1,4 +1,4 @@
-# Confluence Page Exporter v2.5
+# Confluence Page Exporter v2.6
 
 Утилита командной строки для синхронизации страниц Confluence с локальной структурой папок.
 
