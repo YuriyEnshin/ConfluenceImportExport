@@ -6,6 +6,34 @@
 
 ## [Unreleased]
 
+## [2.6.0] — 2026-05-20
+
+### Добавлено
+
+- Подкоманда `mcp` — запуск утилиты как MCP (Model Context Protocol)
+  stdio-сервера, что позволяет ИИ-агентам (Claude Desktop, Cursor, Codex
+  и другим клиентам MCP) выполнять синхронизационные операции с Confluence.
+  Экспонируется шесть инструментов: `confluence_download_update`,
+  `confluence_download_merge`, `confluence_upload_update`,
+  `confluence_upload_create`, `confluence_upload_merge`, `confluence_compare`.
+- Обязательный параметр `--root-dir` — песочница файловой системы:
+  все пути в инструментах резолвятся относительно неё, а выход за
+  пределы блокируется (ошибка `OUT_OF_SANDBOX`).
+- Флаг `--read-only` — отключает все upload-инструменты, оставляя
+  download и compare. Возвращает `READ_ONLY_VIOLATION` при попытке
+  записи.
+- Документация в [`docs/mcp/`](docs/mcp/): примеры конфигов для
+  Claude Desktop, Cursor и Codex CLI.
+
+### Изменено
+
+- Внутренняя абстракция `IConsoleWriter` — все хендлеры и отчёты
+  (`SyncReport`, `CompareReport`) пишут пользовательский вывод через
+  неё вместо прямого `Console.WriteLine`. CLI-поведение не изменилось
+  (та же дефолтная реализация `StdConsoleWriter`); это позволило в
+  MCP-режиме буферизовать вывод и прикреплять к JSON-результату
+  инструмента вместо засорения stdout (зарезервированного под JSON-RPC).
+
 ## [2.5.4] — 2026-04-30
 
 ### Исправлено

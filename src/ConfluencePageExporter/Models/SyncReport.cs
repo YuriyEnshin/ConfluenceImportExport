@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using ConfluencePageExporter.Infrastructure;
 
 namespace ConfluencePageExporter.Models;
 
@@ -29,42 +30,42 @@ public class SyncReport
         _skippedPages.Add(new SyncReportItem(pageId, title, reason));
     }
 
-    public void PrintReport()
+    public void PrintReport(IConsoleWriter writer)
     {
-        Console.WriteLine();
-        Console.WriteLine("=== Отчёт о синхронизации ===");
+        writer.WriteLine();
+        writer.WriteLine("=== Отчёт о синхронизации ===");
 
         if (!_conflictPages.IsEmpty)
         {
-            Console.WriteLine();
-            Console.WriteLine($"Конфликты (изменения с обеих сторон): {_conflictPages.Count}");
+            writer.WriteLine();
+            writer.WriteLine($"Конфликты (изменения с обеих сторон): {_conflictPages.Count}");
             foreach (var item in ConflictPages)
-                Console.WriteLine($"  !! [{item.PageId}] {item.Title} — {item.Reason}");
+                writer.WriteLine($"  !! [{item.PageId}] {item.Title} — {item.Reason}");
         }
 
         if (!_orphanPages.IsEmpty)
         {
-            Console.WriteLine();
-            Console.WriteLine($"Требуют ручного удаления: {_orphanPages.Count}");
+            writer.WriteLine();
+            writer.WriteLine($"Требуют ручного удаления: {_orphanPages.Count}");
             foreach (var item in OrphanPages)
-                Console.WriteLine($"  -- [{item.PageId}] {item.Title} — {item.Reason}");
+                writer.WriteLine($"  -- [{item.PageId}] {item.Title} — {item.Reason}");
         }
 
         if (!_skippedPages.IsEmpty)
         {
-            Console.WriteLine();
-            Console.WriteLine($"Пропущены (изменения на противоположной стороне): {_skippedPages.Count}");
+            writer.WriteLine();
+            writer.WriteLine($"Пропущены (изменения на противоположной стороне): {_skippedPages.Count}");
             foreach (var item in SkippedPages)
-                Console.WriteLine($"  ~~ [{item.PageId}] {item.Title} — {item.Reason}");
+                writer.WriteLine($"  ~~ [{item.PageId}] {item.Title} — {item.Reason}");
         }
 
         if (!HasIssues && _skippedPages.IsEmpty)
         {
-            Console.WriteLine();
-            Console.WriteLine("Проблем не обнаружено.");
+            writer.WriteLine();
+            writer.WriteLine("Проблем не обнаружено.");
         }
 
-        Console.WriteLine();
+        writer.WriteLine();
     }
 
     private static IReadOnlyCollection<SyncReportItem> GetSorted(ConcurrentBag<SyncReportItem> bag)

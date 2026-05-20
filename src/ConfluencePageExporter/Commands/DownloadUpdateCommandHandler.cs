@@ -12,17 +12,20 @@ public sealed class DownloadUpdateCommandHandler : ICommandHandler
     private readonly IOptions<DownloadUpdateOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly IConsoleWriter _writer;
 
     public DownloadUpdateCommandHandler(
         IOptions<GlobalOptions> global,
         IOptions<DownloadUpdateOptions> opts,
         IConfluenceApiClient apiClient,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IConsoleWriter writer)
     {
         _global = global;
         _opts = opts;
         _apiClient = apiClient;
         _loggerFactory = loggerFactory;
+        _writer = writer;
     }
 
     public async Task<int> ExecuteAsync(CancellationToken ct)
@@ -49,9 +52,9 @@ public sealed class DownloadUpdateCommandHandler : ICommandHandler
         var maxParallelism = g.MaxParallelism ?? 8;
 
         var pageIdentifier = !string.IsNullOrEmpty(pageId) ? $"ID '{pageId}'" : $"title '{pageTitle}'";
-        Console.WriteLine($"Download update: page {pageIdentifier} from space '{spaceKey}'{(recursive ? " (recursive)" : "")}...");
+        _writer.WriteLine($"Download update: page {pageIdentifier} from space '{spaceKey}'{(recursive ? " (recursive)" : "")}...");
         if (dryRun)
-            Console.WriteLine("DRY RUN MODE: No files will be written to disk.");
+            _writer.WriteLine("DRY RUN MODE: No files will be written to disk.");
 
         var service = new DownloadService(
             _apiClient,
@@ -61,9 +64,9 @@ public sealed class DownloadUpdateCommandHandler : ICommandHandler
 
         var report = await service.DownloadUpdateAsync(spaceKey, pageId, pageTitle, outputDir, recursive);
 
-        Console.WriteLine($"Download update completed. Files saved to: {outputDir}");
+        _writer.WriteLine($"Download update completed. Files saved to: {outputDir}");
         if (showReport)
-            report.PrintReport();
+            report.PrintReport(_writer);
         return 0;
     }
 }

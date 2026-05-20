@@ -12,17 +12,20 @@ public sealed class UploadMergeCommandHandler : ICommandHandler
     private readonly IOptions<UploadMergeOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly IConsoleWriter _writer;
 
     public UploadMergeCommandHandler(
         IOptions<GlobalOptions> global,
         IOptions<UploadMergeOptions> opts,
         IConfluenceApiClient apiClient,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IConsoleWriter writer)
     {
         _global = global;
         _opts = opts;
         _apiClient = apiClient;
         _loggerFactory = loggerFactory;
+        _writer = writer;
     }
 
     public async Task<int> ExecuteAsync(CancellationToken ct)
@@ -46,10 +49,10 @@ public sealed class UploadMergeCommandHandler : ICommandHandler
         var maxParallelism = g.MaxParallelism ?? 8;
 
         if (dryRun)
-            Console.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
+            _writer.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
 
         var desc = recursive ? " (recursive)" : "";
-        Console.WriteLine($"Upload merge: pages in space '{spaceKey}' from '{sourceDir}'{desc}...");
+        _writer.WriteLine($"Upload merge: pages in space '{spaceKey}' from '{sourceDir}'{desc}...");
 
         var analyzer = new ChangeSourceAnalyzer(
             _apiClient,
@@ -63,9 +66,9 @@ public sealed class UploadMergeCommandHandler : ICommandHandler
 
         var report = await service.UploadMergeAsync(spaceKey, sourceDir, pageId, pageTitle, recursive, analyzer);
 
-        Console.WriteLine("Upload merge completed.");
+        _writer.WriteLine("Upload merge completed.");
         if (showReport)
-            report.PrintReport();
+            report.PrintReport(_writer);
         return 0;
     }
 }

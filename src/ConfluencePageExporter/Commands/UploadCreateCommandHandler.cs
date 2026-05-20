@@ -12,17 +12,20 @@ public sealed class UploadCreateCommandHandler : ICommandHandler
     private readonly IOptions<UploadCreateOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly IConsoleWriter _writer;
 
     public UploadCreateCommandHandler(
         IOptions<GlobalOptions> global,
         IOptions<UploadCreateOptions> opts,
         IConfluenceApiClient apiClient,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IConsoleWriter writer)
     {
         _global = global;
         _opts = opts;
         _apiClient = apiClient;
         _loggerFactory = loggerFactory;
+        _writer = writer;
     }
 
     public async Task<int> ExecuteAsync(CancellationToken ct)
@@ -45,13 +48,13 @@ public sealed class UploadCreateCommandHandler : ICommandHandler
         var maxParallelism = g.MaxParallelism ?? 8;
 
         if (dryRun)
-            Console.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
+            _writer.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
 
         var parentDesc = !string.IsNullOrEmpty(parentId) ? $"under parent ID '{parentId}'"
                        : !string.IsNullOrEmpty(parentTitle) ? $"under parent '{parentTitle}'"
                        : "at space root";
         var desc = recursive ? " (recursive)" : "";
-        Console.WriteLine($"Creating pages in space '{spaceKey}' {parentDesc} from '{sourceDir}'{desc}...");
+        _writer.WriteLine($"Creating pages in space '{spaceKey}' {parentDesc} from '{sourceDir}'{desc}...");
 
         var service = new UploadService(
             _apiClient,
@@ -60,7 +63,7 @@ public sealed class UploadCreateCommandHandler : ICommandHandler
             maxParallelism);
 
         await service.UploadCreateAsync(spaceKey, sourceDir, parentId, parentTitle, recursive);
-        Console.WriteLine("Upload create completed.");
+        _writer.WriteLine("Upload create completed.");
         return 0;
     }
 }

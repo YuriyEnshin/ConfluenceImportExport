@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "confluence": {
+      "command": "C:\\Program Files\\ConfluencePageExporter\\ConfluencePageExporter.exe",
+      "args": [
+        "mcp",
+        "--root-dir",
+        "C:\\confluence-mirror"
+      ],
+      "env": {
+        "CONFLUENCE_EXPORTER__Global__BaseUrl": "https://your-company.atlassian.net/wiki",
+        "CONFLUENCE_EXPORTER__Global__Username": "you@your-company.com",
+        "CONFLUENCE_EXPORTER__Global__Token": "<API_TOKEN>",
+        "CONFLUENCE_EXPORTER__Global__SpaceKey": "DOCS",
+        "CONFLUENCE_EXPORTER__Global__AuthType": "cloud"
+      }
+    }
+  }
+}

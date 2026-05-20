@@ -29,8 +29,18 @@ public static class CommandDefinitions
         root.Add(BuildUploadCommand());
         root.Add(BuildCompareCommand());
         root.Add(BuildConfigCommand());
+        root.Add(BuildMcpCommand());
 
         return root;
+    }
+
+    private static Command BuildMcpCommand()
+    {
+        return new Command("mcp", "Run as Model Context Protocol stdio server")
+        {
+            Opt<string?>("--root-dir", "Sandbox root directory; required, all tool paths must stay within"),
+            Flag("--read-only", "Block upload tools; download and compare remain available"),
+        };
     }
 
     private static Command BuildDownloadCommand()

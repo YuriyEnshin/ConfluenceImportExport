@@ -13,17 +13,20 @@ public sealed class CompareCommandHandler : ICommandHandler
     private readonly IOptions<CompareOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly IConsoleWriter _writer;
 
     public CompareCommandHandler(
         IOptions<GlobalOptions> global,
         IOptions<CompareOptions> opts,
         IConfluenceApiClient apiClient,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IConsoleWriter writer)
     {
         _global = global;
         _opts = opts;
         _apiClient = apiClient;
         _loggerFactory = loggerFactory;
+        _writer = writer;
     }
 
     public async Task<int> ExecuteAsync(CancellationToken ct)
@@ -50,7 +53,7 @@ public sealed class CompareCommandHandler : ICommandHandler
         var maxParallelism = g.MaxParallelism ?? 8;
 
         var pageIdentifier = !string.IsNullOrEmpty(pageId) ? $"ID '{pageId}'" : $"title '{pageTitle}'";
-        Console.WriteLine($"Comparing page {pageIdentifier} in space '{spaceKey}' with local folder '{outputDir}'{(recursive ? " (recursive)" : "")}{(detectSource ? " (detect-source)" : "")}...");
+        _writer.WriteLine($"Comparing page {pageIdentifier} in space '{spaceKey}' with local folder '{outputDir}'{(recursive ? " (recursive)" : "")}{(detectSource ? " (detect-source)" : "")}...");
 
         var analyzer = new ChangeSourceAnalyzer(
             _apiClient,
@@ -63,46 +66,46 @@ public sealed class CompareCommandHandler : ICommandHandler
             maxParallelism);
 
         var report = await service.CompareAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitle, detectSource);
-        PrintReport(report);
+        PrintReport(report, _writer);
         return 0;
     }
 
-    private static void PrintReport(CompareReport report)
+    private static void PrintReport(CompareReport report, IConsoleWriter writer)
     {
-        Console.WriteLine();
-        Console.WriteLine("Compare report");
-        Console.WriteLine("==============");
-        Console.WriteLine($"Added in Confluence: {report.AddedInConfluence.Count}");
+        writer.WriteLine();
+        writer.WriteLine("Compare report");
+        writer.WriteLine("==============");
+        writer.WriteLine($"Added in Confluence: {report.AddedInConfluence.Count}");
         foreach (var page in report.AddedInConfluence)
-            Console.WriteLine($"  + [{page.PageId}] {page.Title} ({page.Path})");
+            writer.WriteLine($"  + [{page.PageId}] {page.Title} ({page.Path})");
 
-        Console.WriteLine($"Deleted in Confluence: {report.DeletedInConfluence.Count}");
+        writer.WriteLine($"Deleted in Confluence: {report.DeletedInConfluence.Count}");
         foreach (var page in report.DeletedInConfluence)
-            Console.WriteLine($"  - [{page.PageId}] {page.Title} ({page.Path})");
+            writer.WriteLine($"  - [{page.PageId}] {page.Title} ({page.Path})");
 
-        Console.WriteLine($"Renamed/moved: {report.RenamedOrMovedInConfluence.Count}");
+        writer.WriteLine($"Renamed/moved: {report.RenamedOrMovedInConfluence.Count}");
         foreach (var page in report.RenamedOrMovedInConfluence)
         {
-            Console.WriteLine($"  ~ [{page.PageId}] {page.Title} | local: {page.LocalPath} -> confluence: {page.ConfluencePath}");
+            writer.WriteLine($"  ~ [{page.PageId}] {page.Title} | local: {page.LocalPath} -> confluence: {page.ConfluencePath}");
             if (page.RenameSource != null)
-                Console.WriteLine($"    Переименование: {FormatSource(page.RenameSource)}");
+                writer.WriteLine($"    Переименование: {FormatSource(page.RenameSource)}");
             if (page.MoveSource != null)
-                Console.WriteLine($"    Перемещение: {FormatSource(page.MoveSource)}");
+                writer.WriteLine($"    Перемещение: {FormatSource(page.MoveSource)}");
         }
 
-        Console.WriteLine($"Content changed: {report.ContentChanged.Count}");
+        writer.WriteLine($"Content changed: {report.ContentChanged.Count}");
         foreach (var page in report.ContentChanged)
         {
-            Console.WriteLine($"  * [{page.PageId}] {page.Title} ({page.Path})");
+            writer.WriteLine($"  * [{page.PageId}] {page.Title} ({page.Path})");
             if (page.ChangeSource != null)
-                Console.WriteLine($"    Источник: {FormatSource(page.ChangeSource)}");
+                writer.WriteLine($"    Источник: {FormatSource(page.ChangeSource)}");
         }
 
         if (report.Notes.Count > 0)
         {
-            Console.WriteLine("Notes:");
+            writer.WriteLine("Notes:");
             foreach (var note in report.Notes)
-                Console.WriteLine($"  ! {note}");
+                writer.WriteLine($"  ! {note}");
         }
     }
 
