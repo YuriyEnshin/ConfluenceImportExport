@@ -488,6 +488,21 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         }
     }
 
+    public async Task<ConfluenceUser> GetCurrentUserAsync()
+    {
+        // /rest/api/user/current is the canonical lightweight ping for
+        // Confluence: it verifies both connectivity and credentials in a
+        // single short request and works identically on on-prem and cloud
+        // (cloud requires the /wiki prefix in the base URL, which the
+        // operator already configures via Global:BaseUrl).
+        var url = $"{_baseUrl}/rest/api/user/current";
+        using var response = await _httpClient.GetAsync(url);
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        return JsonConvert.DeserializeObject<ConfluenceUser>(content)
+            ?? throw new InvalidOperationException("Confluence returned an empty user payload.");
+    }
+
     public void Dispose()
     {
         _httpClient?.Dispose();

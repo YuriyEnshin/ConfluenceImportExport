@@ -151,6 +151,81 @@ public class ConfluenceMcpToolsTests
         AssertError(result, "OUT_OF_SANDBOX");
     }
 
+    // ── Ping ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Ping_ShouldReturnSuccess_WithAuthenticatedUser()
+    {
+        using var temp = new TempDirectoryScope();
+        var api = ApiClientMockFactory.CreateLoose();
+        api.Setup(x => x.GetCurrentUserAsync())
+            .ReturnsAsync(new ConfluenceUser { Username = "alice", DisplayName = "Alice A.", UserKey = "u-42" });
+
+        var globals = MEO.Create(new GlobalOptions { BaseUrl = "https://confluence.example.com", SpaceKey = "SPACE" });
+        var result = await ConfluenceMcpTools.Ping(
+            api.Object, LoggerTestHelper.CreateLoggerFactory(), globals, McpOpts(temp.RootPath));
+
+        AssertSuccess(result);
+        var report = result.GetType().GetProperty("report")!.GetValue(result)!;
+        report.GetType().GetProperty("baseUrl")!.GetValue(report).Should().Be("https://confluence.example.com");
+        report.GetType().GetProperty("spaceKey")!.GetValue(report).Should().Be("SPACE");
+        var auth = report.GetType().GetProperty("authenticatedAs")!.GetValue(report)!;
+        auth.GetType().GetProperty("username")!.GetValue(auth).Should().Be("alice");
+        auth.GetType().GetProperty("displayName")!.GetValue(auth).Should().Be("Alice A.");
+        var sandbox = report.GetType().GetProperty("sandbox")!.GetValue(report)!;
+        sandbox.GetType().GetProperty("rootDir")!.GetValue(sandbox).Should().Be(temp.RootPath);
+        sandbox.GetType().GetProperty("readOnly")!.GetValue(sandbox).Should().Be(false);
+    }
+
+    [Fact]
+    public async Task Ping_ShouldReturnAuthFailed_OnHttp401()
+    {
+        using var temp = new TempDirectoryScope();
+        var api = ApiClientMockFactory.CreateLoose();
+        api.Setup(x => x.GetCurrentUserAsync())
+            .ThrowsAsync(new System.Net.Http.HttpRequestException("Unauthorized", inner: null, System.Net.HttpStatusCode.Unauthorized));
+
+        var result = await ConfluenceMcpTools.Ping(
+            api.Object, LoggerTestHelper.CreateLoggerFactory(),
+            MEO.Create(new GlobalOptions { BaseUrl = "https://x", SpaceKey = "S" }),
+            McpOpts(temp.RootPath));
+
+        AssertError(result, "AUTH_FAILED");
+    }
+
+    [Fact]
+    public async Task Ping_ShouldReturnNetworkError_OnNakedHttpRequestException()
+    {
+        using var temp = new TempDirectoryScope();
+        var api = ApiClientMockFactory.CreateLoose();
+        api.Setup(x => x.GetCurrentUserAsync())
+            .ThrowsAsync(new System.Net.Http.HttpRequestException("DNS failure"));
+
+        var result = await ConfluenceMcpTools.Ping(
+            api.Object, LoggerTestHelper.CreateLoggerFactory(),
+            MEO.Create(new GlobalOptions { BaseUrl = "https://x", SpaceKey = "S" }),
+            McpOpts(temp.RootPath));
+
+        AssertError(result, "NETWORK_ERROR");
+    }
+
+    [Fact]
+    public async Task Ping_ShouldWorkInReadOnlyMode()
+    {
+        // confluence_ping is a diagnostic and must not be gated by --read-only.
+        using var temp = new TempDirectoryScope();
+        var api = ApiClientMockFactory.CreateLoose();
+        api.Setup(x => x.GetCurrentUserAsync())
+            .ReturnsAsync(new ConfluenceUser { Username = "ro-user" });
+
+        var result = await ConfluenceMcpTools.Ping(
+            api.Object, LoggerTestHelper.CreateLoggerFactory(),
+            MEO.Create(new GlobalOptions { BaseUrl = "https://x", SpaceKey = "S" }),
+            McpOpts(temp.RootPath, readOnly: true));
+
+        AssertSuccess(result);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private static void AssertSuccess(object result)

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
@@ -285,6 +286,57 @@ public sealed class ConfluenceMcpTools
             return McpToolResult.Success(
                 summary: BuildCompareSummary(compareReport),
                 report: compareReport,
+                logs: writer.Lines);
+        }
+        catch (Exception ex)
+        {
+            return McpToolResult.FromException(ex, loggerFactory, writer.Lines);
+        }
+    }
+
+    // ── ping ─────────────────────────────────────────────────────────────
+
+    [McpServerTool(Name = "confluence_ping")]
+    [Description("Diagnostic: verify the MCP server's connectivity and credentials to Confluence with a single lightweight call. Returns base URL, authenticated user, response latency, configured space key, and sandbox settings. Safe in --read-only mode.")]
+    public static async Task<object> Ping(
+        IConfluenceApiClient api,
+        ILoggerFactory loggerFactory,
+        IOptions<GlobalOptions> globalOpts,
+        ConfluenceMcpOptions mcpOpts)
+    {
+        var writer = new BufferingConsoleWriter();
+        try
+        {
+            var globals = globalOpts.Value;
+            writer.WriteLine($"Pinging Confluence at '{globals.BaseUrl}'...");
+
+            var started = Stopwatch.GetTimestamp();
+            var user = await api.GetCurrentUserAsync();
+            var elapsedMs = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+
+            writer.WriteLine($"OK in {elapsedMs}ms — authenticated as '{user.Username ?? user.AccountId ?? "?"}' ({user.DisplayName ?? "no display name"}).");
+
+            var report = new
+            {
+                baseUrl = globals.BaseUrl,
+                spaceKey = globals.SpaceKey,
+                authenticatedAs = new
+                {
+                    username = user.Username,
+                    displayName = user.DisplayName,
+                    userKey = user.UserKey,
+                    accountId = user.AccountId,
+                },
+                elapsedMs,
+                sandbox = new
+                {
+                    rootDir = mcpOpts.RootDir,
+                    readOnly = mcpOpts.ReadOnly,
+                },
+            };
+            return McpToolResult.Success(
+                summary: $"Confluence reachable at '{globals.BaseUrl}' in {elapsedMs}ms as '{user.Username ?? user.AccountId ?? "?"}'.",
+                report: report,
                 logs: writer.Lines);
         }
         catch (Exception ex)
