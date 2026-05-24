@@ -96,6 +96,10 @@ public static class McpServerRunner
                         options.ServerInstructions = agentInstructions;
                 })
                 .WithStdioServerTransport()
+                .WithRequestFilters(filters =>
+                {
+                    filters.AddCallToolFilter(ToolExceptionFilter.Handle);
+                })
                 .WithTools<ConfluenceMcpTools>();
 
             using var host = builder.Build();
