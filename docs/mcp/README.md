@@ -72,7 +72,7 @@ window LLM.
 | `OUT_OF_SANDBOX` | Переданный путь после нормализации оказался вне `--root-dir`. |
 | `READ_ONLY_VIOLATION` | Попытка вызвать upload-инструмент на сервере с флагом `--read-only`. |
 | `AUTH_FAILED` | 401/403 от Confluence или `UnauthorizedAccessException` на файловой системе. |
-| `NETWORK_ERROR` | `HttpRequestException` без HTTP-статуса (DNS, TCP, SSL EOF и т.п.). Если повторяется после `confluence_ping` — проверь сеть/VPN. |
+| `NETWORK_ERROR` | `HttpRequestException` без HTTP-статуса (DNS, TCP, SSL EOF и т.п.). MCP-сервер уже сам пытается до трёх раз с экспоненциальной паузой на идемпотентных запросах (GET/PUT/DELETE); если ошибка дошла до агента — значит, все попытки провалились. Проверь сеть/VPN через `confluence_ping`. |
 | `PAGE_NOT_FOUND` | 404 от Confluence или невозможно разрешить страницу по `pageId`/`pageTitle`. |
 | `DIRECTORY_NOT_FOUND`, `FILE_NOT_FOUND` | Локальный путь не существует. |
 | `INVALID_STATE`, `IO_ERROR`, `INTERNAL` | Прочие ошибки исполнения. |
