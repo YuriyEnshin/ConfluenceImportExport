@@ -22,6 +22,15 @@ public interface IConfluenceApiClient
     Task<PageData?> GetPageAtVersionAsync(string pageId, int versionNumber);
 
     /// <summary>
+    /// Like <see cref="GetPageAtVersionAsync"/>, but expands <c>body.storage</c>
+    /// so the caller gets the actual page content for the historical version.
+    /// Separated from the lightweight version because hot callers
+    /// (<c>ChangeSourceAnalyzer</c>) walk many historical versions only for
+    /// metadata and don't need the payload.
+    /// </summary>
+    Task<PageData> GetPageContentAtVersionAsync(string pageId, int versionNumber);
+
+    /// <summary>
     /// Returns the authenticated user. Used by the MCP <c>confluence_ping</c>
     /// diagnostic to verify connectivity and credentials with a single
     /// lightweight call to <c>/rest/api/user/current</c>.

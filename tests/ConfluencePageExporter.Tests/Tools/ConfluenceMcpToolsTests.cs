@@ -226,6 +226,147 @@ public class ConfluenceMcpToolsTests
         AssertSuccess(result);
     }
 
+    // ── GetPageContent ───────────────────────────────────────────────────
+
+    private const string SampleStorage =
+        "<p>Hello <strong>world</strong></p><ac:structured-macro ac:name=\"info\"><ac:rich-text-body><p>tip</p></ac:rich-text-body></ac:structured-macro>";
+
+    [Fact]
+    public async Task GetPageContent_ShouldReturnCurrentVersion_OnHappyPath()
+    {
+        var api = ApiClientMockFactory.CreateLoose();
+        var page = ApiClientMockFactory.CreatePage("123", "My Page", SampleStorage, versionNumber: 7);
+        api.Setup(x => x.GetPageByIdAsync("123")).ReturnsAsync(page);
+
+        var result = await ConfluenceMcpTools.GetPageContent(
+            api.Object, LoggerTestHelper.CreateLoggerFactory(), Globals(),
+            pageId: "123", pageTitle: null);
+
+        AssertSuccess(result);
+        var report = result.GetType().GetProperty("report")!.GetValue(result)!;
+        report.GetType().GetProperty("pageId")!.GetValue(report).Should().Be("123");
+        report.GetType().GetProperty("title")!.GetValue(report).Should().Be("My Page");
+        report.GetType().GetProperty("content")!.GetValue(report).Should().Be(SampleStorage);
+        report.GetType().GetProperty("truncated")!.GetValue(report).Should().Be(false);
+        report.GetType().GetProperty("normalized")!.GetValue(report).Should().Be(false);
+        api.Verify(x => x.GetPageByIdAsync("123"), Times.Once);
+        api.Verify(x => x.GetPageContentAtVersionAsync(It.IsAny<string>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetPageContent_ShouldCallVersionedEndpoint_WhenVersionGiven()
+    {
+        var api = ApiClientMockFactory.CreateLoose();
+        var page = ApiClientMockFactory.CreatePage("123", "My Page", "<p>old</p>", versionNumber: 5);
+        api.Setup(x => x.GetPageContentAtVersionAsync("123", 5)).ReturnsAsync(page);
+
+        var result = await ConfluenceMcpTools.GetPageContent(
+            api.Object, LoggerTestHelper.CreateLoggerFactory(), Globals(),
+            pageId: "123", pageTitle: null, version: 5);
+
+        AssertSuccess(result);
+        api.Verify(x => x.GetPageContentAtVersionAsync("123", 5), Times.Once);
+        api.Verify(x => x.GetPageByIdAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetPageContent_ShouldResolveByTitle_WhenPageIdMissing()
+    {
+        var api = ApiClientMockFactory.CreateLoose();
+        api.Setup(x => x.FindPageByTitleAsync("SPACE", null, "Some Title")).ReturnsAsync("777");
+        api.Setup(x => x.GetPageByIdAsync("777"))
+            .ReturnsAsync(ApiClientMockFactory.CreatePage("777", "Some Title", "<p>x</p>"));
+
+        var result = await ConfluenceMcpTools.GetPageContent(
+            api.Object, LoggerTestHelper.CreateLoggerFactory(), Globals(),
+            pageId: null, pageTitle: "Some Title");
+
+        AssertSuccess(result);
+        api.Verify(x => x.FindPageByTitleAsync("SPACE", null, "Some Title"), Times.Once);
+        api.Verify(x => x.GetPageByIdAsync("777"), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetPageContent_ShouldReturnInvalidArgs_WhenBothPageIdAndTitleSet()
+    {
+        var api = ApiClientMockFactory.CreateLoose();
+        var result = await ConfluenceMcpTools.GetPageContent(
+            api.Object, LoggerTestHelper.CreateLoggerFactory(), Globals(),
+            pageId: "1", pageTitle: "T");
+
+        AssertError(result, "INVALID_ARGS");
+    }
+
+    [Fact]
+    public async Task GetPageContent_ShouldReturnPageNotFound_WhenTitleUnresolvable()
+    {
+        var api = ApiClientMockFactory.CreateLoose();
+        api.Setup(x => x.FindPageByTitleAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>()))
+            .ReturnsAsync((string?)null);
+
+        var result = await ConfluenceMcpTools.GetPageContent(
+            api.Object, LoggerTestHelper.CreateLoggerFactory(), Globals(),
+            pageId: null, pageTitle: "Missing");
+
+        AssertError(result, "PAGE_NOT_FOUND");
+    }
+
+    [Fact]
+    public async Task GetPageContent_ShouldNormalize_WhenRequested()
+    {
+        // Different attribute ordering should collapse to the same canonical
+        // form once normalized, but raw output should preserve server bytes.
+        var api = ApiClientMockFactory.CreateLoose();
+        var withQuirkySpacing = "<p>a</p>\n   <p>b</p>";
+        api.Setup(x => x.GetPageByIdAsync("1"))
+            .ReturnsAsync(ApiClientMockFactory.CreatePage("1", "T", withQuirkySpacing));
+
+        var raw = await ConfluenceMcpTools.GetPageContent(
+            api.Object, LoggerTestHelper.CreateLoggerFactory(), Globals(),
+            pageId: "1", pageTitle: null, normalize: false);
+        var normalized = await ConfluenceMcpTools.GetPageContent(
+            api.Object, LoggerTestHelper.CreateLoggerFactory(), Globals(),
+            pageId: "1", pageTitle: null, normalize: true);
+
+        var rawContent = (string)raw.GetType().GetProperty("report")!.GetValue(raw)!
+            .GetType().GetProperty("content")!.GetValue(raw.GetType().GetProperty("report")!.GetValue(raw)!)!;
+        var normContent = (string)normalized.GetType().GetProperty("report")!.GetValue(normalized)!
+            .GetType().GetProperty("content")!.GetValue(normalized.GetType().GetProperty("report")!.GetValue(normalized)!)!;
+
+        rawContent.Should().Be(withQuirkySpacing);
+        normContent.Should().NotBe(withQuirkySpacing); // canonicalisation must change something
+    }
+
+    [Fact]
+    public async Task GetPageContent_ShouldTruncate_WhenContentExceedsMaxBytes()
+    {
+        var api = ApiClientMockFactory.CreateLoose();
+        var huge = new string('a', 5000);
+        api.Setup(x => x.GetPageByIdAsync("1"))
+            .ReturnsAsync(ApiClientMockFactory.CreatePage("1", "T", huge));
+
+        var result = await ConfluenceMcpTools.GetPageContent(
+            api.Object, LoggerTestHelper.CreateLoggerFactory(), Globals(),
+            pageId: "1", pageTitle: null, maxBytes: 1024);
+
+        AssertSuccess(result);
+        var report = result.GetType().GetProperty("report")!.GetValue(result)!;
+        report.GetType().GetProperty("truncated")!.GetValue(report).Should().Be(true);
+        ((int)report.GetType().GetProperty("fullSize")!.GetValue(report)!).Should().Be(5000);
+        ((int)report.GetType().GetProperty("contentLength")!.GetValue(report)!).Should().BeLessThanOrEqualTo(1024);
+    }
+
+    [Fact]
+    public async Task GetPageContent_ShouldRejectTooSmallMaxBytes()
+    {
+        var api = ApiClientMockFactory.CreateLoose();
+        var result = await ConfluenceMcpTools.GetPageContent(
+            api.Object, LoggerTestHelper.CreateLoggerFactory(), Globals(),
+            pageId: "1", pageTitle: null, maxBytes: 16);
+
+        AssertError(result, "INVALID_ARGS");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private static void AssertSuccess(object result)
