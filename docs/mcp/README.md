@@ -40,6 +40,7 @@ window LLM.
 | `confluence_upload_create` | Создать новые страницы в Confluence из локальной папки | `upload create` |
 | `confluence_upload_merge` | Залить только локальные изменения, сохранив серверные правки | `upload merge` |
 | `confluence_compare` | Сравнить дерево Confluence с локальной копией | `compare` |
+| `confluence_ping` | **Диагностика.** Проверить связность и учётные данные одним лёгким запросом; вернуть base URL, текущего пользователя, latency и настройки песочницы. Работает и в `--read-only`. | — |
 
 Все инструменты возвращают JSON-конверт единого формата:
 
@@ -71,6 +72,7 @@ window LLM.
 | `OUT_OF_SANDBOX` | Переданный путь после нормализации оказался вне `--root-dir`. |
 | `READ_ONLY_VIOLATION` | Попытка вызвать upload-инструмент на сервере с флагом `--read-only`. |
 | `AUTH_FAILED` | 401/403 от Confluence или `UnauthorizedAccessException` на файловой системе. |
+| `NETWORK_ERROR` | `HttpRequestException` без HTTP-статуса (DNS, TCP, SSL EOF и т.п.). Если повторяется после `confluence_ping` — проверь сеть/VPN. |
 | `PAGE_NOT_FOUND` | 404 от Confluence или невозможно разрешить страницу по `pageId`/`pageTitle`. |
 | `DIRECTORY_NOT_FOUND`, `FILE_NOT_FOUND` | Локальный путь не существует. |
 | `INVALID_STATE`, `IO_ERROR`, `INTERNAL` | Прочие ошибки исполнения. |

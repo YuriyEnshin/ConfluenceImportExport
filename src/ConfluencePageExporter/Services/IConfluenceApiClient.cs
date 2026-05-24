@@ -20,4 +20,11 @@ public interface IConfluenceApiClient
     Task<byte[]> DownloadAttachmentAsync(string downloadUrl);
     Task<List<PageVersionSummary>> GetPageVersionsAsync(string pageId, int limit = 10);
     Task<PageData?> GetPageAtVersionAsync(string pageId, int versionNumber);
+
+    /// <summary>
+    /// Returns the authenticated user. Used by the MCP <c>confluence_ping</c>
+    /// diagnostic to verify connectivity and credentials with a single
+    /// lightweight call to <c>/rest/api/user/current</c>.
+    /// </summary>
+    Task<ConfluenceUser> GetCurrentUserAsync();
 }
