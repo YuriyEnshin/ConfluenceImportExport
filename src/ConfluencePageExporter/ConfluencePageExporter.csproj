@@ -16,4 +16,15 @@
     <PackageReference Include="ModelContextProtocol" Version="1.3.0" />
   </ItemGroup>
 
+  <!--
+    Embed the agent-facing instructions so the MCP server can ship them to
+    the client via InitializeResult.Instructions at connection time. Single
+    source of truth: the file lives in docs/mcp/ for humans to read and
+    optionally paste into custom agent rules; the build copies it into the
+    assembly so every release carries its own instructions.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\docs\mcp\agent-instructions.md" LogicalName="ConfluencePageExporter.agent-instructions.md" />
+  </ItemGroup>
+
 </Project>

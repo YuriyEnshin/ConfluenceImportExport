@@ -81,8 +81,20 @@ public static class McpServerRunner
                     opts.AuthType ?? "onprem");
             });
 
+            // Ship the agent-facing instructions to the client via
+            // InitializeResult.Instructions. Most MCP clients (Claude Code,
+            // Claude Desktop, Cursor) feed this directly into the agent's
+            // system prompt, so the agent sees workflow guidance — sandbox
+            // model, conflict-resolution recipe, error-code semantics — the
+            // moment the connection is established, without the operator
+            // having to paste anything into custom rules.
+            var agentInstructions = AgentInstructionsLoader.TryLoad();
             builder.Services
-                .AddMcpServer()
+                .AddMcpServer(options =>
+                {
+                    if (!string.IsNullOrEmpty(agentInstructions))
+                        options.ServerInstructions = agentInstructions;
+                })
                 .WithStdioServerTransport()
                 .WithTools<ConfluenceMcpTools>();
 
