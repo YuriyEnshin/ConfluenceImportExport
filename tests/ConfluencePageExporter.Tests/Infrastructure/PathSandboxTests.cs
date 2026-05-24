@@ -123,4 +123,59 @@ public class PathSandboxTests
 
         act.Should().Throw<ArgumentException>();
     }
+
+    // ── Trailing-separator robustness (regression: in v2.7.0 the agent
+    // reported OUT_OF_SANDBOX for outputDir="." when the operator started
+    // the server with `--root-dir D:\…\Confluence\` because Path.GetFullPath
+    // preserved the trailing slash on the stored root, while resolving "."
+    // against that root produced a path without the trailing slash.) ────
+
+    [Fact]
+    public void Constructor_ShouldNormaliseRoot_WhenTrailingSeparatorPresent()
+    {
+        using var scope = new TempDirectoryScope();
+        var rootWithSlash = scope.RootPath + Path.DirectorySeparatorChar;
+
+        var sandbox = new PathSandbox(rootWithSlash);
+
+        sandbox.RootDir.Should().NotEndWith(Path.DirectorySeparatorChar.ToString());
+        sandbox.RootDir.Should().Be(Path.GetFullPath(scope.RootPath).TrimEnd(Path.DirectorySeparatorChar));
+    }
+
+    [Fact]
+    public void Resolve_ShouldAcceptDotPath_WhenRootHasTrailingSeparator()
+    {
+        using var scope = new TempDirectoryScope();
+        var rootWithSlash = scope.RootPath + Path.DirectorySeparatorChar;
+        var sandbox = new PathSandbox(rootWithSlash);
+
+        var resolved = sandbox.Resolve(".");
+
+        resolved.Should().Be(Path.GetFullPath(scope.RootPath));
+    }
+
+    [Fact]
+    public void Resolve_ShouldAcceptDotPath_WhenRootHasNoTrailingSeparator()
+    {
+        // Sanity: the no-trailing form must keep working — the fix shouldn't
+        // shift behaviour for the previously-working case.
+        using var scope = new TempDirectoryScope();
+        var sandbox = new PathSandbox(scope.RootPath);
+
+        var resolved = sandbox.Resolve(".");
+
+        resolved.Should().Be(Path.GetFullPath(scope.RootPath));
+    }
+
+    [Fact]
+    public void Resolve_ShouldAcceptDotSlashSubdir_WhenRootHasTrailingSeparator()
+    {
+        using var scope = new TempDirectoryScope();
+        var rootWithSlash = scope.RootPath + Path.DirectorySeparatorChar;
+        var sandbox = new PathSandbox(rootWithSlash);
+
+        var resolved = sandbox.Resolve("./child");
+
+        resolved.Should().Be(Path.Combine(Path.GetFullPath(scope.RootPath), "child"));
+    }
 }
