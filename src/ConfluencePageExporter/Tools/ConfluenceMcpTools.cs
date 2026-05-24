@@ -59,8 +59,7 @@ public sealed class ConfluenceMcpTools
         }
         catch (Exception ex)
         {
-            var (code, message) = McpToolResult.Classify(ex);
-            return McpToolResult.Error(code, message, writer.Lines);
+            return McpToolResult.FromException(ex, loggerFactory, writer.Lines);
         }
     }
 
@@ -104,8 +103,7 @@ public sealed class ConfluenceMcpTools
         }
         catch (Exception ex)
         {
-            var (code, message) = McpToolResult.Classify(ex);
-            return McpToolResult.Error(code, message, writer.Lines);
+            return McpToolResult.FromException(ex, loggerFactory, writer.Lines);
         }
     }
 
@@ -152,8 +150,7 @@ public sealed class ConfluenceMcpTools
         }
         catch (Exception ex)
         {
-            var (code, message) = McpToolResult.Classify(ex);
-            return McpToolResult.Error(code, message, writer.Lines);
+            return McpToolResult.FromException(ex, loggerFactory, writer.Lines);
         }
     }
 
@@ -202,8 +199,7 @@ public sealed class ConfluenceMcpTools
         }
         catch (Exception ex)
         {
-            var (code, message) = McpToolResult.Classify(ex);
-            return McpToolResult.Error(code, message, writer.Lines);
+            return McpToolResult.FromException(ex, loggerFactory, writer.Lines);
         }
     }
 
@@ -251,8 +247,7 @@ public sealed class ConfluenceMcpTools
         }
         catch (Exception ex)
         {
-            var (code, message) = McpToolResult.Classify(ex);
-            return McpToolResult.Error(code, message, writer.Lines);
+            return McpToolResult.FromException(ex, loggerFactory, writer.Lines);
         }
     }
 
@@ -294,8 +289,7 @@ public sealed class ConfluenceMcpTools
         }
         catch (Exception ex)
         {
-            var (code, message) = McpToolResult.Classify(ex);
-            return McpToolResult.Error(code, message, writer.Lines);
+            return McpToolResult.FromException(ex, loggerFactory, writer.Lines);
         }
     }
 

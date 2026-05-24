@@ -27,11 +27,32 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
     }
 
     public HttpClientConfluenceApiClient(string baseUrl, string username, string authSecret, ILogger<HttpClientConfluenceApiClient> logger, string authType = "onprem")
-        : this(baseUrl, new HttpClient(new HttpTimingHandler(logger)), logger)
+        : this(baseUrl, BuildResilientHttpClient(logger), logger)
     {
         // Basic Auth works the same for both on-prem and cloud.
         var credentials = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{username}:{authSecret}"));
         _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
+    }
+
+    /// <summary>
+    /// Builds an <see cref="HttpClient"/> backed by <see cref="SocketsHttpHandler"/>
+    /// with a bounded connection lifetime. Long-running MCP processes share a
+    /// single HttpClient across many tool invocations, so without
+    /// <c>PooledConnectionLifetime</c> a connection broken by a transient
+    /// network event (VPN drop, NAT timeout, server-side keep-alive reset)
+    /// stays in the pool and surfaces as cryptic SSL EOF errors on the next
+    /// request. Recycling every two minutes is the .NET-recommended balance
+    /// between connection reuse and freshness for long-lived clients.
+    /// </summary>
+    private static HttpClient BuildResilientHttpClient(ILogger logger)
+    {
+        var sockets = new SocketsHttpHandler
+        {
+            PooledConnectionLifetime  = TimeSpan.FromMinutes(2),
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1),
+            ConnectTimeout            = TimeSpan.FromSeconds(30),
+        };
+        return new HttpClient(new HttpTimingHandler(logger, sockets));
     }
 
     public async Task<PageData> GetPageByIdAsync(string pageId)

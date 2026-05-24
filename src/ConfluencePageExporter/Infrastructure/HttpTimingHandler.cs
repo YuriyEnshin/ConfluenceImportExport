@@ -7,7 +7,14 @@ public sealed class HttpTimingHandler : DelegatingHandler
 {
     private readonly ILogger _logger;
 
-    public HttpTimingHandler(ILogger logger) : base(new HttpClientHandler())
+    /// <summary>
+    /// Creates the timing handler. When <paramref name="innerHandler"/> is
+    /// <c>null</c> the legacy <see cref="HttpClientHandler"/> is used to
+    /// preserve previous behaviour; callers that need connection-pool
+    /// recycling should pass a configured <see cref="SocketsHttpHandler"/>.
+    /// </summary>
+    public HttpTimingHandler(ILogger logger, HttpMessageHandler? innerHandler = null)
+        : base(innerHandler ?? new HttpClientHandler())
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
