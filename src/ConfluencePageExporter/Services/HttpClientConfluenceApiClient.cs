@@ -35,15 +35,23 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
     }
 
     /// <summary>
-    /// Builds an <see cref="HttpClient"/> backed by <see cref="SocketsHttpHandler"/>
-    /// with a bounded connection lifetime. Long-running MCP processes share a
-    /// single HttpClient across many tool invocations, so without
-    /// <c>PooledConnectionLifetime</c> a connection broken by a transient
-    /// network event (VPN drop, NAT timeout, server-side keep-alive reset)
-    /// stays in the pool and surfaces as cryptic SSL EOF errors on the next
-    /// request. Recycling every two minutes is the .NET-recommended balance
-    /// between connection reuse and freshness for long-lived clients.
+    /// Builds an <see cref="HttpClient"/> with two layers of resilience:
+    /// (1) <see cref="SocketsHttpHandler"/> with a bounded connection lifetime,
+    /// so stale TCP sockets after a network blip are evicted within two
+    /// minutes; and (2) a <see cref="RetryingHttpHandler"/> that absorbs
+    /// transient failures (HttpRequestException with no status, IOException,
+    /// 502/503/504/408/429) on idempotent verbs with exponential backoff.
+    /// Combined, these mean a typical VPN reconnect is invisible to the agent
+    /// — the first call after restoration succeeds on retry instead of
+    /// returning NETWORK_ERROR.
     /// </summary>
+    /// <remarks>
+    /// Handler chain (outermost to innermost):
+    /// <code>HttpClient → RetryingHttpHandler → HttpTimingHandler → SocketsHttpHandler</code>
+    /// Timing sits inside Retry so each individual attempt is logged
+    /// separately; Retry sits outside Timing so it sees the timing-decorated
+    /// response/exception and can decide whether to retry the whole call.
+    /// </remarks>
     private static HttpClient BuildResilientHttpClient(ILogger logger)
     {
         var sockets = new SocketsHttpHandler
@@ -52,7 +60,9 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
             PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1),
             ConnectTimeout            = TimeSpan.FromSeconds(30),
         };
-        return new HttpClient(new HttpTimingHandler(logger, sockets));
+        var timing = new HttpTimingHandler(logger, sockets);
+        var retry  = new RetryingHttpHandler(logger, timing);
+        return new HttpClient(retry);
     }
 
     public async Task<PageData> GetPageByIdAsync(string pageId)
