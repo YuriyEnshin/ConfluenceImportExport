@@ -18,10 +18,27 @@ public sealed class PathSandbox : IPathSandbox
         if (string.IsNullOrWhiteSpace(rootDir))
             throw new ArgumentException("Root directory must be a non-empty path.", nameof(rootDir));
 
-        RootDir = Path.GetFullPath(rootDir);
-        _rootDirWithSeparator = RootDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            + Path.DirectorySeparatorChar;
+        // Path.GetFullPath preserves a trailing separator in its input (so
+        // "C:\foo\" round-trips as "C:\foo\"), but Path.GetFullPath on a
+        // path derived from the same root via "." drops it. Comparing the
+        // two with Equals/StartsWith then mis-classifies the *root itself*
+        // as outside the sandbox. Trim the trailing separator from the
+        // canonical RootDir so both forms compare equal.
+        RootDir = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootDir));
+
+        // _rootDirWithSeparator must end in a separator for the
+        // StartsWith-based descendant check. For drive roots like "C:\"
+        // (or POSIX "/"), Path.TrimEndingDirectorySeparator leaves the
+        // separator in place — so re-appending one would produce "C:\\"
+        // and break the check. Append only when the trim actually
+        // happened (or never existed in the first place).
+        _rootDirWithSeparator = RootDir.Length > 0 && IsDirectorySeparator(RootDir[^1])
+            ? RootDir
+            : RootDir + Path.DirectorySeparatorChar;
     }
+
+    private static bool IsDirectorySeparator(char c) =>
+        c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar;
 
     public string Resolve(string userPath)
     {
