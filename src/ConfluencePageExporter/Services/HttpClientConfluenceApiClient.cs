@@ -498,6 +498,22 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         }
     }
 
+    public async Task<PageData> GetPageContentAtVersionAsync(string pageId, int versionNumber)
+    {
+        // Same endpoint as GetPageAtVersionAsync, but with body.storage in
+        // the expand list. Unlike GetPageAtVersionAsync we surface failures
+        // (don't swallow exceptions): this method is reached only when the
+        // caller explicitly asked for a specific historical version, so any
+        // failure (404 = version doesn't exist, 401 = lost auth, etc.) is
+        // an actionable user-visible error rather than tolerable noise.
+        var url = $"{_baseUrl}/rest/api/content/{pageId}?status=historical&version={versionNumber}&expand=body.storage,version";
+        using var response = await _httpClient.GetAsync(url);
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        return JsonConvert.DeserializeObject<PageData>(content)
+            ?? throw new InvalidOperationException($"Could not deserialize page {pageId} at version {versionNumber}.");
+    }
+
     public async Task<ConfluenceUser> GetCurrentUserAsync()
     {
         // /rest/api/user/current is the canonical lightweight ping for

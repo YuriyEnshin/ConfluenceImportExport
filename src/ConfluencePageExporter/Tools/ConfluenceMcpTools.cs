@@ -345,6 +345,106 @@ public sealed class ConfluenceMcpTools
         }
     }
 
+    // ── get_page_content ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Default cap on returned content size. Tuned to keep a single tool
+    /// invocation well under any reasonable agent context budget while still
+    /// covering the vast majority of real-world Confluence pages (most are
+    /// under 50 KB of storage XML).
+    /// </summary>
+    private const int DefaultMaxContentBytes = 262144; // 256 KB
+
+    [McpServerTool(Name = "confluence_get_page_content")]
+    [Description("Fetch the storage-format (XHTML) content of a Confluence page, optionally at a specific historical version and optionally normalised for diffing. Designed for the agent-assisted merge workflow: when 'compare' or 'download_merge' reports a conflict, call this to get the server-side content the agent can diff against the local index.html. For 3-way merges, call once with the local marker's version and once without (current). Safe in --read-only mode.")]
+    public static async Task<object> GetPageContent(
+        IConfluenceApiClient api,
+        ILoggerFactory loggerFactory,
+        IOptions<GlobalOptions> globalOpts,
+        [Description("Confluence page ID (mutually exclusive with pageTitle)")] string? pageId,
+        [Description("Confluence page title (mutually exclusive with pageId)")] string? pageTitle,
+        [Description("Space key. Optional — defaults to the server's configured Global:SpaceKey. Required when pageTitle is used.")] string? spaceKey = null,
+        [Description("Historical version number. Omit for the latest version. Useful for 3-way merges: pass the version recorded in the local .idPAGEID_VER marker to get the merge base.")] int? version = null,
+        [Description("If true, run the returned content through the same storage-format normalisation used by 'compare' (canonical entities, sorted attributes, trimmed inter-tag whitespace) so textual diffs reflect semantic differences only.")] bool normalize = false,
+        [Description("Hard cap on the size of the returned 'content' field in bytes. Default 262144 (256 KB). When exceeded, the content is truncated and 'truncated':true / 'fullSize' are set so the agent knows to fetch via 'download_update' instead.")] int? maxBytes = null)
+    {
+        var writer = new BufferingConsoleWriter();
+        try
+        {
+            ArgValidation.RequireExactlyOne(("pageId", pageId), ("pageTitle", pageTitle));
+            var resolvedSpace = ResolveSpaceKey(spaceKey, globalOpts.Value);
+            var cap = maxBytes ?? DefaultMaxContentBytes;
+            if (cap < 1024)
+                throw new ArgumentException("maxBytes must be at least 1024 (1 KB).");
+
+            // Resolve title → ID first; both code paths below need a real ID.
+            var resolvedId = pageId;
+            if (string.IsNullOrEmpty(resolvedId))
+            {
+                writer.WriteLine($"Resolving title '{pageTitle}' in space '{resolvedSpace}'...");
+                resolvedId = await api.FindPageByTitleAsync(resolvedSpace, parentId: null, title: pageTitle!)
+                    ?? throw new InvalidOperationException($"Could not resolve page by title '{pageTitle}' in space '{resolvedSpace}'.");
+            }
+
+            PageData page;
+            if (version is int v)
+            {
+                writer.WriteLine($"Fetching page ID '{resolvedId}' at historical version {v}...");
+                page = await api.GetPageContentAtVersionAsync(resolvedId, v);
+            }
+            else
+            {
+                writer.WriteLine($"Fetching page ID '{resolvedId}' (current version)...");
+                page = await api.GetPageByIdAsync(resolvedId);
+            }
+
+            var rawContent = page.Body?.Storage?.Value ?? string.Empty;
+            var finalContent = normalize
+                ? StorageFormatNormalizer.NormalizeForComparison(rawContent)
+                : rawContent;
+            var utf8 = System.Text.Encoding.UTF8;
+            var bytes = utf8.GetBytes(finalContent);
+            var fullSize = bytes.Length;
+            var truncated = fullSize > cap;
+            if (truncated)
+            {
+                // Cut at `cap` bytes, then walk back to the last complete
+                // UTF-8 sequence so we never hand the agent invalid UTF-8.
+                // Continuation bytes match 10xxxxxx (0xC0 mask, 0x80 value).
+                var safeEnd = cap;
+                while (safeEnd > 0 && (bytes[safeEnd] & 0xC0) == 0x80) safeEnd--;
+                finalContent = utf8.GetString(bytes, 0, safeEnd);
+            }
+
+            writer.WriteLine($"OK: {fullSize} bytes (returned {(truncated ? "truncated" : "in full")}). Version {page.Version?.Number}.");
+
+            var report = new
+            {
+                pageId = page.Id,
+                title = page.Title,
+                spaceKey = resolvedSpace,
+                version = new
+                {
+                    number = page.Version?.Number,
+                    when = page.Version?.When,
+                },
+                content = finalContent,
+                contentLength = System.Text.Encoding.UTF8.GetByteCount(finalContent),
+                fullSize,
+                truncated,
+                normalized = normalize,
+            };
+            return McpToolResult.Success(
+                summary: $"Fetched '{page.Title}' v{page.Version?.Number}: {fullSize} bytes{(truncated ? " (truncated)" : "")}{(normalize ? ", normalized" : "")}.",
+                report: report,
+                logs: writer.Lines);
+        }
+        catch (Exception ex)
+        {
+            return McpToolResult.FromException(ex, loggerFactory, writer.Lines);
+        }
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private static string Describe(string? pageId, string? pageTitle) =>
@@ -364,13 +464,19 @@ public sealed class ConfluenceMcpTools
         if (report.ConflictPages.Count > 0) parts.Add($"{report.ConflictPages.Count} conflict(s)");
         if (report.OrphanPages.Count > 0) parts.Add($"{report.OrphanPages.Count} orphan(s)");
         if (report.SkippedPages.Count > 0) parts.Add($"{report.SkippedPages.Count} skipped");
-        return string.Join("; ", parts) + ".";
+        var summary = string.Join("; ", parts) + ".";
+        if (report.ConflictPages.Count > 0)
+            summary += " To resolve a conflict, call confluence_get_page_content with the conflicting pageId, diff it against the local index.html, and upload the merged result with confluence_upload_update.";
+        return summary;
     }
 
     private static string BuildCompareSummary(CompareReport report)
     {
-        return $"Compare completed. Added: {report.AddedInConfluence.Count}; Deleted: {report.DeletedInConfluence.Count}; "
+        var summary = $"Compare completed. Added: {report.AddedInConfluence.Count}; Deleted: {report.DeletedInConfluence.Count}; "
             + $"Renamed/moved: {report.RenamedOrMovedInConfluence.Count}; Content changed: {report.ContentChanged.Count}; "
             + $"Notes: {report.Notes.Count}.";
+        if (report.ContentChanged.Count > 0)
+            summary += " For any page in 'ContentChanged', call confluence_get_page_content with its pageId to inspect the latest server content and assist with merging.";
+        return summary;
     }
 }
