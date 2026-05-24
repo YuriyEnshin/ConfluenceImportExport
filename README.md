@@ -1,4 +1,4 @@
-# Confluence Page Exporter v2.6
+# Confluence Page Exporter v2.7
 
 Утилита командной строки для синхронизации страниц Confluence с локальной структурой папок.
 
@@ -72,22 +72,36 @@
 
 Утилиту можно запустить как [MCP](https://modelcontextprotocol.io)-сервер
 по stdio — это даёт ИИ-агентам (Claude Desktop, Cursor, Codex и др.)
-возможность выполнять те же шесть операций синхронизации
+возможность выполнять шесть операций синхронизации
 (`download update`/`merge`, `upload update`/`create`/`merge`, `compare`)
-прямо из чата, без перехода в терминал.
+прямо из чата, без перехода в терминал, плюс два helper-инструмента
+для самодиагностики и agent-assisted merge:
+
+- `confluence_ping` — лёгкая проверка связности и учётных данных
+  (base URL, текущий пользователь, latency, sandbox-настройки);
+  доступна и в `--read-only`.
+- `confluence_get_page_content` — получение storage-format XHTML
+  страницы (текущая или историческая версия) для сценария «конфликт
+  → diff → merge», когда агент локально читает `index.html` своими
+  файловыми инструментами и сводит правки. Поддерживает 2-way и
+  3-way merge (через `version` из локального маркера `.idPAGEID_VER`).
 
 ```bash
 ConfluencePageExporter mcp --root-dir <path> [--read-only]
 ```
 
 - `--root-dir` — обязательная песочница: агент не может писать вне неё.
-- `--read-only` — блокирует upload-инструменты (download/compare остаются).
+- `--read-only` — блокирует upload-инструменты (download/compare/ping/get_page_content остаются).
 - Параметры подключения к Confluence (BaseUrl/Username/Token/SpaceKey/AuthType)
   задаются через env-переменные `CONFLUENCE_EXPORTER__*` или JSON-конфиг —
   они никогда не попадают в context window LLM.
+- Сервер автоматически передаёт агенту короткий гайд по использованию
+  через MCP `InitializeResult.Instructions` — большинство клиентов
+  подмешивают это в системный промпт без ручных действий.
 
-Подробное описание инструментов, формата результатов, кодов ошибок и
-готовые конфиги для Claude Desktop / Cursor / Codex — в [`docs/mcp/`](docs/mcp/).
+Подробное описание инструментов, формата результатов, кодов ошибок,
+сценарии 2-/3-way merge, гайд для агента и готовые конфиги для
+Claude Desktop / Cursor / Codex — в [`docs/mcp/`](docs/mcp/).
 
 ## Установка
 

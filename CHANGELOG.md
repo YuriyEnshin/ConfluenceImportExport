@@ -6,6 +6,87 @@
 
 ## [Unreleased]
 
+## [2.7.0] — 2026-05-24
+
+Полировка MCP-сервера по итогам реального инцидента и обратной связи:
+надёжность HTTP-слоя, видимость ошибок, диагностика и помощь агенту в
+разрешении конфликтов.
+
+### Добавлено
+
+- Инструмент `confluence_ping` — лёгкая read-only диагностика
+  связности и учётных данных. Делает одиночный запрос к
+  `/rest/api/user/current`, возвращает base URL, текущего пользователя,
+  latency и настройки песочницы. Работает в `--read-only`. Назначение —
+  агент может первым делом проверить «жив ли канал?», прежде чем
+  запускать тяжёлые синхронизации.
+- Инструмент `confluence_get_page_content` — получение storage-format
+  XHTML страницы (текущая версия или конкретная историческая через
+  `version`). Создан под сценарий agent-assisted merge: при конфликте
+  агент читает локальный `index.html` своими файловыми инструментами,
+  серверный контент берёт этим инструментом, делает diff/merge сам,
+  заливает результат через `confluence_upload_update`. Поддерживается
+  3-way merge: версию-базу для слияния агент берёт из локального
+  маркера `.idPAGEID_VER`. Параметры: `normalize` (канонизирует
+  результат через `StorageFormatNormalizer` для семантического diff),
+  `maxBytes` (default 256 KB, UTF-8-safe truncation). Работает в
+  `--read-only`.
+- Гайд для агента `docs/mcp/agent-instructions.md` — короткий
+  английский cheat sheet (что делает сервер, sandbox-семантика, как
+  выбирать между инструментами, error codes, пошаговые сценарии
+  2-/3-way merge и troubleshooting через `ping`). Файл встроен в
+  сборку и автоматически передаётся клиенту через
+  `McpServerOptions.ServerInstructions` → MCP `InitializeResult.Instructions`.
+  Большинство клиентов (Claude Code, Claude Desktop, Cursor)
+  подмешивают эти инструкции в системный промпт без ручных действий
+  оператора. Тот же файл доступен в репозитории — можно при желании
+  вкатить в `CLAUDE.md`/`.cursorrules`, чтобы агент знал паттерны
+  ещё до подключения сервера.
+- Подсказки в `summary` отчётов `confluence_compare`,
+  `confluence_download_merge` и `confluence_upload_merge` при наличии
+  конфликтов / различий — указывают агенту, что для разрешения нужно
+  позвать `confluence_get_page_content`.
+- Новый код ошибки `NETWORK_ERROR` — `HttpRequestException` без
+  HTTP-статуса (DNS, TCP, SSL EOF и т.п.). Раньше такие ошибки терялись
+  в общем `INTERNAL`.
+
+### Изменено
+
+- Все исключения в MCP-инструментах теперь возвращаются агенту с
+  **полной цепочкой `InnerException`**, склеенной через `→`. Раньше в
+  поле `error` envelope-а лежал только `ex.Message`, и SSL-ошибки
+  выглядели как бесполезное «The SSL connection could not be
+  established, see inner exception.» — теперь видно реальную причину
+  («…→ Received an unexpected EOF…»). Цепочка кэпается 8 уровнями.
+- При каждой ошибке MCP-инструмента полный exception (с stack trace)
+  пишется в stderr через `ILogger.LogError`. MCP-хосты пишут stderr
+  в свои логи — оператор видит детали без необходимости перезапускать
+  сервер. Defense-in-depth на случай, если envelope где-то по дороге
+  потеряется.
+- `HttpClient` Confluence-клиента перестроен на `SocketsHttpHandler`
+  с `PooledConnectionLifetime=2min`, `PooledConnectionIdleTimeout=1min`,
+  `ConnectTimeout=30s`. Решает корневую причину инцидента, при котором
+  долгоживущий MCP-процесс после разрыва сети (VPN-реконнект, NAT-таймаут)
+  залипал на устаревших TCP-соединениях. Теперь пул сам обновляется
+  за ≤2 минуты.
+- Введён `RetryingHttpHandler` — автоматический retry на transient
+  ошибки. До 3 попыток с экспоненциальной задержкой (250 мс / 500 мс
+  / 1 с). Retry на: `HttpRequestException` без статуса OR 408/429/502/503/504,
+  `IOException`, `SocketException`. Не retry на: 4xx (кроме 408/429),
+  5xx (кроме 502/503/504), отмене. Только идемпотентные методы
+  (GET/HEAD/PUT/DELETE/OPTIONS); POST не ретрается — чтобы не
+  продублировать create-page или upload-attachment. Каждая попытка
+  логируется через `LogWarning` для видимости retry-штормов в логах
+  MCP-хоста.
+
+### Инфраструктура
+
+- Версии GitHub Actions обновлены до Node.js 24-совместимых
+  (`checkout@v6`, `setup-dotnet@v5`, `upload-artifact@v7`,
+  `download-artifact@v8`, `softprops/action-gh-release@v3`,
+  `dorny/test-reporter@v3`) — реакция на предупреждение GitHub о
+  принудительном переводе runner-а на Node.js 24 с июня 2026.
+
 ## [2.6.0] — 2026-05-20
 
 ### Добавлено
