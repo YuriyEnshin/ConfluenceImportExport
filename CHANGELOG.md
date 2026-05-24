@@ -6,6 +6,24 @@
 
 ## [Unreleased]
 
+## [2.7.1] — 2026-05-24
+
+### Исправлено
+
+- MCP-инструменты `confluence_compare`, `confluence_get_page_content`,
+  `confluence_download_update` и `confluence_download_merge` не работали
+  при вызове через MCP-клиент — агент получал generic-ошибку
+  «An error occurred invoking 'confluence_…'» без деталей. Причина —
+  баг ModelContextProtocol SDK: nullable-параметры (`pageId`, `pageTitle`)
+  без явного `= null` в сигнатуре помечались как "required" в JSON Schema,
+  и SDK отвергал вызовы, в которых один из mutually exclusive параметров
+  не передан. Добавлены default-значения ко всем опциональным параметрам.
+- Ошибки, возникающие на уровне SDK (parameter binding, десериализация
+  аргументов), теперь не теряются — добавлен `CallToolFilter`, который
+  перехватывает необработанные исключения и возвращает агенту
+  структурированный envelope `{success, errorCode, error, logs}` с
+  классифицированным кодом ошибки, вместо бесполезной generic-строки.
+
 ## [2.7.0] — 2026-05-24
 
 Полировка MCP-сервера по итогам реального инцидента и обратной связи:
