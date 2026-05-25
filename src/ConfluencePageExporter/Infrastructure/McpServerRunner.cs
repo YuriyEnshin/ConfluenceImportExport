@@ -67,6 +67,7 @@ public static class McpServerRunner
                 .Bind(builder.Configuration.GetSection("Global"));
 
             builder.Services.AddSingleton(mcpOptions);
+            builder.Services.AddSingleton<IContentNormalizer, XmlContentNormalizer>();
             builder.Services.AddSingleton<IPathSandbox>(new PathSandbox(mcpOptions.RootDir));
 
             builder.Services.AddTransient<IConfluenceApiClient>(sp =>

@@ -1,29 +1,24 @@
-using System.Text;
-using System.Text.RegularExpressions;
-
 namespace ConfluencePageExporter.Services;
 
 /// <summary>
-/// Normalizes Confluence storage format content before comparison.
-///
-/// Two-stage normalization:
-/// 1. Line endings: CRLF / standalone CR → LF
-/// 2. Canonicalization (regex-based, no System.Xml dependency):
-///    - Replaces HTML named entities with numeric equivalents
-///    - Strips whitespace-only text between tags (indentation)
-///    - Sorts attributes alphabetically within each tag
-///    - Normalizes self-closing tag spacing
-///    - On any failure, falls back to line-ending-only normalization
-///
-/// Known limitation: whitespace-only text nodes between inline elements (e.g., a single
-/// space between &lt;strong&gt; and &lt;em&gt;) are stripped during canonicalization.
-/// This is acceptable for detecting formatting-level differences introduced by editors.
+/// Static facade over IContentNormalizer for backward compatibility.
+/// Delegates to the configured normalizer instance (default: XmlContentNormalizer).
+/// Use IContentNormalizer via DI in new code instead of calling these methods directly.
 /// </summary>
-public static partial class StorageFormatNormalizer
+public static class StorageFormatNormalizer
 {
+    private static IContentNormalizer _instance = new XmlContentNormalizer();
+
+    /// <summary>
+    /// Replaces the default normalizer instance. Call once at startup if needed.
+    /// </summary>
+    internal static void SetNormalizer(IContentNormalizer normalizer)
+    {
+        _instance = normalizer ?? throw new ArgumentNullException(nameof(normalizer));
+    }
+
     /// <summary>
     /// Normalizes line endings to LF (\n).
-    /// Handles CRLF (\r\n) and standalone CR (\r) → LF.
     /// </summary>
     public static string NormalizeLineEndings(string content)
     {
@@ -31,151 +26,24 @@ public static partial class StorageFormatNormalizer
     }
 
     /// <summary>
-    /// Compares two storage format strings after full normalization
-    /// (line endings + canonicalization with fallback).
+    /// Compares two storage format strings after full normalization.
     /// </summary>
     public static bool ContentEquals(string? left, string? right)
     {
-        if (ReferenceEquals(left, right)) return true;
-        if (left is null || right is null) return false;
-
-        return string.Equals(
-            NormalizeForComparison(left),
-            NormalizeForComparison(right),
-            StringComparison.Ordinal);
+        return _instance.ContentEquals(left, right);
     }
 
+    /// <summary>
+    /// Returns a normalized form of the content suitable for comparison.
+    /// </summary>
     internal static string NormalizeForComparison(string content)
     {
-        var lineNormalized = NormalizeLineEndings(content);
-        return TryCanonicalize(lineNormalized) ?? lineNormalized;
+        return _instance.NormalizeForComparison(content);
     }
 
-    /// <summary>
-    /// Regex-based canonicalization that avoids System.Xml entirely.
-    /// This prevents AccessViolationException on macOS ARM64 in single-file
-    /// compressed apps (dotnet/runtime#123324).
-    /// </summary>
-    private static string? TryCanonicalize(string content)
-    {
-        try
-        {
-            var result = ReplaceHtmlNamedEntities(content);
-            result = StripInterTagWhitespace(result);
-            result = NormalizeTagAttributes(result);
-            return result;
-        }
-        catch
-        {
-            return null;
-        }
-    }
+    // ── HTML Entity Lookup (shared by RegexContentNormalizer) ────────────
 
-    // ── HTML Entity Replacement ─────────────────────────────────────────
-
-    [GeneratedRegex(@"&([a-zA-Z][a-zA-Z0-9]*);")]
-    private static partial Regex HtmlEntityPattern();
-
-    /// <summary>
-    /// Replaces HTML named entities (e.g. &amp;mdash; → the Unicode character —)
-    /// with their decoded Unicode equivalents. Uses a static lookup table instead
-    /// of WebUtility.HtmlDecode to avoid runtime issues on macOS ARM64.
-    /// The five predefined XML entities (amp, lt, gt, quot, apos) are left intact.
-    /// </summary>
-    private static string ReplaceHtmlNamedEntities(string content)
-    {
-        var matches = HtmlEntityPattern().Matches(content);
-        if (matches.Count == 0)
-            return content;
-
-        var replacements = new Dictionary<string, string>(StringComparer.Ordinal);
-
-        foreach (Match match in matches)
-        {
-            var entity = match.Value;
-            if (replacements.ContainsKey(entity))
-                continue;
-
-            var entityName = match.Groups[1].Value;
-            if (entityName is "amp" or "lt" or "gt" or "quot" or "apos")
-                continue;
-
-            if (HtmlEntities.TryGetCodePoint(entityName, out var codePoint))
-                replacements[entity] = char.ConvertFromUtf32(codePoint);
-        }
-
-        if (replacements.Count == 0)
-            return content;
-
-        var result = content;
-        foreach (var (original, replacement) in replacements)
-            result = result.Replace(original, replacement);
-
-        return result;
-    }
-
-    // ── Inter-tag Whitespace Stripping ──────────────────────────────────
-
-    [GeneratedRegex(@">\s+<")]
-    private static partial Regex InterTagWhitespacePattern();
-
-    private static string StripInterTagWhitespace(string content)
-    {
-        return InterTagWhitespacePattern().Replace(content, "><");
-    }
-
-    // ── Attribute Sorting ───────────────────────────────────────────────
-
-    [GeneratedRegex(
-        @"<([a-zA-Z][a-zA-Z0-9:._-]*)" +    // tag name (group 1)
-        @"(\s+[^>]*?)" +                      // attributes block (group 2)
-        @"(\s*/?>)",                           // closing: /> or > (group 3)
-        RegexOptions.Singleline)]
-    private static partial Regex OpeningTagPattern();
-
-    [GeneratedRegex(
-        @"([a-zA-Z][a-zA-Z0-9:._-]*)\s*=\s*""([^""]*)""")]
-    private static partial Regex AttributePattern();
-
-    /// <summary>
-    /// Sorts attributes alphabetically within each opening/self-closing tag.
-    /// Normalizes self-closing tag spacing (removes space before />).
-    /// </summary>
-    private static string NormalizeTagAttributes(string content)
-    {
-        return OpeningTagPattern().Replace(content, match =>
-        {
-            var tagName = match.Groups[1].Value;
-            var attrsBlock = match.Groups[2].Value;
-            var closing = match.Groups[3].Value.TrimStart();
-
-            var attrMatches = AttributePattern().Matches(attrsBlock);
-            if (attrMatches.Count == 0)
-                return $"<{tagName}{closing}";
-
-            var attrs = new List<(string Name, string Value)>(attrMatches.Count);
-            foreach (Match am in attrMatches)
-                attrs.Add((am.Groups[1].Value, am.Groups[2].Value));
-
-            attrs.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.Ordinal));
-
-            var sb = new StringBuilder();
-            sb.Append('<').Append(tagName);
-            foreach (var (name, value) in attrs)
-                sb.Append(' ').Append(name).Append("=\"").Append(value).Append('"');
-            sb.Append(closing);
-
-            return sb.ToString();
-        });
-    }
-
-    // ── HTML Entity Lookup Table ────────────────────────────────────────
-
-    /// <summary>
-    /// Static dictionary of HTML named character references → Unicode code points.
-    /// Covers all entities commonly found in Confluence storage format.
-    /// </summary>
-    private static class HtmlEntities
+    internal static class HtmlEntities
     {
         private static readonly Dictionary<string, int> Entities = new(StringComparer.Ordinal)
         {

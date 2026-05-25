@@ -8,6 +8,7 @@ namespace ConfluencePageExporter.Services;
 public class DownloadService
 {
     private readonly IConfluenceApiClient _apiClient;
+    private readonly IContentNormalizer _normalizer;
     private readonly ILogger<DownloadService> _logger;
     private readonly bool _dryRun;
     private readonly int _maxParallelism;
@@ -15,11 +16,13 @@ public class DownloadService
 
     public DownloadService(
         IConfluenceApiClient apiClient,
+        IContentNormalizer normalizer,
         ILogger<DownloadService> logger,
         bool dryRun = false,
         int maxParallelism = 8)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
+        _normalizer = normalizer ?? throw new ArgumentNullException(nameof(normalizer));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _dryRun = dryRun;
         _maxParallelism = maxParallelism < 1 ? 1 : maxParallelism;
@@ -112,7 +115,7 @@ public class DownloadService
             await WritePageContent(page.Title, pageDir, serverContent);
             await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title);
         }
-        else if (StorageFormatNormalizer.ContentEquals(localContent, serverContent))
+        else if (_normalizer.ContentEquals(localContent, serverContent))
         {
             _logger.LogDebug("Page '{Title}' content is unchanged, skipping", page.Title);
             await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title);
@@ -183,7 +186,7 @@ public class DownloadService
         if (File.Exists(filePath))
         {
             var existingContent = await File.ReadAllTextAsync(filePath);
-            if (StorageFormatNormalizer.ContentEquals(existingContent, content))
+            if (_normalizer.ContentEquals(existingContent, content))
             {
                 _logger.LogDebug("Page '{Title}' content is unchanged, skipping rewrite", page.Title);
                 return;

@@ -27,6 +27,7 @@ public sealed class ConfluenceMcpTools
     [Description("Force-download Confluence pages to local files, overwriting any local changes. Returns SyncReport in 'report' when 'report'=true.")]
     public static async Task<object> DownloadUpdate(
         IConfluenceApiClient api,
+        IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IPathSandbox sandbox,
         IOptions<GlobalOptions> globalOpts,
@@ -49,7 +50,7 @@ public sealed class ConfluenceMcpTools
             writer.WriteLine($"Download update: page {Describe(pageId, pageTitle)} from space '{resolvedSpace}'{(recursive ? " (recursive)" : "")}...");
             if (dryRun) writer.WriteLine("DRY RUN MODE: No files will be written to disk.");
 
-            var service = new DownloadService(api, loggerFactory.CreateLogger<DownloadService>(), dryRun, maxParallelism);
+            var service = new DownloadService(api, normalizer, loggerFactory.CreateLogger<DownloadService>(), dryRun, maxParallelism);
             var syncReport = await service.DownloadUpdateAsync(resolvedSpace, pageId, pageTitle, resolvedOut, recursive);
 
             writer.WriteLine($"Download update completed. Files saved to: {resolvedOut}");
@@ -70,6 +71,7 @@ public sealed class ConfluenceMcpTools
     [Description("Download only server-side changes, preserving local edits (smart merge). Conflicts are reported, not overwritten.")]
     public static async Task<object> DownloadMerge(
         IConfluenceApiClient api,
+        IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IPathSandbox sandbox,
         IOptions<GlobalOptions> globalOpts,
@@ -93,7 +95,7 @@ public sealed class ConfluenceMcpTools
             if (dryRun) writer.WriteLine("DRY RUN MODE: No files will be written to disk.");
 
             var analyzer = new ChangeSourceAnalyzer(api, loggerFactory.CreateLogger<ChangeSourceAnalyzer>());
-            var service = new DownloadService(api, loggerFactory.CreateLogger<DownloadService>(), dryRun, maxParallelism);
+            var service = new DownloadService(api, normalizer, loggerFactory.CreateLogger<DownloadService>(), dryRun, maxParallelism);
             var syncReport = await service.DownloadMergeAsync(resolvedSpace, pageId, pageTitle, resolvedOut, recursive, analyzer);
 
             writer.WriteLine($"Download merge completed. Files saved to: {resolvedOut}");
@@ -114,6 +116,7 @@ public sealed class ConfluenceMcpTools
     [Description("Force-upload a local page folder to Confluence, overwriting any server-side changes. Blocked when the server runs with --read-only.")]
     public static async Task<object> UploadUpdate(
         IConfluenceApiClient api,
+        IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IPathSandbox sandbox,
         IOptions<GlobalOptions> globalOpts,
@@ -140,7 +143,7 @@ public sealed class ConfluenceMcpTools
             if (dryRun) writer.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
             writer.WriteLine($"Upload update: pages in space '{resolvedSpace}' from '{resolvedSrc}'{(recursive ? " (recursive)" : "")}...");
 
-            var service = new UploadService(api, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism);
+            var service = new UploadService(api, normalizer, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism);
             var syncReport = await service.UploadUpdateAsync(resolvedSpace, resolvedSrc, pageId, pageTitle, recursive);
 
             writer.WriteLine("Upload update completed.");
@@ -161,6 +164,7 @@ public sealed class ConfluenceMcpTools
     [Description("Create new Confluence pages from a local folder. Blocked when the server runs with --read-only.")]
     public static async Task<object> UploadCreate(
         IConfluenceApiClient api,
+        IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IPathSandbox sandbox,
         IOptions<GlobalOptions> globalOpts,
@@ -189,7 +193,7 @@ public sealed class ConfluenceMcpTools
                            : "at space root";
             writer.WriteLine($"Creating pages in space '{resolvedSpace}' {parentDesc} from '{resolvedSrc}'{(recursive ? " (recursive)" : "")}...");
 
-            var service = new UploadService(api, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism);
+            var service = new UploadService(api, normalizer, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism);
             await service.UploadCreateAsync(resolvedSpace, resolvedSrc, parentId, parentTitle, recursive);
 
             writer.WriteLine("Upload create completed.");
@@ -210,6 +214,7 @@ public sealed class ConfluenceMcpTools
     [Description("Upload only local changes, preserving server-side edits (smart merge). Blocked when the server runs with --read-only.")]
     public static async Task<object> UploadMerge(
         IConfluenceApiClient api,
+        IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IPathSandbox sandbox,
         IOptions<GlobalOptions> globalOpts,
@@ -237,7 +242,7 @@ public sealed class ConfluenceMcpTools
             writer.WriteLine($"Upload merge: pages in space '{resolvedSpace}' from '{resolvedSrc}'{(recursive ? " (recursive)" : "")}...");
 
             var analyzer = new ChangeSourceAnalyzer(api, loggerFactory.CreateLogger<ChangeSourceAnalyzer>());
-            var service = new UploadService(api, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism);
+            var service = new UploadService(api, normalizer, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism);
             var syncReport = await service.UploadMergeAsync(resolvedSpace, resolvedSrc, pageId, pageTitle, recursive, analyzer);
 
             writer.WriteLine("Upload merge completed.");
@@ -258,6 +263,7 @@ public sealed class ConfluenceMcpTools
     [Description("Compare Confluence pages with the local exported copy. Always returns the full CompareReport.")]
     public static async Task<object> Compare(
         IConfluenceApiClient api,
+        IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IPathSandbox sandbox,
         IOptions<GlobalOptions> globalOpts,
@@ -280,7 +286,7 @@ public sealed class ConfluenceMcpTools
             writer.WriteLine($"Comparing page {Describe(pageId, pageTitle)} in space '{resolvedSpace}' with local folder '{resolvedOut}'{(recursive ? " (recursive)" : "")}{(detectSource ? " (detect-source)" : "")}...");
 
             var analyzer = new ChangeSourceAnalyzer(api, loggerFactory.CreateLogger<ChangeSourceAnalyzer>());
-            var service = new CompareService(api, analyzer, loggerFactory.CreateLogger<CompareService>(), maxParallelism);
+            var service = new CompareService(api, analyzer, normalizer, loggerFactory.CreateLogger<CompareService>(), maxParallelism);
             var compareReport = await service.CompareAsync(resolvedSpace, pageId, pageTitle, resolvedOut, recursive, matchByTitle, detectSource);
 
             return McpToolResult.Success(
@@ -359,6 +365,7 @@ public sealed class ConfluenceMcpTools
     [Description("Fetch the storage-format (XHTML) content of a Confluence page, optionally at a specific historical version and optionally normalised for diffing. Designed for the agent-assisted merge workflow: when 'compare' or 'download_merge' reports a conflict, call this to get the server-side content the agent can diff against the local index.html. For 3-way merges, call once with the local marker's version and once without (current). Safe in --read-only mode.")]
     public static async Task<object> GetPageContent(
         IConfluenceApiClient api,
+        IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IOptions<GlobalOptions> globalOpts,
         [Description("Confluence page ID (mutually exclusive with pageTitle)")] string? pageId = null,
@@ -400,7 +407,7 @@ public sealed class ConfluenceMcpTools
 
             var rawContent = page.Body?.Storage?.Value ?? string.Empty;
             var finalContent = normalize
-                ? StorageFormatNormalizer.NormalizeForComparison(rawContent)
+                ? normalizer.NormalizeForComparison(rawContent)
                 : rawContent;
             var utf8 = System.Text.Encoding.UTF8;
             var bytes = utf8.GetBytes(finalContent);
@@ -474,7 +481,9 @@ public sealed class ConfluenceMcpTools
     {
         var summary = $"Compare completed. Added: {report.AddedInConfluence.Count}; Deleted: {report.DeletedInConfluence.Count}; "
             + $"Renamed/moved: {report.RenamedOrMovedInConfluence.Count}; Content changed: {report.ContentChanged.Count}; "
-            + $"Notes: {report.Notes.Count}.";
+            + $"Conflicts: {report.Conflicts.Count}; Notes: {report.Notes.Count}.";
+        if (report.Conflicts.Count > 0)
+            summary += " To resolve a conflict, call confluence_get_page_content with the conflicting pageId, diff it against the local index.html, and upload the merged result with confluence_upload_update.";
         if (report.ContentChanged.Count > 0)
             summary += " For any page in 'ContentChanged', call confluence_get_page_content with its pageId to inspect the latest server content and assist with merging.";
         return summary;

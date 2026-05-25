@@ -25,7 +25,7 @@ public class DownloadServiceTests
         api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync(attachments);
         api.Setup(x => x.DownloadAttachmentAsync("/download/file.txt")).ReturnsAsync([1, 2, 3]);
 
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
 
         var report = await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
@@ -54,7 +54,7 @@ public class DownloadServiceTests
         api.Setup(x => x.GetAttachmentsAsync("2")).ReturnsAsync([]);
         api.Setup(x => x.GetChildrenPagesAsync("2")).ReturnsAsync([]);
 
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: true);
 
@@ -74,7 +74,7 @@ public class DownloadServiceTests
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
         api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([]);
 
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>(), dryRun: true);
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>(), dryRun: true);
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
@@ -94,7 +94,7 @@ public class DownloadServiceTests
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
         api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([]);
 
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
@@ -119,7 +119,7 @@ public class DownloadServiceTests
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
         api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([]);
 
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
@@ -145,7 +145,7 @@ public class DownloadServiceTests
         api.Setup(x => x.DownloadAttachmentAsync("/download/bad")).ThrowsAsync(new HttpRequestException("boom"));
         api.Setup(x => x.DownloadAttachmentAsync("/download/good")).ReturnsAsync([7, 8]);
 
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
@@ -171,7 +171,7 @@ public class DownloadServiceTests
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
         api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync(attachments);
 
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
@@ -200,7 +200,7 @@ public class DownloadServiceTests
         api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync(attachments);
         api.Setup(x => x.DownloadAttachmentAsync("/download/file.txt")).ReturnsAsync(newContent);
 
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
@@ -232,7 +232,7 @@ public class DownloadServiceTests
         api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync(attachments);
         api.Setup(x => x.DownloadAttachmentAsync("/download/image.jpg")).ReturnsAsync(actualContent);
 
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
@@ -262,7 +262,7 @@ public class DownloadServiceTests
         api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync(attachments);
         api.Setup(x => x.DownloadAttachmentAsync("/download/file.txt")).ReturnsAsync(serverContent);
 
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
@@ -290,7 +290,7 @@ public class DownloadServiceTests
         api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([]);
 
         var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
 
         var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: false, analyzer);
 
@@ -317,7 +317,7 @@ public class DownloadServiceTests
         api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([]);
 
         var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
 
         var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: false, analyzer);
 
@@ -346,7 +346,7 @@ public class DownloadServiceTests
         api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([]);
 
         var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
 
         var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: false, analyzer);
 
@@ -380,6 +380,7 @@ public class DownloadServiceTests
 
         var service = new DownloadService(
             api.Object,
+            new XmlContentNormalizer(),
             LoggerTestHelper.CreateLogger<DownloadService>(),
             maxParallelism: 8);
 
@@ -413,7 +414,7 @@ public class DownloadServiceTests
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
 
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: true);
 
@@ -437,7 +438,7 @@ public class DownloadServiceTests
         api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([]);
         api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([]);
 
-        var service = new DownloadService(api.Object, LoggerTestHelper.CreateLogger<DownloadService>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: true);
 
@@ -481,6 +482,7 @@ public class DownloadServiceTests
         var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
         var service = new DownloadService(
             api.Object,
+            new XmlContentNormalizer(),
             LoggerTestHelper.CreateLogger<DownloadService>(),
             maxParallelism: 8);
 

@@ -12,6 +12,7 @@ public sealed class CompareCommandHandler : ICommandHandler
     private readonly IOptions<GlobalOptions> _global;
     private readonly IOptions<CompareOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
+    private readonly IContentNormalizer _normalizer;
     private readonly ILoggerFactory _loggerFactory;
     private readonly IConsoleWriter _writer;
 
@@ -19,12 +20,14 @@ public sealed class CompareCommandHandler : ICommandHandler
         IOptions<GlobalOptions> global,
         IOptions<CompareOptions> opts,
         IConfluenceApiClient apiClient,
+        IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IConsoleWriter writer)
     {
         _global = global;
         _opts = opts;
         _apiClient = apiClient;
+        _normalizer = normalizer;
         _loggerFactory = loggerFactory;
         _writer = writer;
     }
@@ -62,6 +65,7 @@ public sealed class CompareCommandHandler : ICommandHandler
         var service = new CompareService(
             _apiClient,
             analyzer,
+            _normalizer,
             _loggerFactory.CreateLogger<CompareService>(),
             maxParallelism);
 
@@ -75,6 +79,18 @@ public sealed class CompareCommandHandler : ICommandHandler
         writer.WriteLine();
         writer.WriteLine("Compare report");
         writer.WriteLine("==============");
+
+        if (report.Conflicts.Count > 0)
+        {
+            writer.WriteLine($"Conflicts (changed on both sides): {report.Conflicts.Count}");
+            foreach (var page in report.Conflicts)
+            {
+                writer.WriteLine($"  !! [{page.PageId}] {page.Title} ({page.Path})");
+                if (page.ChangeSource != null)
+                    writer.WriteLine($"     {page.ChangeSource.Reason}");
+            }
+        }
+
         writer.WriteLine($"Added in Confluence: {report.AddedInConfluence.Count}");
         foreach (var page in report.AddedInConfluence)
             writer.WriteLine($"  + [{page.PageId}] {page.Title} ({page.Path})");
@@ -115,6 +131,7 @@ public sealed class CompareCommandHandler : ICommandHandler
         {
             ChangeOrigin.Local => "ЛОКАЛЬНО",
             ChangeOrigin.Server => "СЕРВЕР",
+            ChangeOrigin.Conflict => "КОНФЛИКТ",
             _ => "НЕИЗВЕСТНО"
         };
         var confidence = source.Confidence switch

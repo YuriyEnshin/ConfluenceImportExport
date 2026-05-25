@@ -11,6 +11,7 @@ public sealed class DownloadMergeCommandHandler : ICommandHandler
     private readonly IOptions<GlobalOptions> _global;
     private readonly IOptions<DownloadMergeOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
+    private readonly IContentNormalizer _normalizer;
     private readonly ILoggerFactory _loggerFactory;
     private readonly IConsoleWriter _writer;
 
@@ -18,12 +19,14 @@ public sealed class DownloadMergeCommandHandler : ICommandHandler
         IOptions<GlobalOptions> global,
         IOptions<DownloadMergeOptions> opts,
         IConfluenceApiClient apiClient,
+        IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IConsoleWriter writer)
     {
         _global = global;
         _opts = opts;
         _apiClient = apiClient;
+        _normalizer = normalizer;
         _loggerFactory = loggerFactory;
         _writer = writer;
     }
@@ -62,6 +65,7 @@ public sealed class DownloadMergeCommandHandler : ICommandHandler
 
         var service = new DownloadService(
             _apiClient,
+            _normalizer,
             _loggerFactory.CreateLogger<DownloadService>(),
             dryRun,
             maxParallelism);

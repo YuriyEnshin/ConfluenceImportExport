@@ -9,17 +9,20 @@ public class CompareService
 {
     private readonly IConfluenceApiClient _apiClient;
     private readonly ChangeSourceAnalyzer _changeSourceAnalyzer;
+    private readonly IContentNormalizer _normalizer;
     private readonly ILogger<CompareService> _logger;
     private readonly int _maxParallelism;
 
     public CompareService(
         IConfluenceApiClient apiClient,
         ChangeSourceAnalyzer changeSourceAnalyzer,
+        IContentNormalizer normalizer,
         ILogger<CompareService> logger,
         int maxParallelism = 8)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
         _changeSourceAnalyzer = changeSourceAnalyzer ?? throw new ArgumentNullException(nameof(changeSourceAnalyzer));
+        _normalizer = normalizer ?? throw new ArgumentNullException(nameof(normalizer));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _maxParallelism = maxParallelism < 1 ? 1 : maxParallelism;
     }
@@ -142,7 +145,7 @@ public class CompareService
             var localDir = localById?.DirectoryPath ?? localByTitlePath!.DirectoryPath;
             var localContent = await LocalStorageHelper.ReadLocalPageContentOrNull(localDir);
 
-            if (!StorageFormatNormalizer.ContentEquals(localContent, remote.Content))
+            if (!_normalizer.ContentEquals(localContent, remote.Content))
             {
                 var contentFileDate = localById?.ContentLastModifiedUtc;
                 if (contentFileDate == null)
@@ -152,16 +155,32 @@ public class CompareService
                         contentFileDate = File.GetLastWriteTimeUtc(indexPath);
                 }
 
-                var contentChanged = new CompareContentChangedPageInfo
+                var syncTime = LocalStorageHelper.GetMarkerFileTimeUtc(localDir);
+
+                var changeSource = _changeSourceAnalyzer.AnalyzeContentChange(
+                    remote.LastModifiedUtc, contentFileDate,
+                    localById?.LocalVersionNumber, remote.VersionNumber, syncTime);
+
+                if (changeSource.Origin == ChangeOrigin.Conflict)
                 {
-                    PageId = remote.PageId,
-                    Title = remote.Title,
-                    Path = remote.RelativePath,
-                    ChangeSource = _changeSourceAnalyzer.AnalyzeContentChange(
-                        remote.LastModifiedUtc, contentFileDate,
-                        localById?.LocalVersionNumber, remote.VersionNumber)
-                };
-                report.ContentChanged.Add(contentChanged);
+                    report.Conflicts.Add(new CompareContentChangedPageInfo
+                    {
+                        PageId = remote.PageId,
+                        Title = remote.Title,
+                        Path = remote.RelativePath,
+                        ChangeSource = changeSource
+                    });
+                }
+                else
+                {
+                    report.ContentChanged.Add(new CompareContentChangedPageInfo
+                    {
+                        PageId = remote.PageId,
+                        Title = remote.Title,
+                        Path = remote.RelativePath,
+                        ChangeSource = changeSource
+                    });
+                }
             }
         }
 
