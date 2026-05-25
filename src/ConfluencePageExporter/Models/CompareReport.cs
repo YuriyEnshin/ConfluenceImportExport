@@ -6,6 +6,7 @@ public class CompareReport
     public List<ComparePageInfo> DeletedInConfluence { get; } = new();
     public List<CompareRenamedOrMovedPageInfo> RenamedOrMovedInConfluence { get; } = new();
     public List<CompareContentChangedPageInfo> ContentChanged { get; } = new();
+    public List<CompareContentChangedPageInfo> Conflicts { get; } = new();
     public List<string> Notes { get; } = new();
     public bool DetectSourceEnabled { get; set; }
 }

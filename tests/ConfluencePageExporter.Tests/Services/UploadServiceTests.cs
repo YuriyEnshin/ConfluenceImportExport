@@ -17,7 +17,7 @@ public class UploadServiceTests
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.FindPageByTitleAsync("SPACE", null, "Root")).ReturnsAsync((string?)null);
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         var act = () => service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
@@ -35,7 +35,7 @@ public class UploadServiceTests
         api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
         api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("100", 2));
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, "100", "IgnoredTitle", recursive: false);
 
@@ -54,7 +54,7 @@ public class UploadServiceTests
         api.Setup(x => x.GetPageByIdAsync("200")).ReturnsAsync(ApiClientMockFactory.CreatePage("200", "Remote", "<p>x</p>"));
         api.Setup(x => x.UpdatePageAsync("200", "Root", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("200", 2));
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
@@ -72,7 +72,7 @@ public class UploadServiceTests
         api.Setup(x => x.GetPageByIdAsync("300")).ReturnsAsync(ApiClientMockFactory.CreatePage("300", "OldTitle", "<p>x</p>"));
         api.Setup(x => x.UpdatePageAsync("300", "RootByTitle", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("300", 2));
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
@@ -95,7 +95,7 @@ public class UploadServiceTests
         api.Setup(x => x.GetPageByIdAsync("222")).ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child", "<p>x</p>", parentId: "old-parent"));
         api.Setup(x => x.UpdatePageAsync("222", "Child", "<p>child</p>", "111")).ReturnsAsync(new PageUpdateResult("222", 2));
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true);
 
@@ -120,7 +120,7 @@ public class UploadServiceTests
             .ReturnsAsync((string?)null);
         api.Setup(x => x.CreatePageAsync("SPACE", "111", "ChildNew", "<p>child</p>")).ReturnsAsync(new PageUpdateResult("500", 1));
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true);
 
@@ -140,7 +140,7 @@ public class UploadServiceTests
         api.Setup(x => x.FindPageByTitleAsync("SPACE", null, "RootToCreate")).ReturnsAsync((string?)null);
         api.Setup(x => x.CreatePageAsync("SPACE", "P100", "RootToCreate", "<p>content</p>")).ReturnsAsync(new PageUpdateResult("C100", 1));
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadCreateAsync("SPACE", sourceDir, null, "ParentTitle", recursive: false);
 
@@ -157,7 +157,7 @@ public class UploadServiceTests
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.FindPageByTitleAsync("SPACE", null, "RootToCreate")).ReturnsAsync((string?)null);
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>(), dryRun: true);
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>(), dryRun: true);
 
         await service.UploadCreateAsync("SPACE", sourceDir, null, null, recursive: false);
 
@@ -185,7 +185,7 @@ public class UploadServiceTests
         api.Setup(x => x.DownloadAttachmentAsync(It.IsAny<string>())).ReturnsAsync(oldRemoteContent);
         api.Setup(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.Is<string>(p => p.EndsWith("file.txt")), "file.txt")).ReturnsAsync(true);
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, "100", null, recursive: false);
 
@@ -215,7 +215,7 @@ public class UploadServiceTests
             [ApiClientMockFactory.CreateAttachment("ATT-1", "file.txt", fileSize: localBytes.Length)]);
         api.Setup(x => x.DownloadAttachmentAsync(It.IsAny<string>())).ReturnsAsync(localBytes);
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, "100", null, recursive: false);
 
@@ -241,7 +241,7 @@ public class UploadServiceTests
         api.Setup(x => x.GetAttachmentsAsync("100")).ReturnsAsync([]);
         api.Setup(x => x.UploadAttachmentAsync("100", It.Is<string>(p => p.EndsWith("new-file.txt")), "new-file.txt")).ReturnsAsync(true);
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, "100", null, recursive: false);
 
@@ -266,7 +266,7 @@ public class UploadServiceTests
             [ApiClientMockFactory.CreateAttachment("ATT-1", "file.txt", fileSize: 5)]);
         api.Setup(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.Is<string>(p => p.EndsWith("file.txt")), "file.txt")).ReturnsAsync(true);
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, "100", null, recursive: false);
 
@@ -290,7 +290,7 @@ public class UploadServiceTests
         api.Setup(x => x.GetPageByIdAsync("333")).ReturnsAsync(ApiClientMockFactory.CreatePage("333", "MovedChild", "<p>x</p>", parentId: "old-parent"));
         api.Setup(x => x.UpdatePageAsync("333", "MovedChild", "<p>child</p>", "111")).ReturnsAsync(new PageUpdateResult("333", 2));
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true);
 
@@ -316,7 +316,7 @@ public class UploadServiceTests
         api.Setup(x => x.GetPageByIdAsync("333")).ReturnsAsync(ApiClientMockFactory.CreatePage("333", "Grandchild", "<p>x</p>", parentId: "222"));
         api.Setup(x => x.UpdatePageAsync("333", "Grandchild", "<p>gc</p>", null)).ReturnsAsync(new PageUpdateResult("333", 2));
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true);
 
@@ -337,7 +337,7 @@ public class UploadServiceTests
         api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
         api.Setup(x => x.UpdatePageAsync("400", "Subpage4", "<p>content</p>", "P2")).ReturnsAsync(new PageUpdateResult("400", 2));
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
@@ -357,7 +357,7 @@ public class UploadServiceTests
         api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
         api.Setup(x => x.UpdatePageAsync("400", "Subpage4", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("400", 2));
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
@@ -375,7 +375,7 @@ public class UploadServiceTests
         api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
         api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
@@ -394,7 +394,7 @@ public class UploadServiceTests
         api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
         api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>new content</p>", null)).ReturnsAsync(new PageUpdateResult("100", 6));
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
@@ -413,7 +413,7 @@ public class UploadServiceTests
         api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
         api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>new</p>", null)).ReturnsAsync(new PageUpdateResult("100", 6));
 
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
@@ -442,7 +442,7 @@ public class UploadServiceTests
         api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>local edit</p>", null)).ReturnsAsync(new PageUpdateResult("100", 4));
 
         var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
 
@@ -467,7 +467,7 @@ public class UploadServiceTests
         api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
 
         var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
 
@@ -493,7 +493,7 @@ public class UploadServiceTests
         api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
 
         var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
-        var service = new UploadService(api.Object, LoggerTestHelper.CreateLogger<UploadService>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
 

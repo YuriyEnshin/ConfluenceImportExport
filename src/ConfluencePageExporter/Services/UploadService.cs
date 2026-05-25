@@ -8,17 +8,20 @@ namespace ConfluencePageExporter.Services;
 public class UploadService
 {
     private readonly IConfluenceApiClient _apiClient;
+    private readonly IContentNormalizer _normalizer;
     private readonly ILogger<UploadService> _logger;
     private readonly bool _dryRun;
     private readonly int _maxParallelism;
 
     public UploadService(
         IConfluenceApiClient apiClient,
+        IContentNormalizer normalizer,
         ILogger<UploadService> logger,
         bool dryRun = false,
         int maxParallelism = 8)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
+        _normalizer = normalizer ?? throw new ArgumentNullException(nameof(normalizer));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _dryRun = dryRun;
         _maxParallelism = maxParallelism < 1 ? 1 : maxParallelism;
@@ -279,7 +282,7 @@ public class UploadService
             title = serverPage.Title;
         }
 
-        bool contentChanged = !StorageFormatNormalizer.ContentEquals(localContent, serverPage.Body.Storage.Value);
+        bool contentChanged = !_normalizer.ContentEquals(localContent, serverPage.Body.Storage.Value);
         bool titleChanged = !string.Equals(title, serverPage.Title, StringComparison.Ordinal);
 
         if (!contentChanged && !titleChanged)
@@ -460,7 +463,7 @@ public class UploadService
         var serverVersion = serverPage.Version?.Number;
 
         bool titleChanged = !string.Equals(title, serverPage.Title, StringComparison.Ordinal);
-        bool contentChanged = !StorageFormatNormalizer.ContentEquals(localContent, serverPage.Body.Storage.Value);
+        bool contentChanged = !_normalizer.ContentEquals(localContent, serverPage.Body.Storage.Value);
         bool parentChanged = moveToParentId != null;
 
         if (!titleChanged && !contentChanged && !parentChanged)

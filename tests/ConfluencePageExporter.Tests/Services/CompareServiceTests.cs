@@ -11,7 +11,7 @@ public class CompareServiceTests
     private static CompareService CreateService(Mock<IConfluenceApiClient> api)
     {
         var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
-        return new CompareService(api.Object, analyzer, LoggerTestHelper.CreateLogger<CompareService>());
+        return new CompareService(api.Object, analyzer, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<CompareService>());
     }
 
     [Fact]
@@ -204,6 +204,40 @@ public class CompareServiceTests
         var changed = report.ContentChanged[0];
         changed.ChangeSource.Should().NotBeNull();
         changed.ChangeSource!.Origin.Should().Be(ChangeOrigin.Server);
+    }
+
+    [Fact]
+    public async Task CompareAsync_ShouldReportConflict_WhenBothSidesChanged()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var rootDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
+        var childDir = LocalPageTreeBuilder.CreatePage(rootDir, "Child", "<p>local-edit</p>", "2", version: 2);
+
+        // Simulate: marker was written in the past, then the local file was modified after
+        var markerPath = Directory.GetFiles(childDir, ".id*")[0];
+        var syncTime = DateTime.UtcNow.AddHours(-2);
+        File.SetLastWriteTimeUtc(markerPath, syncTime);
+        var indexPath = Path.Combine(childDir, "index.html");
+        File.SetLastWriteTimeUtc(indexPath, DateTime.UtcNow.AddMinutes(-30));
+
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var child = ApiClientMockFactory.CreatePage("2", "Child", "<p>server-edit</p>", "1", "Root");
+        child.Version = new VersionInfo { Number = 4, When = DateTime.UtcNow.AddHours(-1) };
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+        api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([child]);
+        api.Setup(x => x.GetChildrenPagesAsync("2")).ReturnsAsync([]);
+
+        var service = CreateService(api);
+
+        var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
+
+        report.Conflicts.Should().ContainSingle(x => x.PageId == "2");
+        report.Conflicts[0].ChangeSource.Should().NotBeNull();
+        report.Conflicts[0].ChangeSource!.Origin.Should().Be(ChangeOrigin.Conflict);
+        report.ContentChanged.Should().NotContain(x => x.PageId == "2");
     }
 
     [Fact]

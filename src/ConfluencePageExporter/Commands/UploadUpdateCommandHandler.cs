@@ -11,6 +11,7 @@ public sealed class UploadUpdateCommandHandler : ICommandHandler
     private readonly IOptions<GlobalOptions> _global;
     private readonly IOptions<UploadUpdateOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
+    private readonly IContentNormalizer _normalizer;
     private readonly ILoggerFactory _loggerFactory;
     private readonly IConsoleWriter _writer;
 
@@ -18,12 +19,14 @@ public sealed class UploadUpdateCommandHandler : ICommandHandler
         IOptions<GlobalOptions> global,
         IOptions<UploadUpdateOptions> opts,
         IConfluenceApiClient apiClient,
+        IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IConsoleWriter writer)
     {
         _global = global;
         _opts = opts;
         _apiClient = apiClient;
+        _normalizer = normalizer;
         _loggerFactory = loggerFactory;
         _writer = writer;
     }
@@ -56,6 +59,7 @@ public sealed class UploadUpdateCommandHandler : ICommandHandler
 
         var service = new UploadService(
             _apiClient,
+            _normalizer,
             _loggerFactory.CreateLogger<UploadService>(),
             dryRun,
             maxParallelism);

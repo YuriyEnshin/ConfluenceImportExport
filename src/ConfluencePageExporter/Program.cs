@@ -105,6 +105,7 @@ try
             opts.AuthType ?? "onprem");
     });
 
+    builder.Services.AddSingleton<IContentNormalizer, XmlContentNormalizer>();
     builder.Services.AddSingleton<IConsoleWriter, StdConsoleWriter>();
     builder.Services.AddTransient<DownloadUpdateCommandHandler>();
     builder.Services.AddTransient<DownloadMergeCommandHandler>();
