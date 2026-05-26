@@ -20,6 +20,28 @@ Each page is a directory containing:
 - Attachments live as ordinary files in the same directory.
 - Child pages live as subdirectories.
 
+## Critical: `outputDir` / `sourceDir` must point to the right place
+
+The server **does not scan the local tree** to locate a page by its Confluence ID.
+`pageId` (or `pageTitle`) tells the server *which Confluence page* to work with;
+`outputDir` / `sourceDir` tells it *where on the local filesystem* that page's folder
+is (or should be created).
+
+| Tool group | Parameter | What it means |
+|---|---|---|
+| Download tools (`_update`, `_merge`) | `outputDir` | The directory where the page folder will be **written to**. Defaults to `"."` (sandbox root) — almost never correct for a targeted page. |
+| Upload tools (`_update`, `_merge`, `_create`) | `sourceDir` | The directory containing the page's `index.html` and `.id*` marker. **Required, no default.** |
+| `confluence_compare` | `outputDir` | The local directory to compare **against**. Defaults to `"."`. |
+
+**Common mistake:** calling a tool with just `pageId` and no directory path,
+expecting the server to find or create the correct subfolder automatically.
+The server will *not* search for a `.idPAGEID_*` marker — it operates on
+the exact path you provide.
+
+If you don't know the local path for a page, use your filesystem tools
+(glob, find, grep) to locate the `.id*` marker file first, then pass its
+parent directory as `outputDir` or `sourceDir`.
+
 ## Result envelope
 
 Every tool returns one of two shapes:
