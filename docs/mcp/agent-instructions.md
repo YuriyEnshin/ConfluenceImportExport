@@ -29,9 +29,11 @@ is (or should be created).
 
 | Tool group | Parameter | What it means |
 |---|---|---|
-| Download tools (`_update`, `_merge`) | `outputDir` | The directory where the page folder will be **written to**. Defaults to `"."` (sandbox root) — almost never correct for a targeted page. |
-| Upload tools (`_update`, `_merge`, `_create`) | `sourceDir` | The directory containing the page's `index.html` and `.id*` marker. **Required, no default.** |
-| `confluence_compare` | `outputDir` | The local directory to compare **against**. Defaults to `"."`. |
+| Download tools (`_update`, `_merge`) | `outputDir` | The **parent** directory that will contain the page subfolder (the page is created as a child folder named after its title). Defaults to `"."` (sandbox root) — almost never correct for a targeted page. |
+| Upload tools (`_update`, `_merge`, `_create`) | `sourceDir` | The **page folder itself** — the one containing `index.html` and the `.id*` marker. **Required, no default.** |
+| `confluence_compare` | `outputDir` | The **parent** directory containing the exported page subfolder. Defaults to `"."`. |
+
+Note the asymmetry: `outputDir` is the **parent** of the page folder, while `sourceDir` **is** the page folder.
 
 **Common mistake:** calling a tool with just `pageId` and no directory path,
 expecting the server to find or create the correct subfolder automatically.
@@ -40,7 +42,7 @@ the exact path you provide.
 
 If you don't know the local path for a page, use your filesystem tools
 (glob, find, grep) to locate the `.id*` marker file first, then pass its
-parent directory as `outputDir` or `sourceDir`.
+parent directory as `outputDir`, or the marker's own directory as `sourceDir`.
 
 ## Result envelope
 
