@@ -70,7 +70,12 @@ public class UploadService
 
         var (rootPageId, _) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle);
 
-        await MergeUploadPageAsync(spaceKey, rootPageId, sourceDir, analyzer, report);
+        // Симметрично upload update: если локальная родительская папка имеет
+        // .id-маркер и его ID отличается от серверного родителя страницы,
+        // считаем, что пользователь перенёс папку локально, и применяем
+        // структурное перемещение на сервере как часть merge-операции.
+        var moveToParentId = await DetectRootPageMoveAsync(rootPageId, sourceDir);
+        await MergeUploadPageAsync(spaceKey, rootPageId, sourceDir, moveToParentId, analyzer, report);
 
         if (recursive)
         {
@@ -262,6 +267,7 @@ public class UploadService
 
     private async Task MergeUploadPageAsync(
         string spaceKey, string pageId, string pageDir,
+        string? moveToParentId,
         ChangeSourceAnalyzer analyzer, SyncReport report)
     {
         var title = LocalStorageHelper.GetPageTitle(pageDir);
@@ -269,7 +275,12 @@ public class UploadService
 
         if (_dryRun)
         {
-            _logger.LogInformation("DRY RUN: Would merge-upload page {PageId} with title '{Title}'", pageId, title);
+            if (moveToParentId != null)
+                _logger.LogInformation(
+                    "DRY RUN: Would merge-upload page {PageId} '{Title}' and move to parent {NewParent}",
+                    pageId, title, moveToParentId);
+            else
+                _logger.LogInformation("DRY RUN: Would merge-upload page {PageId} with title '{Title}'", pageId, title);
             LogDryRunAttachments(pageDir);
             return;
         }
@@ -284,11 +295,31 @@ public class UploadService
 
         bool contentChanged = !_normalizer.ContentEquals(localContent, serverPage.Body.Storage.Value);
         bool titleChanged = !string.Equals(title, serverPage.Title, StringComparison.Ordinal);
+        bool parentChanged = moveToParentId != null;
 
-        if (!contentChanged && !titleChanged)
+        if (!contentChanged && !titleChanged && !parentChanged)
         {
             _logger.LogDebug("Page {PageId} '{Title}' is unchanged, skipping merge-upload", pageId, title);
             await UpdatePageIdMarker(pageDir, pageId, serverPage.Version?.Number, title);
+            return;
+        }
+
+        // Структурное перемещение без изменения контента/заголовка. Применяем
+        // безусловно: пользователь явно перенёс папку, а локальные правки
+        // контента отсутствуют. Чтобы не порождать «шумовую» правку контента
+        // на сервере, отправляем серверные значения title/body — Confluence
+        // создаст новую версию только с изменением ancestors.
+        if (parentChanged && !contentChanged && !titleChanged)
+        {
+            _logger.LogInformation(
+                "Page '{Title}' was moved locally (parent: {OldParent} -> {NewParent}); applying move on the server",
+                title, serverPage.ParentId, moveToParentId);
+            var moveResult = await _apiClient.UpdatePageAsync(pageId, serverPage.Title, serverPage.Body.Storage.Value, moveToParentId);
+            if (moveResult != null)
+            {
+                await UpdatePageIdMarker(pageDir, moveResult.Id, moveResult.VersionNumber, serverPage.Title);
+                await UploadPageAttachments(pageId, pageDir);
+            }
             return;
         }
 
@@ -304,8 +335,12 @@ public class UploadService
         switch (sourceInfo.Origin)
         {
             case ChangeOrigin.Local:
-                _logger.LogInformation("Page '{Title}' changed locally, uploading to server", title);
-                var result = await _apiClient.UpdatePageAsync(pageId, title, localContent, null);
+                _logger.LogInformation(
+                    parentChanged
+                        ? "Page '{Title}' changed locally and was moved, uploading to server with new parent {NewParent}"
+                        : "Page '{Title}' changed locally, uploading to server",
+                    title, moveToParentId);
+                var result = await _apiClient.UpdatePageAsync(pageId, title, localContent, moveToParentId);
                 if (result != null)
                 {
                     await UpdatePageIdMarker(pageDir, result.Id, result.VersionNumber, title);
@@ -314,13 +349,33 @@ public class UploadService
                 break;
 
             case ChangeOrigin.Server:
-                _logger.LogInformation("Page '{Title}' changed on server, skipping upload", title);
-                report.AddSkipped(pageId, title, sourceInfo.Reason);
+                // Контент/заголовок на сервере новее — поверх него ничего не пишем.
+                // Структурное перемещение, если оно есть, тоже откладываем: иначе
+                // пришлось бы либо потерять серверные правки, либо перетащить их
+                // в локальную копию (что выходит за рамки upload-операции).
+                // Пользователю выводим явную подсказку.
+                if (parentChanged)
+                {
+                    var reason = sourceInfo.Reason
+                        + "; перемещение отложено до синхронизации контента — выполните 'download merge', при необходимости заново переместите папку и повторите 'upload merge'";
+                    _logger.LogInformation(
+                        "Page '{Title}' changed on server and was moved locally; skipping upload and deferring move",
+                        title);
+                    report.AddSkipped(pageId, title, reason);
+                }
+                else
+                {
+                    _logger.LogInformation("Page '{Title}' changed on server, skipping upload", title);
+                    report.AddSkipped(pageId, title, sourceInfo.Reason);
+                }
                 break;
 
             case ChangeOrigin.Conflict:
+                var conflictReason = parentChanged
+                    ? sourceInfo.Reason + "; перемещение страницы также отложено до разрешения конфликта"
+                    : sourceInfo.Reason;
                 _logger.LogWarning("CONFLICT: Page '{Title}' changed both locally and on server", title);
-                report.AddConflict(pageId, title, sourceInfo.Reason);
+                report.AddConflict(pageId, title, conflictReason);
                 break;
 
             default:
@@ -337,12 +392,22 @@ public class UploadService
         var folderName = LocalStorageHelper.GetPageTitle(childDir);
         var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(childDir);
         string? resolvedPageId = null;
+        string? moveToParentId = null;
 
         if (markerPageId != null)
         {
             var page = await _apiClient.TryGetPageByIdAsync(markerPageId);
             if (page != null)
+            {
                 resolvedPageId = page.Id;
+                if (!string.Equals(page.ParentId, parentPageId, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation(
+                        "Page '{Title}' (ID: {PageId}) will be moved from parent {OldParent} to {NewParent}",
+                        page.Title, page.Id, page.ParentId, parentPageId);
+                    moveToParentId = parentPageId;
+                }
+            }
         }
 
         if (resolvedPageId == null)
@@ -356,7 +421,13 @@ public class UploadService
             {
                 var foundGlobally = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName);
                 if (foundGlobally != null)
+                {
+                    _logger.LogInformation(
+                        "Page '{Title}' (ID: {PageId}) found in space but under a different parent, will be moved to parent {NewParent}",
+                        folderName, foundGlobally, parentPageId);
                     resolvedPageId = foundGlobally;
+                    moveToParentId = parentPageId;
+                }
             }
         }
 
@@ -374,7 +445,7 @@ public class UploadService
         }
         else
         {
-            await MergeUploadPageAsync(spaceKey, resolvedPageId, childDir, analyzer, report);
+            await MergeUploadPageAsync(spaceKey, resolvedPageId, childDir, moveToParentId, analyzer, report);
 
             await Parallel.ForEachAsync(
                 LocalStorageHelper.GetPageSubdirectories(childDir),
