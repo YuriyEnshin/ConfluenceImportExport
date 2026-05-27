@@ -476,6 +476,126 @@ public class UploadServiceTests
     }
 
     [Fact]
+    public async Task UploadMergeAsync_ShouldMoveRootPage_WhenParentMarkerDiffersAndContentUnchanged()
+    {
+        // Локальный сценарий: пользователь перенёс папку Subpage4 под NewParent (P2).
+        // Контент и заголовок страницы не менялись — должно произойти структурное
+        // перемещение на сервере без перетирания контента.
+        using var temp = new TempDirectoryScope();
+        var parentDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "NewParent", "<p>parent</p>", "P2");
+        var sourceDir = LocalPageTreeBuilder.CreatePage(parentDir, "Subpage4", "<p>same content</p>", "400", version: 5);
+
+        var serverPage = ApiClientMockFactory.CreatePage(
+            "400", "Subpage4", "<p>same content</p>", parentId: "P1", parentTitle: "OldParent", versionNumber: 5);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("400")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
+        api.Setup(x => x.UpdatePageAsync("400", "Subpage4", "<p>same content</p>", "P2"))
+            .ReturnsAsync(new PageUpdateResult("400", 6));
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        api.Verify(x => x.UpdatePageAsync("400", "Subpage4", "<p>same content</p>", "P2"), Times.Once);
+        report.HasIssues.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task UploadMergeAsync_ShouldMoveAndUploadContent_WhenLocallyChangedAndMoved()
+    {
+        // Сценарий: пользователь перенёс папку И отредактировал контент.
+        // Анализатор увидит совпадение версий маркера и сервера -> локальные правки.
+        // Должен быть выполнен один UpdatePage с новым контентом и новым родителем.
+        using var temp = new TempDirectoryScope();
+        var parentDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "NewParent", "<p>parent</p>", "P2");
+        var sourceDir = LocalPageTreeBuilder.CreatePage(parentDir, "Subpage4", "<p>local edit</p>", "400", version: 5);
+
+        var indexPath = Path.Combine(sourceDir, "index.html");
+        File.SetLastWriteTimeUtc(indexPath, DateTime.UtcNow);
+        var markerPath = Directory.GetFiles(sourceDir, ".id*").First();
+        File.SetLastWriteTimeUtc(markerPath, DateTime.UtcNow.AddHours(-1));
+
+        var serverPage = ApiClientMockFactory.CreatePage(
+            "400", "Subpage4", "<p>old server</p>", parentId: "P1", versionNumber: 5);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("400")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
+        api.Setup(x => x.UpdatePageAsync("400", "Subpage4", "<p>local edit</p>", "P2"))
+            .ReturnsAsync(new PageUpdateResult("400", 6));
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        api.Verify(x => x.UpdatePageAsync("400", "Subpage4", "<p>local edit</p>", "P2"), Times.Once);
+        report.HasIssues.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task UploadMergeAsync_ShouldDeferMove_WhenServerContentNewer()
+    {
+        // Сценарий: пользователь перенёс папку локально, но контент на сервере
+        // изменился после последней синхронизации. Перемещение должно быть
+        // отложено (страница попадает в Skipped с поясняющей подсказкой).
+        using var temp = new TempDirectoryScope();
+        var parentDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "NewParent", "<p>parent</p>", "P2");
+        var sourceDir = LocalPageTreeBuilder.CreatePage(parentDir, "Subpage4", "<p>old local</p>", "400", version: 2);
+
+        var markerPath = Directory.GetFiles(sourceDir, ".id*").First();
+        File.SetLastWriteTimeUtc(markerPath, DateTime.UtcNow);
+        var indexPath = Path.Combine(sourceDir, "index.html");
+        File.SetLastWriteTimeUtc(indexPath, DateTime.UtcNow.AddHours(-1));
+
+        var serverPage = ApiClientMockFactory.CreatePage(
+            "400", "Subpage4", "<p>server edit</p>", parentId: "P1", versionNumber: 5);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("400")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
+        report.SkippedPages.Should().HaveCount(1);
+        report.SkippedPages.First().Reason.Should().Contain("перемещение отложено");
+    }
+
+    [Fact]
+    public async Task UploadMergeAsync_ShouldMoveChild_WhenParentDiffersAndContentUnchanged()
+    {
+        // Рекурсивный сценарий: source-dir указывает на корень, дочерняя страница
+        // перенесена локально под другого родителя. Контент не менялся —
+        // должно произойти перемещение дочерней страницы на сервере.
+        using var temp = new TempDirectoryScope();
+        var rootDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>root</p>", "111", version: 5);
+        LocalPageTreeBuilder.CreatePage(rootDir, "Child", "<p>child</p>", "222", version: 3);
+
+        var rootPage = ApiClientMockFactory.CreatePage("111", "Root", "<p>root</p>", versionNumber: 5);
+        var childPage = ApiClientMockFactory.CreatePage("222", "Child", "<p>child</p>", parentId: "old-parent", versionNumber: 3);
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("111")).ReturnsAsync(rootPage);
+        api.Setup(x => x.GetPageByIdAsync("111")).ReturnsAsync(rootPage);
+        api.Setup(x => x.TryGetPageByIdAsync("222")).ReturnsAsync(childPage);
+        api.Setup(x => x.GetPageByIdAsync("222")).ReturnsAsync(childPage);
+        api.Setup(x => x.UpdatePageAsync("222", "Child", "<p>child</p>", "111"))
+            .ReturnsAsync(new PageUpdateResult("222", 4));
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadMergeAsync("SPACE", rootDir, "111", null, recursive: true, analyzer);
+
+        api.Verify(x => x.UpdatePageAsync("222", "Child", "<p>child</p>", "111"), Times.Once);
+        report.HasIssues.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task UploadMergeAsync_ShouldWarnOnConflict()
     {
         using var temp = new TempDirectoryScope();

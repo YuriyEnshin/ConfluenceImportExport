@@ -79,11 +79,34 @@ The `error` field flattens the full `InnerException` chain joined with `→`, so
 | `confluence_download_update` | Force-pull from server, **overwriting local edits** | First export; you don't care about local changes |
 | `confluence_download_merge` | Pull only server-side changes, **preserve local edits**; flag conflicts | Normal "fetch latest" workflow |
 | `confluence_upload_update` | Force-push local, **overwriting server edits** | You know the server is stale and want your local to win |
-| `confluence_upload_create` | Create new pages on the server from a local folder | New content that doesn't exist on the server yet |
-| `confluence_upload_merge` | Push only local changes, **preserve server edits**; flag conflicts | Normal "publish my edits" workflow |
+| `confluence_upload_create` | Create new pages on the server from a local folder | **Rare.** Only when seeding a brand-new subtree that isn't synced yet (see "Adding a new page" below) |
+| `confluence_upload_merge` | Push only local changes, **preserve server edits**; flag conflicts | Normal "publish my edits" workflow — including new pages and moves inside an already-synced subtree |
 | `confluence_compare` | Report what differs between server and local; do not change anything | Diagnostic; preview before merge |
 
 The `_merge` variants are the safe defaults. They report conflicts (changes on both sides) in `report.ConflictPages` instead of silently overwriting either side.
+
+## Adding a new page to an already-synced hierarchy
+
+**Do not call `confluence_upload_create` for a single new folder inside a tree that already has `.id*` markers.** It requires you to resolve the parent ID by hand, it fails (silently, no marker written) if any page in the space already has the same title, and on success it only creates one page — siblings are unaffected.
+
+The right tool is `confluence_upload_merge` on a directory at or above the new folder:
+
+1. The agent (or user) creates a new page directory under the existing synced tree — e.g. `<parent-folder>/<NewTitle>/index.html`. Do **not** create a `.id*` marker yourself; the server assigns the page ID.
+2. Call `confluence_upload_merge` with `sourceDir` pointing at the parent (or any ancestor) and `recursive: true`.
+3. `upload merge` walks the tree, sees the new folder has no marker and no matching server page under the current parent, creates it on Confluence with the correct parent, and writes the `.idPAGEID_VER` marker locally.
+
+`confluence_upload_create` remains correct only when:
+- The whole subtree is brand-new on the server (no parent marker available), AND
+- You can supply `parentId` or `parentTitle` explicitly.
+
+## Moving or renaming a page locally
+
+If the user moves a page folder to a different location inside the synced tree (the new parent folder must itself have a `.id*` marker), or renames a folder to change the page title, propagate the change with `confluence_upload_merge`:
+
+- Pass `sourceDir` pointing at the moved folder itself, **or** at any ancestor with `recursive: true`. The server-side `ancestors` (parent) and/or title are updated in a single API call; the local `.idPAGEID_VER` marker is refreshed to the new version.
+- **Do not run `confluence_download_merge` after a local move and before `upload merge`.** Download treats the server's hierarchy as canonical and will move the local folder back to its original location, undoing the user's intent.
+- `confluence_compare` may report the move as "changed on server" when only dates are available — its heuristic compares server `version.when` with local directory mtime. Pass `detectSource: true` to consult version history for a more reliable verdict, but `upload merge` itself does **not** need `compare` to run first.
+- If `upload merge` reports the page as skipped with a hint about a deferred move, the server's content was updated since the last sync. Run `confluence_download_merge` for that page, re-apply the local move on the now-up-to-date folder, then run `upload merge` again.
 
 ## Diagnostic and helper tools
 
@@ -150,10 +173,12 @@ If a tool fails with `NETWORK_ERROR`, `AUTH_FAILED`, or every call starts failin
 | First-time export of a Confluence subtree | `confluence_download_update` with `recursive: true` |
 | Pull latest changes without losing local work | `confluence_download_merge` |
 | User edited locally, wants to publish | `confluence_upload_merge` |
+| User added a new folder inside an already-synced tree | `confluence_upload_merge` on a parent/ancestor with `recursive: true` (**not** `upload_create`) |
+| User moved or renamed a folder inside the synced tree | `confluence_upload_merge` on the moved folder or any ancestor (**not** `download_merge` first — it would undo the move) |
 | User wants to know what's different before any sync | `confluence_compare` |
 | "Did this break or is it just me?" | `confluence_ping` |
 | Got a conflict — need server's version for merge | `confluence_get_page_content` |
-| Need to create a new page from a local folder | `confluence_upload_create` |
+| Seeding a brand-new subtree (no parent marker exists) | `confluence_upload_create` with `parentId`/`parentTitle` |
 
 ## Things the server intentionally does *not* do
 
