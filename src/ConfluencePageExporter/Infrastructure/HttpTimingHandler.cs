@@ -19,6 +19,19 @@ public sealed class HttpTimingHandler : DelegatingHandler
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
+    /// <summary>
+    /// DI / HttpClientFactory constructor. The factory builds the handler
+    /// pipeline and assigns <see cref="DelegatingHandler.InnerHandler"/>, so no
+    /// inner handler is supplied here. Takes the generic <see cref="ILogger{T}"/>
+    /// so the container can resolve it (the non-generic <c>ILogger</c> is not
+    /// registered by default).
+    /// </summary>
+    public HttpTimingHandler(ILogger<HttpTimingHandler> logger)
+        : base()
+    {
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
