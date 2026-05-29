@@ -39,7 +39,7 @@ public class DownloadService
         var pageDirectoryIndex = LocalStorageHelper.BuildPageDirectoryIndex(outputDir, _logger);
         var page = await _apiClient.GetPageByIdAsync(resolvedPageId, ct);
         await DownloadPageUpdateAsync(page, outputDir, recursive, pageDirectoryIndex, report, ct);
-        _logger.LogInformation(
+        _logger.LogDebug(
             "[PROFILE] DownloadUpdate completed in {ElapsedMs}ms",
             (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         return report;
@@ -56,7 +56,7 @@ public class DownloadService
         var pageDirectoryIndex = LocalStorageHelper.BuildPageDirectoryIndex(outputDir, _logger);
         var page = await _apiClient.GetPageByIdAsync(resolvedPageId, ct);
         await DownloadPageMergeAsync(page, outputDir, recursive, pageDirectoryIndex, analyzer, report, ct);
-        _logger.LogInformation(
+        _logger.LogDebug(
             "[PROFILE] DownloadMerge completed in {ElapsedMs}ms",
             (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         return report;
