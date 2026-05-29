@@ -33,6 +33,12 @@ public static class ServiceCollectionExtensions
         // The SocketsHttpHandler connection-lifetime cap evicts stale sockets
         // after a network blip; the retry handler absorbs transient failures.
         services.AddHttpClient(ConfluenceClientName)
+            // Suppress IHttpClientFactory's built-in per-request logging
+            // (System.Net.Http.HttpClient.*.LogicalHandler/ClientHandler), which
+            // emits four Information-level lines per HTTP request — noisy on every
+            // command. Our own HttpTimingHandler already logs one concise [HTTP]
+            // line per attempt at Debug (shown only with --verbose).
+            .RemoveAllLoggers()
             .ConfigureHttpClient((sp, http) =>
             {
                 var opts = sp.GetRequiredService<IOptions<GlobalOptions>>().Value;

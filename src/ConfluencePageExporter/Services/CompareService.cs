@@ -44,7 +44,7 @@ public class CompareService
         }
         finally
         {
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "[PROFILE] Compare completed in {ElapsedMs}ms",
                 (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         }

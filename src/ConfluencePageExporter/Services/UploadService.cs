@@ -52,7 +52,7 @@ public class UploadService
                 async (childDir, _) => await ProcessChildForUpdate(spaceKey, childDir, rootPageId, report, ct));
         }
 
-        _logger.LogInformation(
+        _logger.LogDebug(
             "[PROFILE] UploadUpdate completed in {ElapsedMs}ms",
             (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         return report;
@@ -85,7 +85,7 @@ public class UploadService
                 async (childDir, _) => await ProcessChildForMerge(spaceKey, childDir, rootPageId, analyzer, report, ct));
         }
 
-        _logger.LogInformation(
+        _logger.LogDebug(
             "[PROFILE] UploadMerge completed in {ElapsedMs}ms",
             (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         return report;
@@ -123,7 +123,7 @@ public class UploadService
         }
         finally
         {
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "[PROFILE] UploadCreate completed in {ElapsedMs}ms",
                 (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         }
