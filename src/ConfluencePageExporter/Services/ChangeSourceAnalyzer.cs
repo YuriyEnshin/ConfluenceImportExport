@@ -22,16 +22,17 @@ public class ChangeSourceAnalyzer
         string localFolderName,
         DateTime? serverModifiedUtc,
         DateTime? localDirModifiedUtc,
-        bool useVersionHistory)
+        bool useVersionHistory,
+        CancellationToken ct = default)
     {
         if (useVersionHistory)
         {
-            var versions = await GetVersionsCachedAsync(pageId);
+            var versions = await GetVersionsCachedAsync(pageId, ct);
             var sanitizedLocal = LocalStorageHelper.SanitizeFileName(localFolderName);
 
             foreach (var ver in versions.Where(v => v.Number > 0).OrderByDescending(v => v.Number).Skip(1))
             {
-                var historicalPage = await GetHistoricalPageCachedAsync(pageId, ver.Number);
+                var historicalPage = await GetHistoricalPageCachedAsync(pageId, ver.Number, ct);
                 if (historicalPage == null)
                     continue;
 
@@ -60,15 +61,16 @@ public class ChangeSourceAnalyzer
         string localParentPath,
         DateTime? serverModifiedUtc,
         DateTime? localDirModifiedUtc,
-        bool useVersionHistory)
+        bool useVersionHistory,
+        CancellationToken ct = default)
     {
         if (useVersionHistory)
         {
-            var versions = await GetVersionsCachedAsync(pageId);
+            var versions = await GetVersionsCachedAsync(pageId, ct);
 
             foreach (var ver in versions.Where(v => v.Number > 0).OrderByDescending(v => v.Number).Skip(1))
             {
-                var historicalPage = await GetHistoricalPageCachedAsync(pageId, ver.Number);
+                var historicalPage = await GetHistoricalPageCachedAsync(pageId, ver.Number, ct);
                 if (historicalPage == null)
                     continue;
 
@@ -188,23 +190,23 @@ public class ChangeSourceAnalyzer
             $"Даты совпадают ({FormatDate(serverDate)}); источник неопределён ({changeKind})");
     }
 
-    private async Task<List<PageVersionSummary>> GetVersionsCachedAsync(string pageId)
+    private async Task<List<PageVersionSummary>> GetVersionsCachedAsync(string pageId, CancellationToken ct = default)
     {
         if (_versionListCache.TryGetValue(pageId, out var cached))
             return cached;
 
-        var versions = await _apiClient.GetPageVersionsAsync(pageId);
+        var versions = await _apiClient.GetPageVersionsAsync(pageId, ct: ct);
         _versionListCache[pageId] = versions;
         return versions;
     }
 
-    private async Task<PageData?> GetHistoricalPageCachedAsync(string pageId, int versionNumber)
+    private async Task<PageData?> GetHistoricalPageCachedAsync(string pageId, int versionNumber, CancellationToken ct = default)
     {
         var cacheKey = $"{pageId}@{versionNumber}";
         if (_historicalPageCache.TryGetValue(cacheKey, out var cached))
             return cached;
 
-        var page = await _apiClient.GetPageAtVersionAsync(pageId, versionNumber);
+        var page = await _apiClient.GetPageAtVersionAsync(pageId, versionNumber, ct);
         _historicalPageCache[cacheKey] = page;
         return page;
     }

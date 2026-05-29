@@ -1,3 +1,4 @@
+using System.Net;
 using ConfluencePageExporter.Models;
 using ConfluencePageExporter.Services;
 using ConfluencePageExporter.Tests.Helpers;
@@ -8,6 +9,69 @@ namespace ConfluencePageExporter.Tests.Services;
 
 public class UploadServiceTests
 {
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldRecordConflict_AndContinueBatch_When409OnOneChild()
+    {
+        using var temp = new TempDirectoryScope();
+        var rootDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>root</p>", pageId: "111");
+        LocalPageTreeBuilder.CreatePage(rootDir, "Child1", "<p>c1</p>", pageId: "222");
+        LocalPageTreeBuilder.CreatePage(rootDir, "Child2", "<p>c2</p>", pageId: "333");
+
+        // Every page's server content differs from local, so an update is attempted for each.
+        var api = ApiClientMockFactory.CreateLoose();
+        api.Setup(x => x.TryGetPageByIdAsync("111", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>server</p>"));
+        api.Setup(x => x.GetPageByIdAsync("111", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>server</p>"));
+        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PageUpdateResult("111", 2));
+
+        api.Setup(x => x.TryGetPageByIdAsync("222", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child1", "<p>server</p>", parentId: "111"));
+        api.Setup(x => x.GetPageByIdAsync("222", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ApiClientMockFactory.CreatePage("222", "Child1", "<p>server</p>", parentId: "111"));
+        api.Setup(x => x.UpdatePageAsync("222", "Child1", "<p>c1</p>", null, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConfluenceConflictException("simulated 409"));
+
+        api.Setup(x => x.TryGetPageByIdAsync("333", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ApiClientMockFactory.CreatePage("333", "Child2", "<p>server</p>", parentId: "111"));
+        api.Setup(x => x.GetPageByIdAsync("333", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ApiClientMockFactory.CreatePage("333", "Child2", "<p>server</p>", parentId: "111"));
+        api.Setup(x => x.UpdatePageAsync("333", "Child2", "<p>c2</p>", null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PageUpdateResult("333", 2));
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true);
+
+        // The 409 surfaces as a conflict in the report instead of being silently dropped...
+        report.ConflictPages.Should().ContainSingle(p => p.PageId == "222");
+        // ...and the sibling is still processed (the batch is not aborted).
+        api.Verify(x => x.UpdatePageAsync("333", "Child2", "<p>c2</p>", null, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldRethrow_OnAuthFailure()
+    {
+        using var temp = new TempDirectoryScope();
+        var rootDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>root</p>", pageId: "111");
+
+        var api = ApiClientMockFactory.CreateLoose();
+        api.Setup(x => x.TryGetPageByIdAsync("111", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>server</p>"));
+        api.Setup(x => x.GetPageByIdAsync("111", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ApiClientMockFactory.CreatePage("111", "Root", "<p>server</p>"));
+        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ConfluenceApiException(HttpStatusCode.Forbidden, "no permission"));
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var act = () => service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: false);
+
+        // Auth failures are global — the run aborts rather than recording per-page and continuing.
+        await act.Should().ThrowAsync<ConfluenceApiException>();
+    }
+
     [Fact]
     public async Task UploadUpdateAsync_ShouldThrow_WhenNoMatchingRootPageFound()
     {

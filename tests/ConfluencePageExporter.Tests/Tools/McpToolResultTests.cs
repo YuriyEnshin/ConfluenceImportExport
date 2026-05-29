@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using ConfluencePageExporter.Infrastructure;
+using ConfluencePageExporter.Services;
 using ConfluencePageExporter.Tests.Helpers;
 using ConfluencePageExporter.Tools;
 using FluentAssertions;
@@ -69,6 +70,30 @@ public class McpToolResultTests
         var (code, message) = McpToolResult.Classify(ex);
         code.Should().Be("OUT_OF_SANDBOX");
         message.Should().Be("Path escapes sandbox root");
+    }
+
+    [Fact]
+    public void Classify_ShouldMapConflictException_ToVersionConflict()
+    {
+        var ex = new ConfluenceConflictException("the page was updated on the server");
+        var (code, _) = McpToolResult.Classify(ex);
+        code.Should().Be("VERSION_CONFLICT");
+    }
+
+    [Fact]
+    public void Classify_ShouldMapForbiddenApiException_ToAuthFailed()
+    {
+        var ex = new ConfluenceApiException(HttpStatusCode.Forbidden, "no permission");
+        var (code, _) = McpToolResult.Classify(ex);
+        code.Should().Be("AUTH_FAILED");
+    }
+
+    [Fact]
+    public void Classify_ShouldMapGenericApiException_ToConfluenceApiError()
+    {
+        var ex = new ConfluenceApiException(HttpStatusCode.BadRequest, "malformed storage format");
+        var (code, _) = McpToolResult.Classify(ex);
+        code.Should().Be("CONFLUENCE_API_ERROR");
     }
 
     [Fact]

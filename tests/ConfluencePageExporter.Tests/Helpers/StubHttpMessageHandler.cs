@@ -23,6 +23,10 @@ public sealed class StubHttpMessageHandler : HttpMessageHandler
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        // Honour cancellation like a real handler would, so tests can assert
+        // the token is threaded all the way down to the transport.
+        cancellationToken.ThrowIfCancellationRequested();
+
         Requests.Add(request);
 
         if (_responders.Count == 0)

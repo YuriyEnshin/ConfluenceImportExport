@@ -66,7 +66,7 @@ public sealed class UploadCreateCommandHandler : ICommandHandler
             dryRun,
             maxParallelism);
 
-        await service.UploadCreateAsync(spaceKey, sourceDir, parentId, parentTitle, recursive);
+        await service.UploadCreateAsync(spaceKey, sourceDir, parentId, parentTitle, recursive, ct);
         _writer.WriteLine("Upload create completed.");
         return 0;
     }

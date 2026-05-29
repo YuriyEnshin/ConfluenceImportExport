@@ -1,4 +1,5 @@
 using System.Net.Http;
+using ConfluencePageExporter.Services;
 
 namespace ConfluencePageExporter;
 
@@ -14,6 +15,8 @@ public static class ExceptionHandling
     {
         return ex switch
         {
+            ConfluenceConflictException => $"{ex.Message} Подсказка: выполните 'download merge' для синхронизации серверных правок, затем повторите загрузку.",
+            ConfluenceApiException => ex.Message,
             DirectoryNotFoundException => ex.Message,
             FileNotFoundException => ex.Message,
             InvalidOperationException => ex.Message,

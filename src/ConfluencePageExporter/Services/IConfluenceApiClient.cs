@@ -7,19 +7,31 @@ namespace ConfluencePageExporter.Services;
 /// </summary>
 public interface IConfluenceApiClient
 {
-    Task<PageData> GetPageByIdAsync(string pageId);
-    Task<PageData?> TryGetPageByIdAsync(string pageId);
-    Task<List<PageData>> GetChildrenPagesAsync(string parentId);
-    Task<List<AttachmentData>> GetAttachmentsAsync(string pageId);
-    Task<string?> FindPageByTitleAsync(string spaceKey, string? parentId, string title);
-    Task<PageUpdateResult?> CreatePageAsync(string spaceKey, string? parentId, string title, string content);
-    Task<PageUpdateResult?> UpdatePageAsync(string pageId, string title, string content, string? parentId);
-    Task<bool> UploadAttachmentAsync(string pageId, string filePath, string fileName);
-    Task<bool> UpdateAttachmentDataAsync(string pageId, string attachmentId, string filePath, string fileName);
-    Task<bool> DeleteAttachmentAsync(string pageId, string attachmentId);
-    Task<byte[]> DownloadAttachmentAsync(string downloadUrl);
-    Task<List<PageVersionSummary>> GetPageVersionsAsync(string pageId, int limit = 10);
-    Task<PageData?> GetPageAtVersionAsync(string pageId, int versionNumber);
+    Task<PageData> GetPageByIdAsync(string pageId, CancellationToken ct = default);
+    Task<PageData?> TryGetPageByIdAsync(string pageId, CancellationToken ct = default);
+    Task<List<PageData>> GetChildrenPagesAsync(string parentId, CancellationToken ct = default);
+    Task<List<AttachmentData>> GetAttachmentsAsync(string pageId, CancellationToken ct = default);
+    Task<string?> FindPageByTitleAsync(string spaceKey, string? parentId, string title, CancellationToken ct = default);
+    /// <summary>
+    /// Creates a page. Returns the created page's id/version, or throws
+    /// <see cref="ConfluenceApiException"/> (incl. <see cref="ConfluenceConflictException"/>
+    /// for 409) when Confluence rejects the request.
+    /// </summary>
+    Task<PageUpdateResult> CreatePageAsync(string spaceKey, string? parentId, string title, string content, CancellationToken ct = default);
+
+    /// <summary>
+    /// Updates a page (content/title/parent). Returns the new id/version, or
+    /// throws <see cref="ConfluenceApiException"/> on failure —
+    /// <see cref="ConfluenceConflictException"/> specifically for 409 version
+    /// conflicts, which callers surface as a conflict rather than aborting.
+    /// </summary>
+    Task<PageUpdateResult> UpdatePageAsync(string pageId, string title, string content, string? parentId, CancellationToken ct = default);
+    Task<bool> UploadAttachmentAsync(string pageId, string filePath, string fileName, CancellationToken ct = default);
+    Task<bool> UpdateAttachmentDataAsync(string pageId, string attachmentId, string filePath, string fileName, CancellationToken ct = default);
+    Task<bool> DeleteAttachmentAsync(string pageId, string attachmentId, CancellationToken ct = default);
+    Task<byte[]> DownloadAttachmentAsync(string downloadUrl, CancellationToken ct = default);
+    Task<List<PageVersionSummary>> GetPageVersionsAsync(string pageId, int limit = 10, CancellationToken ct = default);
+    Task<PageData?> GetPageAtVersionAsync(string pageId, int versionNumber, CancellationToken ct = default);
 
     /// <summary>
     /// Like <see cref="GetPageAtVersionAsync"/>, but expands <c>body.storage</c>
@@ -28,12 +40,12 @@ public interface IConfluenceApiClient
     /// (<c>ChangeSourceAnalyzer</c>) walk many historical versions only for
     /// metadata and don't need the payload.
     /// </summary>
-    Task<PageData> GetPageContentAtVersionAsync(string pageId, int versionNumber);
+    Task<PageData> GetPageContentAtVersionAsync(string pageId, int versionNumber, CancellationToken ct = default);
 
     /// <summary>
     /// Returns the authenticated user. Used by the MCP <c>confluence_ping</c>
     /// diagnostic to verify connectivity and credentials with a single
     /// lightweight call to <c>/rest/api/user/current</c>.
     /// </summary>
-    Task<ConfluenceUser> GetCurrentUserAsync();
+    Task<ConfluenceUser> GetCurrentUserAsync(CancellationToken ct = default);
 }

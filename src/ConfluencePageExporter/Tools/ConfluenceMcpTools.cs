@@ -31,6 +31,7 @@ public sealed class ConfluenceMcpTools
         ILoggerFactory loggerFactory,
         IPathSandbox sandbox,
         IOptions<GlobalOptions> globalOpts,
+        CancellationToken cancellationToken = default,
         [Description("Confluence page ID (mutually exclusive with pageTitle)")] string? pageId = null,
         [Description("Confluence page title (mutually exclusive with pageId)")] string? pageTitle = null,
         [Description("Parent directory that will contain the page subfolder (named after the page title); relative paths resolve against --root-dir, absolute paths must lie inside it")] string outputDir = ".",
@@ -51,7 +52,7 @@ public sealed class ConfluenceMcpTools
             if (dryRun) writer.WriteLine("DRY RUN MODE: No files will be written to disk.");
 
             var service = new DownloadService(api, normalizer, loggerFactory.CreateLogger<DownloadService>(), dryRun, maxParallelism);
-            var syncReport = await service.DownloadUpdateAsync(resolvedSpace, pageId, pageTitle, resolvedOut, recursive);
+            var syncReport = await service.DownloadUpdateAsync(resolvedSpace, pageId, pageTitle, resolvedOut, recursive, cancellationToken);
 
             writer.WriteLine($"Download update completed. Files saved to: {resolvedOut}");
             return McpToolResult.Success(
@@ -75,6 +76,7 @@ public sealed class ConfluenceMcpTools
         ILoggerFactory loggerFactory,
         IPathSandbox sandbox,
         IOptions<GlobalOptions> globalOpts,
+        CancellationToken cancellationToken = default,
         [Description("Confluence page ID (mutually exclusive with pageTitle)")] string? pageId = null,
         [Description("Confluence page title (mutually exclusive with pageId)")] string? pageTitle = null,
         [Description("Parent directory containing (or that will contain) the page subfolder; relative paths resolve against --root-dir")] string outputDir = ".",
@@ -96,7 +98,7 @@ public sealed class ConfluenceMcpTools
 
             var analyzer = new ChangeSourceAnalyzer(api, loggerFactory.CreateLogger<ChangeSourceAnalyzer>());
             var service = new DownloadService(api, normalizer, loggerFactory.CreateLogger<DownloadService>(), dryRun, maxParallelism);
-            var syncReport = await service.DownloadMergeAsync(resolvedSpace, pageId, pageTitle, resolvedOut, recursive, analyzer);
+            var syncReport = await service.DownloadMergeAsync(resolvedSpace, pageId, pageTitle, resolvedOut, recursive, analyzer, cancellationToken);
 
             writer.WriteLine($"Download merge completed. Files saved to: {resolvedOut}");
             return McpToolResult.Success(
@@ -122,6 +124,7 @@ public sealed class ConfluenceMcpTools
         IOptions<GlobalOptions> globalOpts,
         ConfluenceMcpOptions mcpOpts,
         [Description("Local page folder to upload; relative paths resolve against the server's --root-dir")] string sourceDir,
+        CancellationToken cancellationToken = default,
         [Description("Confluence page ID to update (mutually exclusive with pageTitle)")] string? pageId = null,
         [Description("Confluence page title to update (mutually exclusive with pageId)")] string? pageTitle = null,
         [Description("Space key. Optional — defaults to the server's configured Global:SpaceKey")] string? spaceKey = null,
@@ -144,7 +147,7 @@ public sealed class ConfluenceMcpTools
             writer.WriteLine($"Upload update: pages in space '{resolvedSpace}' from '{resolvedSrc}'{(recursive ? " (recursive)" : "")}...");
 
             var service = new UploadService(api, normalizer, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism);
-            var syncReport = await service.UploadUpdateAsync(resolvedSpace, resolvedSrc, pageId, pageTitle, recursive);
+            var syncReport = await service.UploadUpdateAsync(resolvedSpace, resolvedSrc, pageId, pageTitle, recursive, cancellationToken);
 
             writer.WriteLine("Upload update completed.");
             return McpToolResult.Success(
@@ -170,6 +173,7 @@ public sealed class ConfluenceMcpTools
         IOptions<GlobalOptions> globalOpts,
         ConfluenceMcpOptions mcpOpts,
         [Description("Local page folder to upload; relative paths resolve against the server's --root-dir")] string sourceDir,
+        CancellationToken cancellationToken = default,
         [Description("Parent Confluence page ID (mutually exclusive with parentTitle). Omit both to create at space root.")] string? parentId = null,
         [Description("Parent Confluence page title (mutually exclusive with parentId)")] string? parentTitle = null,
         [Description("Space key. Optional — defaults to the server's configured Global:SpaceKey")] string? spaceKey = null,
@@ -194,7 +198,7 @@ public sealed class ConfluenceMcpTools
             writer.WriteLine($"Creating pages in space '{resolvedSpace}' {parentDesc} from '{resolvedSrc}'{(recursive ? " (recursive)" : "")}...");
 
             var service = new UploadService(api, normalizer, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism);
-            await service.UploadCreateAsync(resolvedSpace, resolvedSrc, parentId, parentTitle, recursive);
+            await service.UploadCreateAsync(resolvedSpace, resolvedSrc, parentId, parentTitle, recursive, cancellationToken);
 
             writer.WriteLine("Upload create completed.");
             return McpToolResult.Success(
@@ -220,6 +224,7 @@ public sealed class ConfluenceMcpTools
         IOptions<GlobalOptions> globalOpts,
         ConfluenceMcpOptions mcpOpts,
         [Description("Local page folder to upload; relative paths resolve against the server's --root-dir")] string sourceDir,
+        CancellationToken cancellationToken = default,
         [Description("Confluence page ID (mutually exclusive with pageTitle)")] string? pageId = null,
         [Description("Confluence page title (mutually exclusive with pageId)")] string? pageTitle = null,
         [Description("Space key. Optional — defaults to the server's configured Global:SpaceKey")] string? spaceKey = null,
@@ -243,7 +248,7 @@ public sealed class ConfluenceMcpTools
 
             var analyzer = new ChangeSourceAnalyzer(api, loggerFactory.CreateLogger<ChangeSourceAnalyzer>());
             var service = new UploadService(api, normalizer, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism);
-            var syncReport = await service.UploadMergeAsync(resolvedSpace, resolvedSrc, pageId, pageTitle, recursive, analyzer);
+            var syncReport = await service.UploadMergeAsync(resolvedSpace, resolvedSrc, pageId, pageTitle, recursive, analyzer, cancellationToken);
 
             writer.WriteLine("Upload merge completed.");
             return McpToolResult.Success(
@@ -267,6 +272,7 @@ public sealed class ConfluenceMcpTools
         ILoggerFactory loggerFactory,
         IPathSandbox sandbox,
         IOptions<GlobalOptions> globalOpts,
+        CancellationToken cancellationToken = default,
         [Description("Confluence page ID (mutually exclusive with pageTitle)")] string? pageId = null,
         [Description("Confluence page title (mutually exclusive with pageId)")] string? pageTitle = null,
         [Description("Parent directory containing the exported page subfolder; relative paths resolve against --root-dir")] string outputDir = ".",
@@ -287,7 +293,7 @@ public sealed class ConfluenceMcpTools
 
             var analyzer = new ChangeSourceAnalyzer(api, loggerFactory.CreateLogger<ChangeSourceAnalyzer>());
             var service = new CompareService(api, analyzer, normalizer, loggerFactory.CreateLogger<CompareService>(), maxParallelism);
-            var compareReport = await service.CompareAsync(resolvedSpace, pageId, pageTitle, resolvedOut, recursive, matchByTitle, detectSource);
+            var compareReport = await service.CompareAsync(resolvedSpace, pageId, pageTitle, resolvedOut, recursive, matchByTitle, detectSource, cancellationToken);
 
             return McpToolResult.Success(
                 summary: BuildCompareSummary(compareReport),
@@ -308,7 +314,8 @@ public sealed class ConfluenceMcpTools
         IConfluenceApiClient api,
         ILoggerFactory loggerFactory,
         IOptions<GlobalOptions> globalOpts,
-        ConfluenceMcpOptions mcpOpts)
+        ConfluenceMcpOptions mcpOpts,
+        CancellationToken cancellationToken = default)
     {
         var writer = new BufferingConsoleWriter();
         try
@@ -317,7 +324,7 @@ public sealed class ConfluenceMcpTools
             writer.WriteLine($"Pinging Confluence at '{globals.BaseUrl}'...");
 
             var started = Stopwatch.GetTimestamp();
-            var user = await api.GetCurrentUserAsync();
+            var user = await api.GetCurrentUserAsync(cancellationToken);
             var elapsedMs = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 
             writer.WriteLine($"OK in {elapsedMs}ms — authenticated as '{user.Username ?? user.AccountId ?? "?"}' ({user.DisplayName ?? "no display name"}).");
@@ -368,6 +375,7 @@ public sealed class ConfluenceMcpTools
         IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IOptions<GlobalOptions> globalOpts,
+        CancellationToken cancellationToken = default,
         [Description("Confluence page ID (mutually exclusive with pageTitle)")] string? pageId = null,
         [Description("Confluence page title (mutually exclusive with pageId)")] string? pageTitle = null,
         [Description("Space key. Optional — defaults to the server's configured Global:SpaceKey. Required when pageTitle is used.")] string? spaceKey = null,
@@ -389,7 +397,7 @@ public sealed class ConfluenceMcpTools
             if (string.IsNullOrEmpty(resolvedId))
             {
                 writer.WriteLine($"Resolving title '{pageTitle}' in space '{resolvedSpace}'...");
-                resolvedId = await api.FindPageByTitleAsync(resolvedSpace, parentId: null, title: pageTitle!)
+                resolvedId = await api.FindPageByTitleAsync(resolvedSpace, parentId: null, title: pageTitle!, ct: cancellationToken)
                     ?? throw new InvalidOperationException($"Could not resolve page by title '{pageTitle}' in space '{resolvedSpace}'.");
             }
 
@@ -397,12 +405,12 @@ public sealed class ConfluenceMcpTools
             if (version is int v)
             {
                 writer.WriteLine($"Fetching page ID '{resolvedId}' at historical version {v}...");
-                page = await api.GetPageContentAtVersionAsync(resolvedId, v);
+                page = await api.GetPageContentAtVersionAsync(resolvedId, v, cancellationToken);
             }
             else
             {
                 writer.WriteLine($"Fetching page ID '{resolvedId}' (current version)...");
-                page = await api.GetPageByIdAsync(resolvedId);
+                page = await api.GetPageByIdAsync(resolvedId, cancellationToken);
             }
 
             var rawContent = page.Body?.Storage?.Value ?? string.Empty;

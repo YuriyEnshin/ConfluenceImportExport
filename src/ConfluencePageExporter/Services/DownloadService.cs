@@ -30,15 +30,15 @@ public class DownloadService
 
     public async Task<SyncReport> DownloadUpdateAsync(
         string spaceKey, string? pageId, string? pageTitle,
-        string outputDir, bool recursive)
+        string outputDir, bool recursive, CancellationToken ct = default)
     {
         var started = Stopwatch.GetTimestamp();
         var report = new SyncReport();
-        var resolvedPageId = await ResolvePageId(spaceKey, pageId, pageTitle);
+        var resolvedPageId = await ResolvePageId(spaceKey, pageId, pageTitle, ct);
 
         var pageDirectoryIndex = LocalStorageHelper.BuildPageDirectoryIndex(outputDir, _logger);
-        var page = await _apiClient.GetPageByIdAsync(resolvedPageId);
-        await DownloadPageUpdateAsync(page, outputDir, recursive, pageDirectoryIndex, report);
+        var page = await _apiClient.GetPageByIdAsync(resolvedPageId, ct);
+        await DownloadPageUpdateAsync(page, outputDir, recursive, pageDirectoryIndex, report, ct);
         _logger.LogInformation(
             "[PROFILE] DownloadUpdate completed in {ElapsedMs}ms",
             (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
@@ -47,60 +47,60 @@ public class DownloadService
 
     public async Task<SyncReport> DownloadMergeAsync(
         string spaceKey, string? pageId, string? pageTitle,
-        string outputDir, bool recursive, ChangeSourceAnalyzer analyzer)
+        string outputDir, bool recursive, ChangeSourceAnalyzer analyzer, CancellationToken ct = default)
     {
         var started = Stopwatch.GetTimestamp();
         var report = new SyncReport();
-        var resolvedPageId = await ResolvePageId(spaceKey, pageId, pageTitle);
+        var resolvedPageId = await ResolvePageId(spaceKey, pageId, pageTitle, ct);
 
         var pageDirectoryIndex = LocalStorageHelper.BuildPageDirectoryIndex(outputDir, _logger);
-        var page = await _apiClient.GetPageByIdAsync(resolvedPageId);
-        await DownloadPageMergeAsync(page, outputDir, recursive, pageDirectoryIndex, analyzer, report);
+        var page = await _apiClient.GetPageByIdAsync(resolvedPageId, ct);
+        await DownloadPageMergeAsync(page, outputDir, recursive, pageDirectoryIndex, analyzer, report, ct);
         _logger.LogInformation(
             "[PROFILE] DownloadMerge completed in {ElapsedMs}ms",
             (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         return report;
     }
 
-    private async Task<string> ResolvePageId(string spaceKey, string? pageId, string? pageTitle)
+    private async Task<string> ResolvePageId(string spaceKey, string? pageId, string? pageTitle, CancellationToken ct)
     {
-        var resolved = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, pageId, pageTitle);
+        var resolved = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, pageId, pageTitle, ct);
         return resolved ?? throw new InvalidOperationException(
             $"Could not resolve page. ID: '{pageId}', Title: '{pageTitle}'");
     }
 
     private async Task DownloadPageUpdateAsync(
         PageData page, string parentDir, bool recursive,
-        Dictionary<string, string> pageDirectoryIndex, SyncReport report)
+        Dictionary<string, string> pageDirectoryIndex, SyncReport report, CancellationToken ct)
     {
         var pageDir = ResolvePageDirectoryForDownload(page, parentDir, pageDirectoryIndex);
 
         if (!_dryRun)
             Directory.CreateDirectory(pageDir);
 
-        await SavePageContentForUpdate(page, pageDir);
-        await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title);
+        await SavePageContentForUpdate(page, pageDir, ct);
+        await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, ct);
 
         if (page.ChildTypes?.HasAttachments ?? true)
         {
-            var attachments = await _apiClient.GetAttachmentsAsync(page.Id);
-            await SaveAttachments(attachments, pageDir);
+            var attachments = await _apiClient.GetAttachmentsAsync(page.Id, ct);
+            await SaveAttachments(attachments, pageDir, ct);
         }
 
         if (recursive && (page.ChildTypes?.HasPages ?? true))
         {
-            var children = await _apiClient.GetChildrenPagesAsync(page.Id);
+            var children = await _apiClient.GetChildrenPagesAsync(page.Id, ct);
             await Parallel.ForEachAsync(
                 children,
-                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
-                async (child, _) => await DownloadPageUpdateAsync(child, pageDir, recursive, pageDirectoryIndex, report));
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
+                async (child, _) => await DownloadPageUpdateAsync(child, pageDir, recursive, pageDirectoryIndex, report, ct));
         }
     }
 
     private async Task DownloadPageMergeAsync(
         PageData page, string parentDir, bool recursive,
         Dictionary<string, string> pageDirectoryIndex,
-        ChangeSourceAnalyzer analyzer, SyncReport report)
+        ChangeSourceAnalyzer analyzer, SyncReport report, CancellationToken ct)
     {
         var pageDir = ResolvePageDirectoryForDownload(page, parentDir, pageDirectoryIndex);
 
@@ -108,17 +108,17 @@ public class DownloadService
             Directory.CreateDirectory(pageDir);
 
         var serverContent = page.Body.Storage.Value;
-        var localContent = await LocalStorageHelper.ReadLocalPageContentOrNull(pageDir);
+        var localContent = await LocalStorageHelper.ReadLocalPageContentOrNull(pageDir, ct);
 
         if (localContent == null)
         {
-            await WritePageContent(page.Title, pageDir, serverContent);
-            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title);
+            await WritePageContent(page.Title, pageDir, serverContent, ct);
+            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, ct);
         }
         else if (_normalizer.ContentEquals(localContent, serverContent))
         {
             _logger.LogDebug("Page '{Title}' content is unchanged, skipping", page.Title);
-            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title);
+            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, ct);
         }
         else
         {
@@ -135,8 +135,8 @@ public class DownloadService
             {
                 case ChangeOrigin.Server:
                     _logger.LogInformation("Page '{Title}' changed on server, downloading", page.Title);
-                    await WritePageContent(page.Title, pageDir, serverContent);
-                    await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title);
+                    await WritePageContent(page.Title, pageDir, serverContent, ct);
+                    await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, ct);
                     break;
 
                 case ChangeOrigin.Local:
@@ -158,21 +158,21 @@ public class DownloadService
 
         if (page.ChildTypes?.HasAttachments ?? true)
         {
-            var attachments = await _apiClient.GetAttachmentsAsync(page.Id);
-            await SaveAttachments(attachments, pageDir);
+            var attachments = await _apiClient.GetAttachmentsAsync(page.Id, ct);
+            await SaveAttachments(attachments, pageDir, ct);
         }
 
         if (recursive && (page.ChildTypes?.HasPages ?? true))
         {
-            var children = await _apiClient.GetChildrenPagesAsync(page.Id);
+            var children = await _apiClient.GetChildrenPagesAsync(page.Id, ct);
             await Parallel.ForEachAsync(
                 children,
-                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
-                async (child, _) => await DownloadPageMergeAsync(child, pageDir, recursive, pageDirectoryIndex, analyzer, report));
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
+                async (child, _) => await DownloadPageMergeAsync(child, pageDir, recursive, pageDirectoryIndex, analyzer, report, ct));
         }
     }
 
-    private async Task SavePageContentForUpdate(PageData page, string pageDir)
+    private async Task SavePageContentForUpdate(PageData page, string pageDir, CancellationToken ct)
     {
         var filePath = Path.Combine(pageDir, "index.html");
         var content = page.Body.Storage.Value;
@@ -185,7 +185,7 @@ public class DownloadService
 
         if (File.Exists(filePath))
         {
-            var existingContent = await File.ReadAllTextAsync(filePath);
+            var existingContent = await File.ReadAllTextAsync(filePath, ct);
             if (_normalizer.ContentEquals(existingContent, content))
             {
                 _logger.LogDebug("Page '{Title}' content is unchanged, skipping rewrite", page.Title);
@@ -193,11 +193,11 @@ public class DownloadService
             }
         }
 
-        await File.WriteAllTextAsync(filePath, content);
+        await File.WriteAllTextAsync(filePath, content, ct);
         _logger.LogInformation("Saved page '{Title}' -> {File}", page.Title, filePath);
     }
 
-    private async Task WritePageContent(string title, string pageDir, string content)
+    private async Task WritePageContent(string title, string pageDir, string content, CancellationToken ct)
     {
         var filePath = Path.Combine(pageDir, "index.html");
 
@@ -207,7 +207,7 @@ public class DownloadService
             return;
         }
 
-        await File.WriteAllTextAsync(filePath, content);
+        await File.WriteAllTextAsync(filePath, content, ct);
         _logger.LogInformation("Saved page '{Title}' -> {File}", title, filePath);
     }
 
@@ -279,7 +279,7 @@ public class DownloadService
         }
     }
 
-    private async Task SavePageIdMarker(string pageId, int? version, string pageDir, string? originalTitle = null)
+    private async Task SavePageIdMarker(string pageId, int? version, string pageDir, string? originalTitle = null, CancellationToken ct = default)
     {
         if (_dryRun)
         {
@@ -297,14 +297,14 @@ public class DownloadService
             return;
         }
 
-        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version, originalTitle);
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version, originalTitle, ct);
     }
 
-    private async Task SaveAttachments(List<AttachmentData> attachments, string pageDir)
+    private async Task SaveAttachments(List<AttachmentData> attachments, string pageDir, CancellationToken ct)
     {
         await Parallel.ForEachAsync(
             attachments,
-            new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+            new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
             async (att, _) =>
             {
                 var filePath = Path.Combine(pageDir, LocalStorageHelper.SanitizeFileName(att.Title));
@@ -325,9 +325,9 @@ public class DownloadService
                         return;
                     }
 
-                    var fileContent = await _apiClient.DownloadAttachmentAsync(att.Links.DownloadUrl);
+                    var fileContent = await _apiClient.DownloadAttachmentAsync(att.Links.DownloadUrl, ct);
 
-                    if (await IsLocalContentMatchAsync(filePath, fileContent))
+                    if (await IsLocalContentMatchAsync(filePath, fileContent, ct))
                     {
                         _logger.LogDebug(
                             "Attachment '{Title}' content is unchanged after download (API fileSize mismatch: {ApiSize} vs actual {ActualSize}), skipping rewrite",
@@ -335,8 +335,15 @@ public class DownloadService
                         return;
                     }
 
-                    await File.WriteAllBytesAsync(filePath, fileContent);
+                    await File.WriteAllBytesAsync(filePath, fileContent, ct);
                     _logger.LogInformation("Downloaded attachment '{Title}' -> {Path}", att.Title, filePath);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Cancellation is not a per-attachment failure — let it
+                    // abort the whole download instead of being logged and
+                    // swallowed as an error below.
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -356,7 +363,7 @@ public class DownloadService
         return new FileInfo(filePath).Length == remoteSize;
     }
 
-    private async Task<bool> IsLocalContentMatchAsync(string filePath, byte[] downloadedContent)
+    private async Task<bool> IsLocalContentMatchAsync(string filePath, byte[] downloadedContent, CancellationToken ct)
     {
         if (!File.Exists(filePath))
             return false;
@@ -368,7 +375,7 @@ public class DownloadService
         var started = Stopwatch.GetTimestamp();
         var downloadedHash = SHA256.HashData(downloadedContent);
         await using var stream = File.OpenRead(filePath);
-        var localHash = await SHA256.HashDataAsync(stream);
+        var localHash = await SHA256.HashDataAsync(stream, ct);
         var elapsedMs = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 
         _logger.LogDebug(

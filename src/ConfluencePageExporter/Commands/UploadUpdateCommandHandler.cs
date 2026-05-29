@@ -64,7 +64,7 @@ public sealed class UploadUpdateCommandHandler : ICommandHandler
             dryRun,
             maxParallelism);
 
-        var report = await service.UploadUpdateAsync(spaceKey, sourceDir, pageId, pageTitle, recursive);
+        var report = await service.UploadUpdateAsync(spaceKey, sourceDir, pageId, pageTitle, recursive, ct);
 
         _writer.WriteLine("Upload update completed.");
         if (showReport)

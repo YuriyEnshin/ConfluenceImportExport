@@ -34,12 +34,13 @@ public class CompareService
         string outputDir,
         bool recursive,
         bool matchByTitleWhenNoId = false,
-        bool detectSource = false)
+        bool detectSource = false,
+        CancellationToken ct = default)
     {
         var started = Stopwatch.GetTimestamp();
         try
         {
-            return await CompareInternalAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitleWhenNoId, detectSource);
+            return await CompareInternalAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitleWhenNoId, detectSource, ct);
         }
         finally
         {
@@ -56,18 +57,19 @@ public class CompareService
         string outputDir,
         bool recursive,
         bool matchByTitleWhenNoId,
-        bool detectSource)
+        bool detectSource,
+        CancellationToken ct)
     {
         var report = new CompareReport { DetectSourceEnabled = detectSource };
-        var resolvedRootPageId = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, pageId, pageTitle);
+        var resolvedRootPageId = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, pageId, pageTitle, ct);
         if (resolvedRootPageId == null)
             throw new InvalidOperationException("Could not resolve root page for comparison.");
 
-        var rootPage = await _apiClient.GetPageByIdAsync(resolvedRootPageId);
+        var rootPage = await _apiClient.GetPageByIdAsync(resolvedRootPageId, ct);
         var rootRelativePath = LocalStorageHelper.NormalizeRelativePath(LocalStorageHelper.SanitizeFileName(rootPage.Title));
 
         var remotePages = new ConcurrentDictionary<string, RemotePageSnapshot>(StringComparer.OrdinalIgnoreCase);
-        await CollectRemotePagesAsync(rootPage, rootRelativePath, recursive, remotePages);
+        await CollectRemotePagesAsync(rootPage, rootRelativePath, recursive, remotePages, ct);
 
         var localSnapshot = BuildLocalPagesForComparison(
             outputDir,
@@ -128,7 +130,7 @@ public class CompareService
                     renamedOrMoved.RenameSource = await _changeSourceAnalyzer.AnalyzeRenameAsync(
                         remote.PageId, remote.Title, localName,
                         remote.LastModifiedUtc, localById.DirectoryLastModifiedUtc,
-                        detectSource);
+                        detectSource, ct);
                 }
 
                 if (isMoved)
@@ -136,14 +138,14 @@ public class CompareService
                     renamedOrMoved.MoveSource = await _changeSourceAnalyzer.AnalyzeMoveAsync(
                         remote.PageId, remoteParent, localParent,
                         remote.LastModifiedUtc, localById.DirectoryLastModifiedUtc,
-                        detectSource);
+                        detectSource, ct);
                 }
 
                 report.RenamedOrMovedInConfluence.Add(renamedOrMoved);
             }
 
             var localDir = localById?.DirectoryPath ?? localByTitlePath!.DirectoryPath;
-            var localContent = await LocalStorageHelper.ReadLocalPageContentOrNull(localDir);
+            var localContent = await LocalStorageHelper.ReadLocalPageContentOrNull(localDir, ct);
 
             if (!_normalizer.ContentEquals(localContent, remote.Content))
             {
@@ -197,7 +199,7 @@ public class CompareService
             });
         }
 
-        await DetectRootPageParentMismatchAsync(report, rootPage, localSnapshot, rootRelativePath, detectSource);
+        await DetectRootPageParentMismatchAsync(report, rootPage, localSnapshot, rootRelativePath, detectSource, ct);
 
         return report;
     }
@@ -206,7 +208,8 @@ public class CompareService
         PageData page,
         string relativePath,
         bool recursive,
-        ConcurrentDictionary<string, RemotePageSnapshot> remotePages)
+        ConcurrentDictionary<string, RemotePageSnapshot> remotePages,
+        CancellationToken ct)
     {
         remotePages[page.Id] = new RemotePageSnapshot(
             page.Id,
@@ -222,15 +225,15 @@ public class CompareService
         if (!(page.ChildTypes?.HasPages ?? true))
             return;
 
-        var children = await _apiClient.GetChildrenPagesAsync(page.Id);
+        var children = await _apiClient.GetChildrenPagesAsync(page.Id, ct);
         await Parallel.ForEachAsync(
             children,
-            new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+            new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
             async (child, _) =>
             {
                 var childRelativePath = LocalStorageHelper.NormalizeRelativePath(
                     Path.Combine(relativePath, LocalStorageHelper.SanitizeFileName(child.Title)));
-                await CollectRemotePagesAsync(child, childRelativePath, recursive, remotePages);
+                await CollectRemotePagesAsync(child, childRelativePath, recursive, remotePages, ct);
             });
     }
 
@@ -334,7 +337,8 @@ public class CompareService
         PageData rootPage,
         LocalComparisonSnapshot localSnapshot,
         string rootRelativePath,
-        bool detectSource)
+        bool detectSource,
+        CancellationToken ct)
     {
         if (!localSnapshot.PagesById.TryGetValue(rootPage.Id, out var localRootSnapshot))
             return;
@@ -360,7 +364,7 @@ public class CompareService
             rootPage.Id, serverParentTitle, localParentTitle,
             rootPage.Version?.When?.ToUniversalTime(),
             localRootSnapshot.DirectoryLastModifiedUtc,
-            detectSource);
+            detectSource, ct);
 
         if (existing != null)
         {
