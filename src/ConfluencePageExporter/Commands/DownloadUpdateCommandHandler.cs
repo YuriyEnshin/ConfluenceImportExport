@@ -66,7 +66,7 @@ public sealed class DownloadUpdateCommandHandler : ICommandHandler
             dryRun,
             maxParallelism);
 
-        var report = await service.DownloadUpdateAsync(spaceKey, pageId, pageTitle, outputDir, recursive);
+        var report = await service.DownloadUpdateAsync(spaceKey, pageId, pageTitle, outputDir, recursive, ct);
 
         _writer.WriteLine($"Download update completed. Files saved to: {outputDir}");
         if (showReport)

@@ -69,7 +69,7 @@ public sealed class CompareCommandHandler : ICommandHandler
             _loggerFactory.CreateLogger<CompareService>(),
             maxParallelism);
 
-        var report = await service.CompareAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitle, detectSource);
+        var report = await service.CompareAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitle, detectSource, ct);
         PrintReport(report, _writer);
         return 0;
     }

@@ -31,25 +31,25 @@ public class UploadService
 
     public async Task<SyncReport> UploadUpdateAsync(
         string spaceKey, string sourceDir, string? explicitPageId,
-        string? explicitPageTitle, bool recursive)
+        string? explicitPageTitle, bool recursive, CancellationToken ct = default)
     {
         var started = Stopwatch.GetTimestamp();
         var report = new SyncReport();
         LocalStorageHelper.ValidateSourceDirectory(sourceDir);
 
-        var (rootPageId, _) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle);
+        var (rootPageId, _) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle, ct);
 
-        var moveToParentId = await DetectRootPageMoveAsync(rootPageId, sourceDir);
-        var (result, effectiveTitle) = await UpdatePageContentAndAttachments(spaceKey, rootPageId, sourceDir, moveToParentId);
+        var moveToParentId = await DetectRootPageMoveAsync(rootPageId, sourceDir, ct);
+        var (result, effectiveTitle) = await UpdatePageContentAndAttachments(spaceKey, rootPageId, sourceDir, report, moveToParentId, ct);
         if (result != null)
-            await UpdatePageIdMarker(sourceDir, result.Id, result.VersionNumber, effectiveTitle);
+            await UpdatePageIdMarker(sourceDir, result.Id, result.VersionNumber, effectiveTitle, ct);
 
         if (recursive)
         {
             await Parallel.ForEachAsync(
                 LocalStorageHelper.GetPageSubdirectories(sourceDir),
-                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
-                async (childDir, _) => await ProcessChildForUpdate(spaceKey, childDir, rootPageId, report));
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
+                async (childDir, _) => await ProcessChildForUpdate(spaceKey, childDir, rootPageId, report, ct));
         }
 
         _logger.LogInformation(
@@ -62,27 +62,27 @@ public class UploadService
 
     public async Task<SyncReport> UploadMergeAsync(
         string spaceKey, string sourceDir, string? explicitPageId,
-        string? explicitPageTitle, bool recursive, ChangeSourceAnalyzer analyzer)
+        string? explicitPageTitle, bool recursive, ChangeSourceAnalyzer analyzer, CancellationToken ct = default)
     {
         var started = Stopwatch.GetTimestamp();
         var report = new SyncReport();
         LocalStorageHelper.ValidateSourceDirectory(sourceDir);
 
-        var (rootPageId, _) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle);
+        var (rootPageId, _) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle, ct);
 
         // Симметрично upload update: если локальная родительская папка имеет
         // .id-маркер и его ID отличается от серверного родителя страницы,
         // считаем, что пользователь перенёс папку локально, и применяем
         // структурное перемещение на сервере как часть merge-операции.
-        var moveToParentId = await DetectRootPageMoveAsync(rootPageId, sourceDir);
-        await MergeUploadPageAsync(spaceKey, rootPageId, sourceDir, moveToParentId, analyzer, report);
+        var moveToParentId = await DetectRootPageMoveAsync(rootPageId, sourceDir, ct);
+        await MergeUploadPageAsync(spaceKey, rootPageId, sourceDir, moveToParentId, analyzer, report, ct);
 
         if (recursive)
         {
             await Parallel.ForEachAsync(
                 LocalStorageHelper.GetPageSubdirectories(sourceDir),
-                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
-                async (childDir, _) => await ProcessChildForMerge(spaceKey, childDir, rootPageId, analyzer, report));
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
+                async (childDir, _) => await ProcessChildForMerge(spaceKey, childDir, rootPageId, analyzer, report, ct));
         }
 
         _logger.LogInformation(
@@ -93,7 +93,7 @@ public class UploadService
 
     // ── upload create (unchanged) ─────────────────────────────────────
 
-    public async Task UploadCreateAsync(string spaceKey, string sourceDir, string? parentId, string? parentTitle, bool recursive)
+    public async Task UploadCreateAsync(string spaceKey, string sourceDir, string? parentId, string? parentTitle, bool recursive, CancellationToken ct = default)
     {
         var started = Stopwatch.GetTimestamp();
         try
@@ -103,22 +103,22 @@ public class UploadService
             string? resolvedParentId = null;
             if (!string.IsNullOrEmpty(parentId) || !string.IsNullOrEmpty(parentTitle))
             {
-                resolvedParentId = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, parentId, parentTitle);
+                resolvedParentId = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, parentId, parentTitle, ct);
                 if (resolvedParentId == null)
                     throw new InvalidOperationException(
                         $"Parent page not found. ID: '{parentId}', Title: '{parentTitle}'");
             }
 
-            var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, sourceDir, resolvedParentId);
+            var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, sourceDir, resolvedParentId, ct);
             if (createResult == null) return;
-            await UpdatePageIdMarker(sourceDir, createResult.Id, createResult.VersionNumber, effectiveTitle);
+            await UpdatePageIdMarker(sourceDir, createResult.Id, createResult.VersionNumber, effectiveTitle, ct);
 
             if (recursive)
             {
                 await Parallel.ForEachAsync(
                     LocalStorageHelper.GetPageSubdirectories(sourceDir),
-                    new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
-                    async (childDir, _) => await ProcessChildForCreate(spaceKey, childDir, createResult.Id));
+                    new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
+                    async (childDir, _) => await ProcessChildForCreate(spaceKey, childDir, createResult.Id, ct));
             }
         }
         finally
@@ -131,7 +131,7 @@ public class UploadService
 
     // ── update internals ──────────────────────────────────────────────
 
-    private async Task<string?> DetectRootPageMoveAsync(string rootPageId, string sourceDir)
+    private async Task<string?> DetectRootPageMoveAsync(string rootPageId, string sourceDir, CancellationToken ct)
     {
         var parentDir = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(sourceDir));
         if (string.IsNullOrEmpty(parentDir))
@@ -141,7 +141,7 @@ public class UploadService
         if (localParentPageId == null)
             return null;
 
-        var rootPage = await _apiClient.GetPageByIdAsync(rootPageId);
+        var rootPage = await _apiClient.GetPageByIdAsync(rootPageId, ct);
         if (string.Equals(rootPage.ParentId, localParentPageId, StringComparison.OrdinalIgnoreCase))
             return null;
 
@@ -152,11 +152,11 @@ public class UploadService
     }
 
     private async Task<(string PageId, bool ResolvedByTitle)> ResolveRootPageForUpdate(
-        string spaceKey, string sourceDir, string? explicitPageId, string? explicitPageTitle)
+        string spaceKey, string sourceDir, string? explicitPageId, string? explicitPageTitle, CancellationToken ct)
     {
         if (!string.IsNullOrEmpty(explicitPageId))
         {
-            var page = await _apiClient.TryGetPageByIdAsync(explicitPageId);
+            var page = await _apiClient.TryGetPageByIdAsync(explicitPageId, ct);
             if (page == null)
                 throw new InvalidOperationException($"Page with ID '{explicitPageId}' not found in Confluence");
             return (page.Id, false);
@@ -164,7 +164,7 @@ public class UploadService
 
         if (!string.IsNullOrEmpty(explicitPageTitle))
         {
-            var foundId = await _apiClient.FindPageByTitleAsync(spaceKey, null, explicitPageTitle);
+            var foundId = await _apiClient.FindPageByTitleAsync(spaceKey, null, explicitPageTitle, ct);
             if (foundId == null)
                 throw new InvalidOperationException($"Page with title '{explicitPageTitle}' not found in space '{spaceKey}'");
             return (foundId, true);
@@ -173,14 +173,14 @@ public class UploadService
         var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(sourceDir);
         if (markerPageId != null)
         {
-            var page = await _apiClient.TryGetPageByIdAsync(markerPageId);
+            var page = await _apiClient.TryGetPageByIdAsync(markerPageId, ct);
             if (page != null)
                 return (page.Id, false);
             _logger.LogWarning("Page with ID '{PageId}' from .id marker not found, falling back to title search", markerPageId);
         }
 
         var folderName = LocalStorageHelper.GetPageTitle(sourceDir);
-        var foundByTitle = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName);
+        var foundByTitle = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName, ct);
         if (foundByTitle != null)
             return (foundByTitle, true);
 
@@ -189,7 +189,7 @@ public class UploadService
             "Specify --page-id or --page-title, or use 'upload create' for new pages.");
     }
 
-    private async Task ProcessChildForUpdate(string spaceKey, string childDir, string parentPageId, SyncReport report)
+    private async Task ProcessChildForUpdate(string spaceKey, string childDir, string parentPageId, SyncReport report, CancellationToken ct)
     {
         var folderName = LocalStorageHelper.GetPageTitle(childDir);
         var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(childDir);
@@ -199,7 +199,7 @@ public class UploadService
 
         if (markerPageId != null)
         {
-            var page = await _apiClient.TryGetPageByIdAsync(markerPageId);
+            var page = await _apiClient.TryGetPageByIdAsync(markerPageId, ct);
             if (page != null)
             {
                 resolvedPageId = page.Id;
@@ -215,14 +215,14 @@ public class UploadService
 
         if (resolvedPageId == null)
         {
-            var foundUnderParent = await _apiClient.FindPageByTitleAsync(spaceKey, parentPageId, folderName);
+            var foundUnderParent = await _apiClient.FindPageByTitleAsync(spaceKey, parentPageId, folderName, ct);
             if (foundUnderParent != null)
             {
                 resolvedPageId = foundUnderParent;
             }
             else
             {
-                var foundGlobally = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName);
+                var foundGlobally = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName, ct);
                 if (foundGlobally != null)
                 {
                     _logger.LogInformation(
@@ -240,26 +240,26 @@ public class UploadService
 
         if (shouldCreate)
         {
-            var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
+            var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId, ct);
             if (createResult == null) return;
             resolvedPageId = createResult.Id;
-            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle);
+            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle, ct);
 
             await Parallel.ForEachAsync(
                 LocalStorageHelper.GetPageSubdirectories(childDir),
-                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
-                async (grandchildDir, _) => await ProcessChildForCreate(spaceKey, grandchildDir, resolvedPageId));
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
+                async (grandchildDir, _) => await ProcessChildForCreate(spaceKey, grandchildDir, resolvedPageId, ct));
         }
         else
         {
-            var (updateResult, effectiveTitle) = await UpdatePageContentAndAttachments(spaceKey, resolvedPageId!, childDir, moveToParentId);
+            var (updateResult, effectiveTitle) = await UpdatePageContentAndAttachments(spaceKey, resolvedPageId!, childDir, report, moveToParentId, ct);
             if (updateResult != null)
-                await UpdatePageIdMarker(childDir, updateResult.Id, updateResult.VersionNumber, effectiveTitle);
+                await UpdatePageIdMarker(childDir, updateResult.Id, updateResult.VersionNumber, effectiveTitle, ct);
 
             await Parallel.ForEachAsync(
                 LocalStorageHelper.GetPageSubdirectories(childDir),
-                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
-                async (grandchildDir, _) => await ProcessChildForUpdate(spaceKey, grandchildDir, resolvedPageId!, report));
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
+                async (grandchildDir, _) => await ProcessChildForUpdate(spaceKey, grandchildDir, resolvedPageId!, report, ct));
         }
     }
 
@@ -268,10 +268,10 @@ public class UploadService
     private async Task MergeUploadPageAsync(
         string spaceKey, string pageId, string pageDir,
         string? moveToParentId,
-        ChangeSourceAnalyzer analyzer, SyncReport report)
+        ChangeSourceAnalyzer analyzer, SyncReport report, CancellationToken ct)
     {
         var title = LocalStorageHelper.GetPageTitle(pageDir);
-        var localContent = await LocalStorageHelper.ReadPageContent(pageDir);
+        var localContent = await LocalStorageHelper.ReadPageContent(pageDir, ct);
 
         if (_dryRun)
         {
@@ -285,7 +285,7 @@ public class UploadService
             return;
         }
 
-        var serverPage = await _apiClient.GetPageByIdAsync(pageId);
+        var serverPage = await _apiClient.GetPageByIdAsync(pageId, ct);
 
         if (LocalStorageHelper.ReadOriginalTitle(pageDir) == null
             && string.Equals(LocalStorageHelper.SanitizeFileName(serverPage.Title), title, StringComparison.OrdinalIgnoreCase))
@@ -300,7 +300,7 @@ public class UploadService
         if (!contentChanged && !titleChanged && !parentChanged)
         {
             _logger.LogDebug("Page {PageId} '{Title}' is unchanged, skipping merge-upload", pageId, title);
-            await UpdatePageIdMarker(pageDir, pageId, serverPage.Version?.Number, title);
+            await UpdatePageIdMarker(pageDir, pageId, serverPage.Version?.Number, title, ct);
             return;
         }
 
@@ -314,11 +314,15 @@ public class UploadService
             _logger.LogInformation(
                 "Page '{Title}' was moved locally (parent: {OldParent} -> {NewParent}); applying move on the server",
                 title, serverPage.ParentId, moveToParentId);
-            var moveResult = await _apiClient.UpdatePageAsync(pageId, serverPage.Title, serverPage.Body.Storage.Value, moveToParentId);
-            if (moveResult != null)
+            try
             {
-                await UpdatePageIdMarker(pageDir, moveResult.Id, moveResult.VersionNumber, serverPage.Title);
-                await UploadPageAttachments(pageId, pageDir);
+                var moveResult = await _apiClient.UpdatePageAsync(pageId, serverPage.Title, serverPage.Body.Storage.Value, moveToParentId, ct);
+                await UpdatePageIdMarker(pageDir, moveResult.Id, moveResult.VersionNumber, serverPage.Title, ct);
+                await UploadPageAttachments(pageId, pageDir, ct);
+            }
+            catch (ConfluenceApiException ex)
+            {
+                if (!TryRecordWriteFailure(ex, pageId, title, report)) throw;
             }
             return;
         }
@@ -340,11 +344,15 @@ public class UploadService
                         ? "Page '{Title}' changed locally and was moved, uploading to server with new parent {NewParent}"
                         : "Page '{Title}' changed locally, uploading to server",
                     title, moveToParentId);
-                var result = await _apiClient.UpdatePageAsync(pageId, title, localContent, moveToParentId);
-                if (result != null)
+                try
                 {
-                    await UpdatePageIdMarker(pageDir, result.Id, result.VersionNumber, title);
-                    await UploadPageAttachments(pageId, pageDir);
+                    var result = await _apiClient.UpdatePageAsync(pageId, title, localContent, moveToParentId, ct);
+                    await UpdatePageIdMarker(pageDir, result.Id, result.VersionNumber, title, ct);
+                    await UploadPageAttachments(pageId, pageDir, ct);
+                }
+                catch (ConfluenceApiException ex)
+                {
+                    if (!TryRecordWriteFailure(ex, pageId, title, report)) throw;
                 }
                 break;
 
@@ -387,7 +395,7 @@ public class UploadService
 
     private async Task ProcessChildForMerge(
         string spaceKey, string childDir, string parentPageId,
-        ChangeSourceAnalyzer analyzer, SyncReport report)
+        ChangeSourceAnalyzer analyzer, SyncReport report, CancellationToken ct)
     {
         var folderName = LocalStorageHelper.GetPageTitle(childDir);
         var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(childDir);
@@ -396,7 +404,7 @@ public class UploadService
 
         if (markerPageId != null)
         {
-            var page = await _apiClient.TryGetPageByIdAsync(markerPageId);
+            var page = await _apiClient.TryGetPageByIdAsync(markerPageId, ct);
             if (page != null)
             {
                 resolvedPageId = page.Id;
@@ -412,14 +420,14 @@ public class UploadService
 
         if (resolvedPageId == null)
         {
-            var foundUnderParent = await _apiClient.FindPageByTitleAsync(spaceKey, parentPageId, folderName);
+            var foundUnderParent = await _apiClient.FindPageByTitleAsync(spaceKey, parentPageId, folderName, ct);
             if (foundUnderParent != null)
             {
                 resolvedPageId = foundUnderParent;
             }
             else
             {
-                var foundGlobally = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName);
+                var foundGlobally = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName, ct);
                 if (foundGlobally != null)
                 {
                     _logger.LogInformation(
@@ -433,47 +441,47 @@ public class UploadService
 
         if (resolvedPageId == null)
         {
-            var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
+            var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId, ct);
             if (createResult == null) return;
             resolvedPageId = createResult.Id;
-            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle);
+            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle, ct);
 
             await Parallel.ForEachAsync(
                 LocalStorageHelper.GetPageSubdirectories(childDir),
-                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
-                async (grandchildDir, _) => await ProcessChildForCreate(spaceKey, grandchildDir, resolvedPageId));
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
+                async (grandchildDir, _) => await ProcessChildForCreate(spaceKey, grandchildDir, resolvedPageId, ct));
         }
         else
         {
-            await MergeUploadPageAsync(spaceKey, resolvedPageId, childDir, moveToParentId, analyzer, report);
+            await MergeUploadPageAsync(spaceKey, resolvedPageId, childDir, moveToParentId, analyzer, report, ct);
 
             await Parallel.ForEachAsync(
                 LocalStorageHelper.GetPageSubdirectories(childDir),
-                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
-                async (grandchildDir, _) => await ProcessChildForMerge(spaceKey, grandchildDir, resolvedPageId, analyzer, report));
+                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
+                async (grandchildDir, _) => await ProcessChildForMerge(spaceKey, grandchildDir, resolvedPageId, analyzer, report, ct));
         }
     }
 
     // ── create internals ──────────────────────────────────────────────
 
-    private async Task ProcessChildForCreate(string spaceKey, string childDir, string? parentPageId)
+    private async Task ProcessChildForCreate(string spaceKey, string childDir, string? parentPageId, CancellationToken ct)
     {
-        var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId);
+        var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId, ct);
         if (createResult == null) return;
-        await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle);
+        await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle, ct);
 
         await Parallel.ForEachAsync(
             LocalStorageHelper.GetPageSubdirectories(childDir),
-            new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
-            async (grandchildDir, _) => await ProcessChildForCreate(spaceKey, grandchildDir, createResult.Id));
+            new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
+            async (grandchildDir, _) => await ProcessChildForCreate(spaceKey, grandchildDir, createResult.Id, ct));
     }
 
-    private async Task<(PageUpdateResult? Result, string? Title)> CreatePageFromDirectory(string spaceKey, string pageDir, string? parentId)
+    private async Task<(PageUpdateResult? Result, string? Title)> CreatePageFromDirectory(string spaceKey, string pageDir, string? parentId, CancellationToken ct)
     {
         var title = LocalStorageHelper.GetPageTitle(pageDir);
-        var content = await LocalStorageHelper.ReadPageContent(pageDir);
+        var content = await LocalStorageHelper.ReadPageContent(pageDir, ct);
 
-        var existingId = await _apiClient.FindPageByTitleAsync(spaceKey, null, title);
+        var existingId = await _apiClient.FindPageByTitleAsync(spaceKey, null, title, ct);
         if (existingId != null)
         {
             _logger.LogError("Cannot create page '{Title}': a page with this title already exists (ID: {ExistingId})", title, existingId);
@@ -487,25 +495,32 @@ public class UploadService
             return (new PageUpdateResult($"dry-run-{title}", 1), title);
         }
 
-        var result = await _apiClient.CreatePageAsync(spaceKey, parentId, title, content);
-        if (result == null)
+        PageUpdateResult result;
+        try
         {
-            _logger.LogError("Failed to create page '{Title}'", title);
+            result = await _apiClient.CreatePageAsync(spaceKey, parentId, title, content, ct);
+        }
+        catch (ConfluenceApiException ex) when (!ex.IsAuthFailure)
+        {
+            // Non-auth create failures stay non-fatal (logged, page skipped),
+            // matching the pre-exception behaviour; auth failures propagate to
+            // abort the run.
+            _logger.LogError(ex, "Failed to create page '{Title}'", title);
             return (null, null);
         }
 
         _logger.LogInformation("Created page '{Title}' with ID {PageId}", title, result.Id);
-        await UploadPageAttachments(result.Id, pageDir);
+        await UploadPageAttachments(result.Id, pageDir, ct);
         return (result, title);
     }
 
     // ── shared: page content update ───────────────────────────────────
 
     private async Task<(PageUpdateResult? Result, string? Title)> UpdatePageContentAndAttachments(
-        string spaceKey, string pageId, string pageDir, string? moveToParentId = null)
+        string spaceKey, string pageId, string pageDir, SyncReport report, string? moveToParentId = null, CancellationToken ct = default)
     {
         var title = LocalStorageHelper.GetPageTitle(pageDir);
-        var localContent = await LocalStorageHelper.ReadPageContent(pageDir);
+        var localContent = await LocalStorageHelper.ReadPageContent(pageDir, ct);
 
         if (_dryRun)
         {
@@ -514,7 +529,7 @@ public class UploadService
             else
                 _logger.LogInformation("DRY RUN: Would update page {PageId} with title '{Title}'", pageId, title);
 
-            var existingByTitle = await _apiClient.FindPageByTitleAsync(spaceKey, null, title);
+            var existingByTitle = await _apiClient.FindPageByTitleAsync(spaceKey, null, title, ct);
             if (existingByTitle != null && existingByTitle != pageId)
                 _logger.LogWarning("DRY RUN: Renaming page {PageId} to '{Title}' would conflict with existing page {ConflictId}",
                     pageId, title, existingByTitle);
@@ -523,7 +538,7 @@ public class UploadService
             return (null, null);
         }
 
-        var serverPage = await _apiClient.GetPageByIdAsync(pageId);
+        var serverPage = await _apiClient.GetPageByIdAsync(pageId, ct);
 
         if (LocalStorageHelper.ReadOriginalTitle(pageDir) == null
             && string.Equals(LocalStorageHelper.SanitizeFileName(serverPage.Title), title, StringComparison.OrdinalIgnoreCase))
@@ -548,10 +563,14 @@ public class UploadService
         _logger.LogDebug("Page {PageId} changes detected: title={TitleChanged}, content={ContentChanged}, parent={ParentChanged}",
             pageId, titleChanged, contentChanged, parentChanged);
 
-        var result = await _apiClient.UpdatePageAsync(pageId, title, localContent, moveToParentId);
-        if (result == null)
+        PageUpdateResult result;
+        try
         {
-            _logger.LogError("Failed to update page {PageId} with title '{Title}'", pageId, title);
+            result = await _apiClient.UpdatePageAsync(pageId, title, localContent, moveToParentId, ct);
+        }
+        catch (ConfluenceApiException ex)
+        {
+            if (!TryRecordWriteFailure(ex, pageId, title, report)) throw;
             return (null, null);
         }
 
@@ -559,22 +578,22 @@ public class UploadService
             _logger.LogInformation("Moved and updated page {PageId} with title '{Title}' to parent {NewParent}", pageId, title, moveToParentId);
         else
             _logger.LogInformation("Updated page {PageId} with title '{Title}'", pageId, title);
-        await UploadPageAttachments(pageId, pageDir);
+        await UploadPageAttachments(pageId, pageDir, ct);
         return (result, title);
     }
 
     // ── shared: attachments ───────────────────────────────────────────
 
-    private async Task UploadPageAttachments(string pageId, string pageDir)
+    private async Task UploadPageAttachments(string pageId, string pageDir, CancellationToken ct)
     {
         var files = LocalStorageHelper.GetAttachmentFiles(pageDir).ToList();
         if (files.Count == 0) return;
 
-        var existingAttachments = await _apiClient.GetAttachmentsAsync(pageId);
+        var existingAttachments = await _apiClient.GetAttachmentsAsync(pageId, ct);
 
         await Parallel.ForEachAsync(
             files,
-            new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism },
+            new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
             async (file, _) =>
             {
                 var fileName = Path.GetFileName(file);
@@ -583,27 +602,27 @@ public class UploadService
 
                 if (existing != null)
                 {
-                    bool changed = await IsAttachmentChangedAsync(file, existing);
+                    bool changed = await IsAttachmentChangedAsync(file, existing, ct);
                     if (!changed)
                     {
                         _logger.LogDebug("Attachment '{FileName}' on page {PageId} is unchanged, skipping", fileName, pageId);
                         return;
                     }
 
-                    var updated = await _apiClient.UpdateAttachmentDataAsync(pageId, existing.Id, file, fileName);
+                    var updated = await _apiClient.UpdateAttachmentDataAsync(pageId, existing.Id, file, fileName, ct);
                     if (updated)
                         _logger.LogInformation("Updated attachment '{FileName}' (new version) on page {PageId}", fileName, pageId);
                 }
                 else
                 {
-                    var uploaded = await _apiClient.UploadAttachmentAsync(pageId, file, fileName);
+                    var uploaded = await _apiClient.UploadAttachmentAsync(pageId, file, fileName, ct);
                     if (uploaded)
                         _logger.LogInformation("Uploaded new attachment '{FileName}' to page {PageId}", fileName, pageId);
                 }
             });
     }
 
-    private async Task<bool> IsAttachmentChangedAsync(string localFilePath, AttachmentData serverAttachment)
+    private async Task<bool> IsAttachmentChangedAsync(string localFilePath, AttachmentData serverAttachment, CancellationToken ct)
     {
         var localFileInfo = new FileInfo(localFilePath);
         if (!localFileInfo.Exists)
@@ -617,10 +636,10 @@ public class UploadService
             return true;
         }
 
-        var remoteContent = await _apiClient.DownloadAttachmentAsync(serverAttachment.Links.DownloadUrl);
+        var remoteContent = await _apiClient.DownloadAttachmentAsync(serverAttachment.Links.DownloadUrl, ct);
 
         var started = Stopwatch.GetTimestamp();
-        var localHash = await ComputeFileHashAsync(localFilePath);
+        var localHash = await ComputeFileHashAsync(localFilePath, ct);
         var remoteHash = ComputeHash(remoteContent);
         var elapsedMs = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 
@@ -635,15 +654,44 @@ public class UploadService
         return differs;
     }
 
-    private static async Task<byte[]> ComputeFileHashAsync(string filePath)
+    private static async Task<byte[]> ComputeFileHashAsync(string filePath, CancellationToken ct)
     {
         await using var stream = File.OpenRead(filePath);
-        return await SHA256.HashDataAsync(stream);
+        return await SHA256.HashDataAsync(stream, ct);
     }
 
     private static byte[] ComputeHash(byte[] data) => SHA256.HashData(data);
 
     // ── shared: utilities ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Translates a write-path <see cref="ConfluenceApiException"/> into a
+    /// per-page report entry so one rejected page doesn't abort the whole
+    /// (often recursive, parallel) upload. Returns <c>false</c> for auth
+    /// failures (401/403), signalling the caller to rethrow — bad/insufficient
+    /// credentials are global and the run should stop rather than keep trying.
+    /// </summary>
+    private bool TryRecordWriteFailure(ConfluenceApiException ex, string pageId, string title, SyncReport report)
+    {
+        if (ex.IsAuthFailure)
+            return false;
+
+        if (ex is ConfluenceConflictException)
+        {
+            _logger.LogWarning(
+                "CONFLICT: page '{Title}' (ID: {PageId}) was rejected by the server with 409 during upload", title, pageId);
+            report.AddConflict(pageId, title,
+                $"Версионный конфликт при загрузке на сервер: {ex.Message}. "
+                + "Выполните 'download merge' для синхронизации серверных правок, при необходимости повторите перемещение и затем 'upload merge'.");
+        }
+        else
+        {
+            _logger.LogError(ex, "Failed to upload page '{Title}' (ID: {PageId})", title, pageId);
+            report.AddSkipped(pageId, title, $"Не удалось загрузить страницу на сервер: {ex.Message}");
+        }
+
+        return true;
+    }
 
     private void LogDryRunAttachments(string pageDir)
     {
@@ -651,7 +699,7 @@ public class UploadService
             _logger.LogInformation("DRY RUN: Would upload attachment '{FileName}'", Path.GetFileName(file));
     }
 
-    private async Task UpdatePageIdMarker(string pageDir, string pageId, int? version, string? originalTitle = null)
+    private async Task UpdatePageIdMarker(string pageDir, string pageId, int? version, string? originalTitle = null, CancellationToken ct = default)
     {
         if (_dryRun) return;
 
@@ -665,7 +713,7 @@ public class UploadService
             return;
         }
 
-        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version, originalTitle);
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version, originalTitle, ct);
         _logger.LogInformation("Saved page ID marker '.id{PageId}_{Version}' in '{PageDir}'", pageId, version, pageDir);
     }
 }

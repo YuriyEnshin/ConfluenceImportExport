@@ -1,9 +1,8 @@
-using System.Net.Http.Headers;
+using System.Net;
 using System.Text;
 using System.Web;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-using ConfluencePageExporter.Infrastructure;
 using ConfluencePageExporter.Models;
 
 namespace ConfluencePageExporter.Services;
@@ -26,67 +25,28 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
     }
 
-    public HttpClientConfluenceApiClient(string baseUrl, string username, string authSecret, ILogger<HttpClientConfluenceApiClient> logger, string authType = "onprem")
-        : this(baseUrl, BuildResilientHttpClient(logger), logger)
-    {
-        // Basic Auth works the same for both on-prem and cloud.
-        var credentials = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{username}:{authSecret}"));
-        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
-    }
-
-    /// <summary>
-    /// Builds an <see cref="HttpClient"/> with two layers of resilience:
-    /// (1) <see cref="SocketsHttpHandler"/> with a bounded connection lifetime,
-    /// so stale TCP sockets after a network blip are evicted within two
-    /// minutes; and (2) a <see cref="RetryingHttpHandler"/> that absorbs
-    /// transient failures (HttpRequestException with no status, IOException,
-    /// 502/503/504/408/429) on idempotent verbs with exponential backoff.
-    /// Combined, these mean a typical VPN reconnect is invisible to the agent
-    /// — the first call after restoration succeeds on retry instead of
-    /// returning NETWORK_ERROR.
-    /// </summary>
-    /// <remarks>
-    /// Handler chain (outermost to innermost):
-    /// <code>HttpClient → RetryingHttpHandler → HttpTimingHandler → SocketsHttpHandler</code>
-    /// Timing sits inside Retry so each individual attempt is logged
-    /// separately; Retry sits outside Timing so it sees the timing-decorated
-    /// response/exception and can decide whether to retry the whole call.
-    /// </remarks>
-    private static HttpClient BuildResilientHttpClient(ILogger logger)
-    {
-        var sockets = new SocketsHttpHandler
-        {
-            PooledConnectionLifetime  = TimeSpan.FromMinutes(2),
-            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1),
-            ConnectTimeout            = TimeSpan.FromSeconds(30),
-        };
-        var timing = new HttpTimingHandler(logger, sockets);
-        var retry  = new RetryingHttpHandler(logger, timing);
-        return new HttpClient(retry);
-    }
-
-    public async Task<PageData> GetPageByIdAsync(string pageId)
+    public async Task<PageData> GetPageByIdAsync(string pageId, CancellationToken ct = default)
     {
         var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors,version,childTypes.all";
-        using var response = await _httpClient.GetAsync(url);
+        using var response = await _httpClient.GetAsync(url, ct);
         response.EnsureSuccessStatusCode();
-        var content = await response.Content.ReadAsStringAsync();
+        var content = await response.Content.ReadAsStringAsync(ct);
         return JsonConvert.DeserializeObject<PageData>(content)
             ?? throw new Exception($"Could not deserialize page with ID {pageId}");
     }
 
-    public async Task<PageData?> TryGetPageByIdAsync(string pageId)
+    public async Task<PageData?> TryGetPageByIdAsync(string pageId, CancellationToken ct = default)
     {
         var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors,version,childTypes.all";
-        using var response = await _httpClient.GetAsync(url);
+        using var response = await _httpClient.GetAsync(url, ct);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             return null;
         response.EnsureSuccessStatusCode();
-        var content = await response.Content.ReadAsStringAsync();
+        var content = await response.Content.ReadAsStringAsync(ct);
         return JsonConvert.DeserializeObject<PageData>(content);
     }
 
-    public async Task<List<PageData>> GetChildrenPagesAsync(string parentId)
+    public async Task<List<PageData>> GetChildrenPagesAsync(string parentId, CancellationToken ct = default)
     {
         var pages = new List<PageData>();
         var start = 0;
@@ -95,10 +55,10 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         while (true)
         {
             var url = $"{_baseUrl}/rest/api/content/{parentId}/child/page?limit={limit}&start={start}&expand=body.storage,version,childTypes.all";
-            using var response = await _httpClient.GetAsync(url);
+            using var response = await _httpClient.GetAsync(url, ct);
             response.EnsureSuccessStatusCode();
-            var content = await response.Content.ReadAsStringAsync();
-            var result = JsonConvert.DeserializeObject<ConfluenceResponse<PageData>>(content) 
+            var content = await response.Content.ReadAsStringAsync(ct);
+            var result = JsonConvert.DeserializeObject<ConfluenceResponse<PageData>>(content)
                 ?? throw new Exception("Could not deserialize children list");
 
             pages.AddRange(result.Results);
@@ -115,7 +75,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         return pages;
     }
 
-    public async Task<List<AttachmentData>> GetAttachmentsAsync(string pageId)
+    public async Task<List<AttachmentData>> GetAttachmentsAsync(string pageId, CancellationToken ct = default)
     {
         var attachments = new List<AttachmentData>();
         var start = 0;
@@ -124,15 +84,15 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         while (true)
         {
             var url = $"{_baseUrl}/rest/api/content/{pageId}/child/attachment?limit={limit}&start={start}&expand=extensions,version";
-            using var response = await _httpClient.GetAsync(url);
+            using var response = await _httpClient.GetAsync(url, ct);
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Failed to fetch attachments for page {PageId}. Status code: {StatusCode}", pageId, response.StatusCode);
                 break;
             }
 
-            var content = await response.Content.ReadAsStringAsync();
-            var result = JsonConvert.DeserializeObject<ConfluenceResponse<AttachmentData>>(content) 
+            var content = await response.Content.ReadAsStringAsync(ct);
+            var result = JsonConvert.DeserializeObject<ConfluenceResponse<AttachmentData>>(content)
                 ?? throw new Exception("Could not deserialize attachments list");
 
             attachments.AddRange(result.Results);
@@ -149,7 +109,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         return attachments;
     }
 
-    public async Task<string?> FindPageByTitleAsync(string spaceKey, string? parentId, string title)
+    public async Task<string?> FindPageByTitleAsync(string spaceKey, string? parentId, string title, CancellationToken ct = default)
     {
         try
         {
@@ -162,21 +122,21 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
             var url = $"{_baseUrl}/rest/api/content/search?cql={Uri.EscapeDataString(cqlQuery)}&limit=10";
             _logger.LogDebug("Searching for page with CQL query: {CqlQuery}", cqlQuery);
             _logger.LogDebug("URL: {Url}", url);
-            
-            using var response = await _httpClient.GetAsync(url);
-            
+
+            using var response = await _httpClient.GetAsync(url, ct);
+
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Failed to search for existing page with title '{Title}'. Status code: {StatusCode}", title, response.StatusCode);
-                var errorContent = await response.Content.ReadAsStringAsync();
+                var errorContent = await response.Content.ReadAsStringAsync(ct);
                 _logger.LogDebug("Error response content: {ErrorContent}", errorContent);
                 return null;
             }
 
-            var content = await response.Content.ReadAsStringAsync();
+            var content = await response.Content.ReadAsStringAsync(ct);
             _logger.LogDebug("Search response content: {Content}", content);
-            
-            var result = JsonConvert.DeserializeObject<ConfluenceResponse<PageData>>(content) 
+
+            var result = JsonConvert.DeserializeObject<ConfluenceResponse<PageData>>(content)
                 ?? throw new Exception("Could not deserialize search results");
 
             if (result.Results.Count > 0)
@@ -196,157 +156,159 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         }
     }
 
-    public async Task<PageUpdateResult?> CreatePageAsync(string spaceKey, string? parentId, string title, string content)
+    public async Task<PageUpdateResult> CreatePageAsync(string spaceKey, string? parentId, string title, string content, CancellationToken ct = default)
     {
-        try
-        {
-            object pageData;
+        object pageData;
 
-            if (!string.IsNullOrEmpty(parentId))
+        if (!string.IsNullOrEmpty(parentId))
+        {
+            pageData = new
             {
-                pageData = new
+                type = "page",
+                title = title,
+                space = new { key = spaceKey },
+                body = new
                 {
-                    type = "page",
-                    title = title,
-                    space = new { key = spaceKey },
-                    body = new
+                    storage = new
                     {
-                        storage = new
-                        {
-                            value = content,
-                            representation = "storage"
-                        }
-                    },
-                    ancestors = new[] { new { id = parentId } }
-                };
-            }
-            else
-            {
-                pageData = new
-                {
-                    type = "page",
-                    title = title,
-                    space = new { key = spaceKey },
-                    body = new
-                    {
-                        storage = new
-                        {
-                            value = content,
-                            representation = "storage"
-                        }
+                        value = content,
+                        representation = "storage"
                     }
-                };
-            }
-
-            var json = JsonConvert.SerializeObject(pageData);
-            var stringContent = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var url = $"{_baseUrl}/rest/api/content";
-            using var response = await _httpClient.PostAsync(url, stringContent);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogError("Failed to create page '{Title}'. Status code: {StatusCode}, Error: {Error}", title, response.StatusCode, errorContent);
-                return null;
-            }
-
-            var responseContent = await response.Content.ReadAsStringAsync();
-            var result = JsonConvert.DeserializeObject<PageResponse>(responseContent) 
-                ?? throw new Exception("Could not deserialize page creation response");
-            return new PageUpdateResult(result.Id, result.Version?.Number ?? 1);
+                },
+                ancestors = new[] { new { id = parentId } }
+            };
         }
-        catch (Exception ex)
+        else
         {
-            _logger.LogError(ex, "Error creating page with title {Title}", title);
-            return null;
+            pageData = new
+            {
+                type = "page",
+                title = title,
+                space = new { key = spaceKey },
+                body = new
+                {
+                    storage = new
+                    {
+                        value = content,
+                        representation = "storage"
+                    }
+                }
+            };
         }
+
+        var json = JsonConvert.SerializeObject(pageData);
+        var stringContent = new StringContent(json, Encoding.UTF8, "application/json");
+
+        var url = $"{_baseUrl}/rest/api/content";
+        using var response = await _httpClient.PostAsync(url, stringContent, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogError("Failed to create page '{Title}'. Status code: {StatusCode}, Error: {Error}", title, response.StatusCode, errorContent);
+            throw ApiException(response.StatusCode, errorContent, $"Failed to create page '{title}'");
+        }
+
+        var responseContent = await response.Content.ReadAsStringAsync(ct);
+        var result = JsonConvert.DeserializeObject<PageResponse>(responseContent)
+            ?? throw new InvalidOperationException("Could not deserialize page creation response");
+        return new PageUpdateResult(result.Id, result.Version?.Number ?? 1);
     }
 
-    public async Task<PageUpdateResult?> UpdatePageAsync(string pageId, string title, string content, string? parentId)
+    public async Task<PageUpdateResult> UpdatePageAsync(string pageId, string title, string content, string? parentId, CancellationToken ct = default)
+    {
+        var getPageUrl = $"{_baseUrl}/rest/api/content/{pageId}?expand=version";
+        using var getResponse = await _httpClient.GetAsync(getPageUrl, ct);
+        getResponse.EnsureSuccessStatusCode();
+        var getPageContent = await getResponse.Content.ReadAsStringAsync(ct);
+        var currentPage = JsonConvert.DeserializeObject<PageResponse>(getPageContent)
+            ?? throw new InvalidOperationException("Could not deserialize current page");
+
+        var version = currentPage.Version?.Number ?? 1;
+        version++;
+
+        object pageData;
+
+        if (!string.IsNullOrEmpty(parentId))
+        {
+            pageData = new
+            {
+                id = pageId,
+                type = "page",
+                title = title,
+                body = new
+                {
+                    storage = new
+                    {
+                        value = content,
+                        representation = "storage"
+                    }
+                },
+                ancestors = new[] { new { id = parentId } },
+                version = new { number = version }
+            };
+        }
+        else
+        {
+            pageData = new
+            {
+                id = pageId,
+                type = "page",
+                title = title,
+                body = new
+                {
+                    storage = new
+                    {
+                        value = content,
+                        representation = "storage"
+                    }
+                },
+                version = new { number = version }
+            };
+        }
+
+        var json = JsonConvert.SerializeObject(pageData);
+        var stringContent = new StringContent(json, Encoding.UTF8, "application/json");
+
+        var url = $"{_baseUrl}/rest/api/content/{pageId}";
+        using var response = await _httpClient.PutAsync(url, stringContent, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogError("Failed to update page '{Title}' (ID: {PageId}). Status code: {StatusCode}, Error: {Error}", title, pageId, response.StatusCode, errorContent);
+            throw ApiException(response.StatusCode, errorContent, $"Failed to update page '{title}' (ID: {pageId})");
+        }
+
+        var responseContent = await response.Content.ReadAsStringAsync(ct);
+        var result = JsonConvert.DeserializeObject<PageResponse>(responseContent)
+            ?? throw new InvalidOperationException("Could not deserialize page update response");
+        return new PageUpdateResult(result.Id, result.Version?.Number ?? version);
+    }
+
+    /// <summary>
+    /// Builds a typed exception from a failed write response: 409 becomes a
+    /// <see cref="ConfluenceConflictException"/> (recoverable per-page), every
+    /// other status a <see cref="ConfluenceApiException"/> carrying the code
+    /// and a trimmed response body for diagnostics.
+    /// </summary>
+    private static ConfluenceApiException ApiException(HttpStatusCode status, string responseBody, string context)
+    {
+        var trimmed = responseBody?.Trim() ?? string.Empty;
+        var snippet = trimmed.Length == 0
+            ? string.Empty
+            : " — " + (trimmed.Length > 500 ? trimmed[..500] + "…" : trimmed);
+        var message = $"{context}: HTTP {(int)status} {status}{snippet}";
+        return status == HttpStatusCode.Conflict
+            ? new ConfluenceConflictException(message, responseBody)
+            : new ConfluenceApiException(status, message, responseBody);
+    }
+
+    public async Task<bool> UploadAttachmentAsync(string pageId, string filePath, string fileName, CancellationToken ct = default)
     {
         try
         {
-            var getPageUrl = $"{_baseUrl}/rest/api/content/{pageId}?expand=version";
-            using var getResponse = await _httpClient.GetAsync(getPageUrl);
-            getResponse.EnsureSuccessStatusCode();
-            var getPageContent = await getResponse.Content.ReadAsStringAsync();
-            var currentPage = JsonConvert.DeserializeObject<PageResponse>(getPageContent) 
-                ?? throw new Exception("Could not deserialize current page");
-
-            var version = currentPage.Version?.Number ?? 1;
-            version++;
-
-            object pageData;
-
-            if (!string.IsNullOrEmpty(parentId))
-            {
-                pageData = new
-                {
-                    id = pageId,
-                    type = "page",
-                    title = title,
-                    body = new
-                    {
-                        storage = new
-                        {
-                            value = content,
-                            representation = "storage"
-                        }
-                    },
-                    ancestors = new[] { new { id = parentId } },
-                    version = new { number = version }
-                };
-            }
-            else
-            {
-                pageData = new
-                {
-                    id = pageId,
-                    type = "page",
-                    title = title,
-                    body = new
-                    {
-                        storage = new
-                        {
-                            value = content,
-                            representation = "storage"
-                        }
-                    },
-                    version = new { number = version }
-                };
-            }
-
-            var json = JsonConvert.SerializeObject(pageData);
-            var stringContent = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var url = $"{_baseUrl}/rest/api/content/{pageId}";
-            using var response = await _httpClient.PutAsync(url, stringContent);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogError("Failed to update page '{Title}' (ID: {PageId}). Status code: {StatusCode}, Error: {Error}", title, pageId, response.StatusCode, errorContent);
-                return null;
-            }
-
-            var responseContent = await response.Content.ReadAsStringAsync();
-            var result = JsonConvert.DeserializeObject<PageResponse>(responseContent) 
-                ?? throw new Exception("Could not deserialize page update response");
-            return new PageUpdateResult(result.Id, result.Version?.Number ?? version);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating page with ID {PageId} and title {Title}", pageId, title);
-            return null;
-        }
-    }
-
-    public async Task<bool> UploadAttachmentAsync(string pageId, string filePath, string fileName)
-    {
-        try
-        {
-            var fileContent = await File.ReadAllBytesAsync(filePath);
+            var fileContent = await File.ReadAllBytesAsync(filePath, ct);
             using var content = new MultipartFormDataContent();
 
             var fileContentPart = new ByteArrayContent(fileContent);
@@ -356,11 +318,11 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
             using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
             request.Headers.Add("X-Atlassian-Token", "nocheck");
 
-            using var response = await _httpClient.SendAsync(request);
+            using var response = await _httpClient.SendAsync(request, ct);
 
             if (!response.IsSuccessStatusCode)
             {
-                var errorContent = await response.Content.ReadAsStringAsync();
+                var errorContent = await response.Content.ReadAsStringAsync(ct);
                 _logger.LogWarning("Failed to upload attachment '{FileName}' to page {PageId}. Status code: {StatusCode}, Error: {Error}", fileName, pageId, response.StatusCode, errorContent);
                 return false;
             }
@@ -374,11 +336,11 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         }
     }
 
-    public async Task<bool> UpdateAttachmentDataAsync(string pageId, string attachmentId, string filePath, string fileName)
+    public async Task<bool> UpdateAttachmentDataAsync(string pageId, string attachmentId, string filePath, string fileName, CancellationToken ct = default)
     {
         try
         {
-            var fileContent = await File.ReadAllBytesAsync(filePath);
+            var fileContent = await File.ReadAllBytesAsync(filePath, ct);
             using var content = new MultipartFormDataContent();
 
             var fileContentPart = new ByteArrayContent(fileContent);
@@ -390,11 +352,11 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
             using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
             request.Headers.Add("X-Atlassian-Token", "nocheck");
 
-            using var response = await _httpClient.SendAsync(request);
+            using var response = await _httpClient.SendAsync(request, ct);
 
             if (!response.IsSuccessStatusCode)
             {
-                var errorContent = await response.Content.ReadAsStringAsync();
+                var errorContent = await response.Content.ReadAsStringAsync(ct);
                 _logger.LogWarning(
                     "Failed to update attachment '{FileName}' (ID: {AttachmentId}) on page {PageId}. Status code: {StatusCode}, Error: {Error}",
                     fileName, attachmentId, pageId, response.StatusCode, errorContent);
@@ -410,7 +372,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         }
     }
 
-    public async Task<bool> DeleteAttachmentAsync(string pageId, string attachmentId)
+    public async Task<bool> DeleteAttachmentAsync(string pageId, string attachmentId, CancellationToken ct = default)
     {
         try
         {
@@ -418,11 +380,11 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
             using var request = new HttpRequestMessage(HttpMethod.Delete, url);
             request.Headers.Add("X-Atlassian-Token", "nocheck");
 
-            using var response = await _httpClient.SendAsync(request);
+            using var response = await _httpClient.SendAsync(request, ct);
 
             if (!response.IsSuccessStatusCode)
             {
-                var errorContent = await response.Content.ReadAsStringAsync();
+                var errorContent = await response.Content.ReadAsStringAsync(ct);
                 _logger.LogWarning("Failed to delete attachment {AttachmentId} from page {PageId}. Status code: {StatusCode}, Error: {Error}", attachmentId, pageId, response.StatusCode, errorContent);
                 return false;
             }
@@ -437,22 +399,22 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         }
     }
 
-    public async Task<byte[]> DownloadAttachmentAsync(string downloadUrl)
+    public async Task<byte[]> DownloadAttachmentAsync(string downloadUrl, CancellationToken ct = default)
     {
         var fullUrl = downloadUrl.StartsWith("http") ? downloadUrl : $"{_baseUrl}{downloadUrl}";
-        using var response = await _httpClient.GetAsync(fullUrl);
+        using var response = await _httpClient.GetAsync(fullUrl, ct);
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsByteArrayAsync();
+        return await response.Content.ReadAsByteArrayAsync(ct);
     }
 
-    public async Task<List<PageVersionSummary>> GetPageVersionsAsync(string pageId, int limit = 10)
+    public async Task<List<PageVersionSummary>> GetPageVersionsAsync(string pageId, int limit = 10, CancellationToken ct = default)
     {
         try
         {
             var url = $"{_baseUrl}/rest/experimental/content/{pageId}/version?limit={limit}";
             _logger.LogDebug("Fetching version history for page {PageId}: {Url}", pageId, url);
 
-            using var response = await _httpClient.GetAsync(url);
+            using var response = await _httpClient.GetAsync(url, ct);
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
@@ -461,7 +423,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
                 return [];
             }
 
-            var content = await response.Content.ReadAsStringAsync();
+            var content = await response.Content.ReadAsStringAsync(ct);
             var result = JsonConvert.DeserializeObject<ConfluenceResponse<PageVersionSummary>>(content);
             return result?.Results ?? [];
         }
@@ -472,14 +434,14 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         }
     }
 
-    public async Task<PageData?> GetPageAtVersionAsync(string pageId, int versionNumber)
+    public async Task<PageData?> GetPageAtVersionAsync(string pageId, int versionNumber, CancellationToken ct = default)
     {
         try
         {
             var url = $"{_baseUrl}/rest/api/content/{pageId}?status=historical&version={versionNumber}&expand=ancestors,version";
             _logger.LogDebug("Fetching page {PageId} at version {Version}: {Url}", pageId, versionNumber, url);
 
-            using var response = await _httpClient.GetAsync(url);
+            using var response = await _httpClient.GetAsync(url, ct);
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
@@ -488,7 +450,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
                 return null;
             }
 
-            var content = await response.Content.ReadAsStringAsync();
+            var content = await response.Content.ReadAsStringAsync(ct);
             return JsonConvert.DeserializeObject<PageData>(content);
         }
         catch (Exception ex)
@@ -498,7 +460,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         }
     }
 
-    public async Task<PageData> GetPageContentAtVersionAsync(string pageId, int versionNumber)
+    public async Task<PageData> GetPageContentAtVersionAsync(string pageId, int versionNumber, CancellationToken ct = default)
     {
         // Same endpoint as GetPageAtVersionAsync, but with body.storage in
         // the expand list. Unlike GetPageAtVersionAsync we surface failures
@@ -507,14 +469,14 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         // failure (404 = version doesn't exist, 401 = lost auth, etc.) is
         // an actionable user-visible error rather than tolerable noise.
         var url = $"{_baseUrl}/rest/api/content/{pageId}?status=historical&version={versionNumber}&expand=body.storage,version";
-        using var response = await _httpClient.GetAsync(url);
+        using var response = await _httpClient.GetAsync(url, ct);
         response.EnsureSuccessStatusCode();
-        var content = await response.Content.ReadAsStringAsync();
+        var content = await response.Content.ReadAsStringAsync(ct);
         return JsonConvert.DeserializeObject<PageData>(content)
             ?? throw new InvalidOperationException($"Could not deserialize page {pageId} at version {versionNumber}.");
     }
 
-    public async Task<ConfluenceUser> GetCurrentUserAsync()
+    public async Task<ConfluenceUser> GetCurrentUserAsync(CancellationToken ct = default)
     {
         // /rest/api/user/current is the canonical lightweight ping for
         // Confluence: it verifies both connectivity and credentials in a
@@ -522,15 +484,11 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         // (cloud requires the /wiki prefix in the base URL, which the
         // operator already configures via Global:BaseUrl).
         var url = $"{_baseUrl}/rest/api/user/current";
-        using var response = await _httpClient.GetAsync(url);
+        using var response = await _httpClient.GetAsync(url, ct);
         response.EnsureSuccessStatusCode();
-        var content = await response.Content.ReadAsStringAsync();
+        var content = await response.Content.ReadAsStringAsync(ct);
         return JsonConvert.DeserializeObject<ConfluenceUser>(content)
             ?? throw new InvalidOperationException("Confluence returned an empty user payload.");
     }
 
-    public void Dispose()
-    {
-        _httpClient?.Dispose();
-    }
 }

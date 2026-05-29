@@ -70,7 +70,7 @@ public sealed class DownloadMergeCommandHandler : ICommandHandler
             dryRun,
             maxParallelism);
 
-        var report = await service.DownloadMergeAsync(spaceKey, pageId, pageTitle, outputDir, recursive, analyzer);
+        var report = await service.DownloadMergeAsync(spaceKey, pageId, pageTitle, outputDir, recursive, analyzer, ct);
 
         _writer.WriteLine($"Download merge completed. Files saved to: {outputDir}");
         if (showReport)

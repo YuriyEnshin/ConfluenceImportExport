@@ -9,6 +9,31 @@ namespace ConfluencePageExporter.Tests.Services;
 public class DownloadServiceTests
 {
     [Fact]
+    public async Task DownloadUpdateAsync_ShouldPropagateCancellation_ToApiClient()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+
+        // The mock observes the token it is handed and throws if cancelled,
+        // proving the service threads the caller's token into the API call.
+        var api = ApiClientMockFactory.CreateLoose();
+        api.Setup(x => x.GetPageByIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns((string _, CancellationToken token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                return Task.FromResult(ApiClientMockFactory.CreatePage("1", "Root", "<p/>"));
+            });
+
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var act = async () => await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false, cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
     public async Task DownloadUpdateAsync_ShouldDownloadSinglePageAndAttachments()
     {
         using var temp = new TempDirectoryScope();

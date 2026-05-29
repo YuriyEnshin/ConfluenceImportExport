@@ -104,15 +104,47 @@ public class HttpClientConfluenceApiClientTests
     }
 
     [Fact]
-    public async Task CreatePageAsync_ShouldReturnNull_OnFailedRequest()
+    public async Task CreatePageAsync_ShouldThrowApiException_OnFailedRequest()
     {
         var handler = new StubHttpMessageHandler();
         handler.EnqueueResponse(HttpStatusCode.BadRequest, """{"message":"bad"}""");
         var client = CreateClient(handler);
 
-        var result = await client.CreatePageAsync("DOCS", null, "NewPage", "<p>x</p>");
+        var act = async () => await client.CreatePageAsync("DOCS", null, "NewPage", "<p>x</p>");
 
-        result.Should().BeNull();
+        var ex = (await act.Should().ThrowAsync<ConfluenceApiException>()).Which;
+        ex.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        ex.Should().NotBeOfType<ConfluenceConflictException>();
+    }
+
+    [Fact]
+    public async Task UpdatePageAsync_ShouldThrowConflict_On409()
+    {
+        var handler = new StubHttpMessageHandler();
+        // First GET (fetch current version) succeeds; the PUT returns 409.
+        handler.EnqueueResponse(HttpStatusCode.OK, """{"id":"900","title":"Old","version":{"number":3}}""");
+        handler.EnqueueResponse(HttpStatusCode.Conflict, """{"message":"version conflict"}""");
+        var client = CreateClient(handler);
+
+        var act = async () => await client.UpdatePageAsync("900", "New", "<p>new</p>", null);
+
+        var ex = (await act.Should().ThrowAsync<ConfluenceConflictException>()).Which;
+        ex.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task UpdatePageAsync_ShouldThrowApiException_OnForbidden()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.OK, """{"id":"900","title":"Old","version":{"number":3}}""");
+        handler.EnqueueResponse(HttpStatusCode.Forbidden, """{"message":"no permission"}""");
+        var client = CreateClient(handler);
+
+        var act = async () => await client.UpdatePageAsync("900", "New", "<p>new</p>", null);
+
+        var ex = (await act.Should().ThrowAsync<ConfluenceApiException>()).Which;
+        ex.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        ex.IsAuthFailure.Should().BeTrue();
     }
 
     [Fact]
@@ -278,6 +310,20 @@ public class HttpClientConfluenceApiClientTests
         result.Version!.Number.Should().Be(5);
         result.Version.When.Should().NotBeNull();
         handler.Requests[0].RequestUri!.ToString().Should().Contain("expand=body.storage,ancestors,version");
+    }
+
+    [Fact]
+    public async Task GetPageByIdAsync_ShouldThrowOperationCanceled_WhenTokenAlreadyCancelled()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.OK, """{"id":"100","title":"T"}""");
+        var client = CreateClient(handler);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var act = async () => await client.GetPageByIdAsync("100", cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
     private static HttpClientConfluenceApiClient CreateClient(StubHttpMessageHandler handler)

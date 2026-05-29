@@ -68,7 +68,7 @@ public sealed class UploadMergeCommandHandler : ICommandHandler
             dryRun,
             maxParallelism);
 
-        var report = await service.UploadMergeAsync(spaceKey, sourceDir, pageId, pageTitle, recursive, analyzer);
+        var report = await service.UploadMergeAsync(spaceKey, sourceDir, pageId, pageTitle, recursive, analyzer, ct);
 
         _writer.WriteLine("Upload merge completed.");
         if (showReport)

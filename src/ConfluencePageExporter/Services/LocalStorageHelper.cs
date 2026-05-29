@@ -58,7 +58,7 @@ public static class LocalStorageHelper
     }
 
     public static async Task WritePageIdMarkerAsync(
-        string pageDir, string pageId, int? version = null, string? originalTitle = null)
+        string pageDir, string pageId, int? version = null, string? originalTitle = null, CancellationToken ct = default)
     {
         if (!Directory.Exists(pageDir))
             throw new DirectoryNotFoundException($"Page directory does not exist: {pageDir}");
@@ -70,7 +70,7 @@ public static class LocalStorageHelper
 
         var markerName = version.HasValue ? $".id{pageId}_{version.Value}" : $".id{pageId}";
         var markerPath = Path.Combine(pageDir, markerName);
-        await File.WriteAllTextAsync(markerPath, originalTitle ?? string.Empty);
+        await File.WriteAllTextAsync(markerPath, originalTitle ?? string.Empty, ct);
     }
 
     public static string? ReadOriginalTitle(string pageDir)
@@ -110,21 +110,21 @@ public static class LocalStorageHelper
         return folderName;
     }
 
-    public static async Task<string> ReadPageContent(string pageDir)
+    public static async Task<string> ReadPageContent(string pageDir, CancellationToken ct = default)
     {
         var indexPath = Path.Combine(pageDir, "index.html");
         if (!File.Exists(indexPath))
             throw new InvalidOperationException($"No index.html found in '{pageDir}'");
-        return await File.ReadAllTextAsync(indexPath);
+        return await File.ReadAllTextAsync(indexPath, ct);
     }
 
-    public static async Task<string?> ReadLocalPageContentOrNull(string pageDirectory)
+    public static async Task<string?> ReadLocalPageContentOrNull(string pageDirectory, CancellationToken ct = default)
     {
         var indexPath = Path.Combine(pageDirectory, "index.html");
         if (!File.Exists(indexPath))
             return null;
 
-        return await File.ReadAllTextAsync(indexPath);
+        return await File.ReadAllTextAsync(indexPath, ct);
     }
 
     public static IEnumerable<string> GetAttachmentFiles(string pageDir)
@@ -264,13 +264,14 @@ public static class LocalStorageHelper
         IConfluenceApiClient apiClient,
         string spaceKey,
         string? pageId,
-        string? pageTitle)
+        string? pageTitle,
+        CancellationToken ct = default)
     {
         if (!string.IsNullOrEmpty(pageId))
             return pageId;
 
         if (!string.IsNullOrEmpty(pageTitle))
-            return await apiClient.FindPageByTitleAsync(spaceKey, null, pageTitle);
+            return await apiClient.FindPageByTitleAsync(spaceKey, null, pageTitle, ct);
 
         return null;
     }

@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using ConfluencePageExporter.Infrastructure;
+using ConfluencePageExporter.Services;
 
 namespace ConfluencePageExporter.Tools;
 
@@ -69,6 +70,12 @@ public static class McpToolResult
         var code = ex switch
         {
             OutOfSandboxException => "OUT_OF_SANDBOX",
+            // Typed write-path failures (PR-B). Conflict subclass first.
+            ConfluenceConflictException => "VERSION_CONFLICT",
+            ConfluenceApiException cae when cae.IsAuthFailure => "AUTH_FAILED",
+            ConfluenceApiException cae when cae.StatusCode == HttpStatusCode.NotFound => "PAGE_NOT_FOUND",
+            ConfluenceApiException cae when cae.StatusCode == HttpStatusCode.TooManyRequests => "RATE_LIMITED",
+            ConfluenceApiException => "CONFLUENCE_API_ERROR",
             UnauthorizedAccessException => "AUTH_FAILED",
             HttpRequestException hre when hre.StatusCode == HttpStatusCode.Unauthorized => "AUTH_FAILED",
             HttpRequestException hre when hre.StatusCode == HttpStatusCode.Forbidden => "AUTH_FAILED",
