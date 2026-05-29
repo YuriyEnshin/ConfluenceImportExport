@@ -1,10 +1,8 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Web;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-using ConfluencePageExporter.Infrastructure;
 using ConfluencePageExporter.Models;
 
 namespace ConfluencePageExporter.Services;
@@ -25,45 +23,6 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         _baseUrl = baseUrl.EndsWith("/") ? baseUrl[..^1] : baseUrl;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-    }
-
-    public HttpClientConfluenceApiClient(string baseUrl, string username, string authSecret, ILogger<HttpClientConfluenceApiClient> logger, string authType = "onprem")
-        : this(baseUrl, BuildResilientHttpClient(logger), logger)
-    {
-        // Basic Auth works the same for both on-prem and cloud.
-        var credentials = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{username}:{authSecret}"));
-        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
-    }
-
-    /// <summary>
-    /// Builds an <see cref="HttpClient"/> with two layers of resilience:
-    /// (1) <see cref="SocketsHttpHandler"/> with a bounded connection lifetime,
-    /// so stale TCP sockets after a network blip are evicted within two
-    /// minutes; and (2) a <see cref="RetryingHttpHandler"/> that absorbs
-    /// transient failures (HttpRequestException with no status, IOException,
-    /// 502/503/504/408/429) on idempotent verbs with exponential backoff.
-    /// Combined, these mean a typical VPN reconnect is invisible to the agent
-    /// — the first call after restoration succeeds on retry instead of
-    /// returning NETWORK_ERROR.
-    /// </summary>
-    /// <remarks>
-    /// Handler chain (outermost to innermost):
-    /// <code>HttpClient → RetryingHttpHandler → HttpTimingHandler → SocketsHttpHandler</code>
-    /// Timing sits inside Retry so each individual attempt is logged
-    /// separately; Retry sits outside Timing so it sees the timing-decorated
-    /// response/exception and can decide whether to retry the whole call.
-    /// </remarks>
-    private static HttpClient BuildResilientHttpClient(ILogger logger)
-    {
-        var sockets = new SocketsHttpHandler
-        {
-            PooledConnectionLifetime  = TimeSpan.FromMinutes(2),
-            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1),
-            ConnectTimeout            = TimeSpan.FromSeconds(30),
-        };
-        var timing = new HttpTimingHandler(logger, sockets);
-        var retry  = new RetryingHttpHandler(logger, timing);
-        return new HttpClient(retry);
     }
 
     public async Task<PageData> GetPageByIdAsync(string pageId, CancellationToken ct = default)
@@ -532,8 +491,4 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
             ?? throw new InvalidOperationException("Confluence returned an empty user payload.");
     }
 
-    public void Dispose()
-    {
-        _httpClient?.Dispose();
-    }
 }

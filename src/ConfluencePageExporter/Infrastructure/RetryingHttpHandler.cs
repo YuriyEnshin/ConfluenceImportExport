@@ -38,6 +38,19 @@ public sealed class RetryingHttpHandler : DelegatingHandler
         _baseDelay = baseDelay ?? TimeSpan.FromMilliseconds(250);
     }
 
+    /// <summary>
+    /// DI / HttpClientFactory constructor. The factory builds the handler
+    /// pipeline and assigns <see cref="DelegatingHandler.InnerHandler"/>, so no
+    /// inner handler is supplied here. Uses the default retry budget.
+    /// </summary>
+    public RetryingHttpHandler(ILogger<RetryingHttpHandler> logger)
+        : base()
+    {
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _maxAttempts = 3;
+        _baseDelay = TimeSpan.FromMilliseconds(250);
+    }
+
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {

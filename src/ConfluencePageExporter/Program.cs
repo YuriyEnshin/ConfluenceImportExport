@@ -93,19 +93,7 @@ try
         .Bind(builder.Configuration.GetSection("Compare"));
 
     // ── Register services ─────────────────────────────────────────────
-    builder.Services.AddTransient<IConfluenceApiClient>(sp =>
-    {
-        var opts = sp.GetRequiredService<IOptions<GlobalOptions>>().Value;
-        var logger = sp.GetRequiredService<ILogger<HttpClientConfluenceApiClient>>();
-        return new HttpClientConfluenceApiClient(
-            opts.BaseUrl ?? throw new ArgumentException("Missing required parameter: --base-url (or Global:BaseUrl in config)"),
-            opts.Username ?? throw new ArgumentException("Missing required parameter: --username (or Global:Username in config)"),
-            opts.Token ?? throw new ArgumentException("Missing required parameter: --token (or Global:Token in config)"),
-            logger,
-            opts.AuthType ?? "onprem");
-    });
-
-    builder.Services.AddSingleton<IContentNormalizer, XmlContentNormalizer>();
+    builder.Services.AddConfluenceExporterCore();
     builder.Services.AddSingleton<IConsoleWriter, StdConsoleWriter>();
     builder.Services.AddTransient<DownloadUpdateCommandHandler>();
     builder.Services.AddTransient<DownloadMergeCommandHandler>();

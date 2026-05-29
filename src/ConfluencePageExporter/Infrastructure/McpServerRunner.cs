@@ -67,20 +67,8 @@ public static class McpServerRunner
                 .Bind(builder.Configuration.GetSection("Global"));
 
             builder.Services.AddSingleton(mcpOptions);
-            builder.Services.AddSingleton<IContentNormalizer, XmlContentNormalizer>();
             builder.Services.AddSingleton<IPathSandbox>(new PathSandbox(mcpOptions.RootDir));
-
-            builder.Services.AddTransient<IConfluenceApiClient>(sp =>
-            {
-                var opts = sp.GetRequiredService<IOptions<GlobalOptions>>().Value;
-                var logger = sp.GetRequiredService<ILogger<HttpClientConfluenceApiClient>>();
-                return new HttpClientConfluenceApiClient(
-                    opts.BaseUrl ?? throw new ArgumentException("Missing required configuration: Global:BaseUrl"),
-                    opts.Username ?? throw new ArgumentException("Missing required configuration: Global:Username"),
-                    opts.Token ?? throw new ArgumentException("Missing required configuration: Global:Token"),
-                    logger,
-                    opts.AuthType ?? "onprem");
-            });
+            builder.Services.AddConfluenceExporterCore();
 
             // Ship the agent-facing instructions to the client via
             // InitializeResult.Instructions. Most MCP clients (Claude Code,
