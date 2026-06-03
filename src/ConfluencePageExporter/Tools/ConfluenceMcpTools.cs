@@ -127,8 +127,9 @@ public sealed class ConfluenceMcpTools
         CancellationToken cancellationToken = default,
         [Description("Confluence page ID to update (mutually exclusive with pageTitle)")] string? pageId = null,
         [Description("Confluence page title to update (mutually exclusive with pageId)")] string? pageTitle = null,
-        [Description("Space key. Optional — defaults to the server's configured Global:SpaceKey")] string? spaceKey = null,
+        [Description("Space key. Usually unnecessary for an already-synced tree — the page's actual server space wins. If given and it contradicts the page's real space, the call errors. Defaults to Global:SpaceKey.")] string? spaceKey = null,
         [Description("Recursively process child pages")] bool recursive = false,
+        [Description("Process every page tree directly under sourceDir independently (each may live in a different space). Use when sourceDir is a container of tree folders, not a single page folder. Incompatible with pageId/pageTitle.")] bool multiTree = false,
         [Description("Dry run; no changes are sent to Confluence")] bool dryRun = false,
         [Description("Include the full SyncReport in the result")] bool report = false)
     {
@@ -144,10 +145,10 @@ public sealed class ConfluenceMcpTools
             var maxParallelism = globalOpts.Value.MaxParallelism ?? 8;
 
             if (dryRun) writer.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
-            writer.WriteLine($"Upload update: pages in space '{resolvedSpace}' from '{resolvedSrc}'{(recursive ? " (recursive)" : "")}...");
+            writer.WriteLine($"Upload update: pages in space '{resolvedSpace}' from '{resolvedSrc}'{(recursive ? " (recursive)" : "")}{(multiTree ? " (multi-tree)" : "")}...");
 
             var service = new UploadService(api, normalizer, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism);
-            var syncReport = await service.UploadUpdateAsync(resolvedSpace, resolvedSrc, pageId, pageTitle, recursive, cancellationToken);
+            var syncReport = await service.UploadUpdateAsync(resolvedSpace, resolvedSrc, pageId, pageTitle, recursive, explicitSpaceKey: spaceKey, multiTree: multiTree, ct: cancellationToken);
 
             writer.WriteLine("Upload update completed.");
             return McpToolResult.Success(
@@ -198,7 +199,7 @@ public sealed class ConfluenceMcpTools
             writer.WriteLine($"Creating pages in space '{resolvedSpace}' {parentDesc} from '{resolvedSrc}'{(recursive ? " (recursive)" : "")}...");
 
             var service = new UploadService(api, normalizer, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism);
-            await service.UploadCreateAsync(resolvedSpace, resolvedSrc, parentId, parentTitle, recursive, cancellationToken);
+            await service.UploadCreateAsync(resolvedSpace, resolvedSrc, parentId, parentTitle, recursive, explicitSpaceKey: spaceKey, ct: cancellationToken);
 
             writer.WriteLine("Upload create completed.");
             return McpToolResult.Success(
@@ -227,8 +228,9 @@ public sealed class ConfluenceMcpTools
         CancellationToken cancellationToken = default,
         [Description("Confluence page ID (mutually exclusive with pageTitle)")] string? pageId = null,
         [Description("Confluence page title (mutually exclusive with pageId)")] string? pageTitle = null,
-        [Description("Space key. Optional — defaults to the server's configured Global:SpaceKey")] string? spaceKey = null,
+        [Description("Space key. Usually unnecessary for an already-synced tree — the page's actual server space wins. If given and it contradicts the page's real space, the call errors. Defaults to Global:SpaceKey.")] string? spaceKey = null,
         [Description("Recursively process child pages")] bool recursive = false,
+        [Description("Process every page tree directly under sourceDir independently (each may live in a different space). Use when sourceDir is a container of tree folders, not a single page folder. Incompatible with pageId/pageTitle.")] bool multiTree = false,
         [Description("Dry run; no changes are sent to Confluence")] bool dryRun = false,
         [Description("Include the full SyncReport in the result")] bool report = false)
     {
@@ -244,11 +246,11 @@ public sealed class ConfluenceMcpTools
             var maxParallelism = globalOpts.Value.MaxParallelism ?? 8;
 
             if (dryRun) writer.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
-            writer.WriteLine($"Upload merge: pages in space '{resolvedSpace}' from '{resolvedSrc}'{(recursive ? " (recursive)" : "")}...");
+            writer.WriteLine($"Upload merge: pages in space '{resolvedSpace}' from '{resolvedSrc}'{(recursive ? " (recursive)" : "")}{(multiTree ? " (multi-tree)" : "")}...");
 
             var analyzer = new ChangeSourceAnalyzer(api, loggerFactory.CreateLogger<ChangeSourceAnalyzer>());
             var service = new UploadService(api, normalizer, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism);
-            var syncReport = await service.UploadMergeAsync(resolvedSpace, resolvedSrc, pageId, pageTitle, recursive, analyzer, cancellationToken);
+            var syncReport = await service.UploadMergeAsync(resolvedSpace, resolvedSrc, pageId, pageTitle, recursive, analyzer, explicitSpaceKey: spaceKey, multiTree: multiTree, ct: cancellationToken);
 
             writer.WriteLine("Upload merge completed.");
             return McpToolResult.Success(
@@ -437,7 +439,9 @@ public sealed class ConfluenceMcpTools
             {
                 pageId = page.Id,
                 title = page.Title,
-                spaceKey = resolvedSpace,
+                // The page's actual server space (resolvedSpace is only the
+                // request hint and can differ in a multi-space setup).
+                spaceKey = page.SpaceKey ?? resolvedSpace,
                 version = new
                 {
                     number = page.Version?.Number,

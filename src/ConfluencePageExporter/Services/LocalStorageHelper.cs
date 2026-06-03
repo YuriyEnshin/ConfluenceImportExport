@@ -241,6 +241,33 @@ public static class LocalStorageHelper
         return string.IsNullOrEmpty(title) ? pageDir : title;
     }
 
+    /// <summary>
+    /// A "page directory" is a folder that directly holds an <c>index.html</c> —
+    /// i.e. it represents a single Confluence page. A folder that only contains
+    /// page sub-folders (a multi-tree container) is not a page directory.
+    /// </summary>
+    public static bool IsPageDirectory(string dir) =>
+        Directory.Exists(dir) && File.Exists(Path.Combine(dir, "index.html"));
+
+    /// <summary>
+    /// Enumerates the immediate child folders of a container that are themselves
+    /// page directories — i.e. the root of each page tree under it. Used by the
+    /// multi-tree upload mode to process several trees (possibly from different
+    /// spaces) in one call. Not recursive: a tree root's own descendants are
+    /// handled by the per-tree recursive walk.
+    /// </summary>
+    public static IEnumerable<string> EnumerateTreeRoots(string containerDir)
+    {
+        if (!Directory.Exists(containerDir))
+            yield break;
+
+        foreach (var dir in Directory.EnumerateDirectories(containerDir))
+        {
+            if (File.Exists(Path.Combine(dir, "index.html")))
+                yield return dir;
+        }
+    }
+
     public static void ValidateSourceDirectory(string sourceDir)
     {
         if (!Directory.Exists(sourceDir))

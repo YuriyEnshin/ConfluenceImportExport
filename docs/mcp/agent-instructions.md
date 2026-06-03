@@ -10,13 +10,13 @@ These same instructions are also published as `docs/mcp/agent-instructions.md` i
 
 - **Sandbox root.** The server was started with `--root-dir <path>`. Every path you pass to a tool is resolved relative to that root; absolute paths are accepted only when they lie inside it. Outside paths fail with `OUT_OF_SANDBOX`. **You cannot widen this sandbox** — it is set at server startup and ignores env vars and config files.
 - **Read-only mode.** If the server was started with `--read-only`, all `confluence_upload_*` tools refuse with `READ_ONLY_VIOLATION`. `confluence_download_*`, `confluence_compare`, `confluence_ping`, and `confluence_get_page_content` remain available.
-- **Default space key.** A `spaceKey` may have been configured server-side. Most tools accept an optional `spaceKey` argument that overrides it.
+- **Space keys (multi-space).** A default `spaceKey` may be configured server-side, and most tools accept an optional `spaceKey` that overrides it. For an **already-synced tree you normally don't need to pass `spaceKey` at all** — each page records its space locally (in the `.id` marker) and the server is the authority. Passing a `spaceKey` that contradicts a page's real space makes the upload tools **error** rather than silently mis-place pages. New child pages are always created in their parent's space (a Confluence tree lives in exactly one space). See "Working with multiple spaces" below.
 
 ## Local layout
 
 Each page is a directory containing:
 - `index.html` — the page's body in **Confluence storage format** (XHTML with custom tags like `ac:structured-macro`, `ri:user`, `ac:image`, etc.). Treat it as semantic markup, not free-form HTML.
-- `.idPAGEID_VER` — a marker file storing the page's Confluence ID and the version number from the last sync. Useful for 3-way merges (see below).
+- `.idPAGEID_VER` — a marker file storing the page's Confluence ID and last-synced version (in its name), plus a small JSON body `{"title":…,"space":…}` recording the page's original title and the space it belongs to. Useful for 3-way merges (see below).
 - Attachments live as ordinary files in the same directory.
 - Child pages live as subdirectories.
 
@@ -108,6 +108,15 @@ If the user moves a page folder to a different location inside the synced tree (
 - `confluence_compare` may report the move as "changed on server" when only dates are available — its heuristic compares server `version.when` with local directory mtime. Pass `detectSource: true` to consult version history for a more reliable verdict, but `upload merge` itself does **not** need `compare` to run first.
 - If `upload merge` reports the page as skipped with a hint about a deferred move, the server's content was updated since the last sync. Run `confluence_download_merge` for that page, re-apply the local move on the now-up-to-date folder, then run `upload merge` again.
 
+## Working with multiple spaces
+
+A Confluence page tree always lives in a single space, but you can keep trees from **different** spaces side by side under one root and sync them without juggling `spaceKey` per call:
+
+- **Space is remembered per tree.** Every `.id` marker records its page's space (captured from the server). For existing pages the **server is the source of truth**; the marker is just a cache.
+- **You usually omit `spaceKey`.** For an already-synced tree, leave `spaceKey` unset — the correct space is resolved from the tree itself. Set `spaceKey` only when seeding brand-new pages at a space root (no parent to inherit from). If you pass a `spaceKey` that disagrees with the page's or parent's real space, the call **errors** so nothing is mis-filed.
+- **Cross-space safety.** If a local folder maps to a page that actually lives in a *different* space (a folder moved between two trees on disk, or a hand-edited marker), the upload tools refuse to touch that page or its subtree and record it in the report. Confluence does not move pages across spaces via a parent change — relocate by placing the folder in the correct same-space tree.
+- **`multiTree` — sync several trees in one call.** When `sourceDir` is a **container** of multiple tree folders (each child folder has its own `index.html`) rather than a single page folder, pass `multiTree: true` to `confluence_upload_update` / `confluence_upload_merge`. Each tree is processed independently with its own space; one tree's failure is reported without aborting the others. Without `multiTree`, pointing an upload tool at such a container is an error. `multiTree` is incompatible with `pageId`/`pageTitle` (which identify a single page). Download and compare stay single-page-driven — to refresh several trees, call them once per tree.
+
 ## Diagnostic and helper tools
 
 | Tool | Purpose |
@@ -179,6 +188,7 @@ If a tool fails with `NETWORK_ERROR`, `AUTH_FAILED`, or every call starts failin
 | "Did this break or is it just me?" | `confluence_ping` |
 | Got a conflict — need server's version for merge | `confluence_get_page_content` |
 | Seeding a brand-new subtree (no parent marker exists) | `confluence_upload_create` with `parentId`/`parentTitle` |
+| Publishing several trees from different spaces at once | `confluence_upload_merge` (or `_update`) with `multiTree: true` on the container dir |
 
 ## Things the server intentionally does *not* do
 

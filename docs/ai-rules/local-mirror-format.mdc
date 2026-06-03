@@ -54,6 +54,26 @@ The marker is used for:
 - Detecting whether the page was updated on the server (version comparison)
 - Conflict tracking (`LastWriteTimeUtc` of the marker = timestamp of the last sync)
 
+**Marker body.** The file content is a small JSON object captured at sync time:
+
+```json
+{"title":"Original Page Title","space":"SPACEKEY"}
+```
+
+- `title` — the page's original (unsanitised) title, so special characters lost
+  in the folder name can be restored on upload.
+- `space` — the key of the space the page belongs to. A Confluence page tree
+  always lives in a single space; this records which one, so trees from
+  different spaces can sit side by side and be synced without specifying the
+  space each time.
+
+The `space` value is a cached hint: the **server is the authority** for an
+existing page's real space (resolved via its `pageId`). Do not hand-edit it to
+"move" a page between spaces — that has no effect on the server, and a mismatch
+between this hint and the server is ignored in favour of the server. Older
+markers may hold just the plain-text title (no JSON) — that is still read
+correctly; `space` is simply treated as unknown until the next sync.
+
 ### Attachments
 
 All other files in the folder (except `index.html` and `.id*`) are Confluence page attachments.

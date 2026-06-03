@@ -74,6 +74,7 @@ public static class CliOverrideBuilder
         AddIfExplicit(pr, "page-id", "Upload:Update:PageId", d);
         AddIfExplicit(pr, "page-title", "Upload:Update:PageTitle", d);
         AddIfExplicit(pr, "recursive", "Upload:Update:Recursive", d, isFlag: true);
+        AddIfExplicit(pr, "multi-tree", "Upload:Update:MultiTree", d, isFlag: true);
     }
 
     private static void MapUploadCreate(ParseResult pr, Dictionary<string, string?> d)
@@ -90,6 +91,7 @@ public static class CliOverrideBuilder
         AddIfExplicit(pr, "page-id", "Upload:Merge:PageId", d);
         AddIfExplicit(pr, "page-title", "Upload:Merge:PageTitle", d);
         AddIfExplicit(pr, "recursive", "Upload:Merge:Recursive", d, isFlag: true);
+        AddIfExplicit(pr, "multi-tree", "Upload:Merge:MultiTree", d, isFlag: true);
     }
 
     private static void MapCompare(ParseResult pr, Dictionary<string, string?> d)
@@ -118,6 +120,7 @@ public static class CliOverrideBuilder
         AddIfExplicit(pr, "page-id", "Upload:Update:PageId", d);
         AddIfExplicit(pr, "page-title", "Upload:Update:PageTitle", d);
         AddIfExplicit(pr, "recursive", "Upload:Update:Recursive", d, isFlag: true);
+        AddIfExplicit(pr, "multi-tree", "Upload:Update:MultiTree", d, isFlag: true);
 
         AddIfExplicitPath(pr, "source-dir", "Upload:Create:SourceDir", d);
         AddIfExplicit(pr, "parent-id", "Upload:Create:ParentId", d);
@@ -128,6 +131,7 @@ public static class CliOverrideBuilder
         AddIfExplicit(pr, "page-id", "Upload:Merge:PageId", d);
         AddIfExplicit(pr, "page-title", "Upload:Merge:PageTitle", d);
         AddIfExplicit(pr, "recursive", "Upload:Merge:Recursive", d, isFlag: true);
+        AddIfExplicit(pr, "multi-tree", "Upload:Merge:MultiTree", d, isFlag: true);
 
         AddIfExplicit(pr, "page-id", "Compare:PageId", d);
         AddIfExplicit(pr, "page-title", "Compare:PageTitle", d);

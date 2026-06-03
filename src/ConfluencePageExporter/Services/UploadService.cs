@@ -31,10 +31,33 @@ public class UploadService
 
     public async Task<SyncReport> UploadUpdateAsync(
         string spaceKey, string sourceDir, string? explicitPageId,
-        string? explicitPageTitle, bool recursive, CancellationToken ct = default)
+        string? explicitPageTitle, bool recursive,
+        string? explicitSpaceKey = null, bool multiTree = false, CancellationToken ct = default)
     {
         var started = Stopwatch.GetTimestamp();
         var report = new SyncReport();
+
+        if (multiTree && !LocalStorageHelper.IsPageDirectory(sourceDir))
+        {
+            await RunMultiTreeAsync(sourceDir, explicitPageId, explicitPageTitle, report,
+                rootDir => UploadUpdateSingleTreeAsync(spaceKey, explicitSpaceKey, rootDir, null, null, recursive, report, ct), ct);
+        }
+        else
+        {
+            EnsurePageDirectory(sourceDir);
+            await UploadUpdateSingleTreeAsync(spaceKey, explicitSpaceKey, sourceDir, explicitPageId, explicitPageTitle, recursive, report, ct);
+        }
+
+        _logger.LogDebug(
+            "[PROFILE] UploadUpdate completed in {ElapsedMs}ms",
+            (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        return report;
+    }
+
+    private async Task UploadUpdateSingleTreeAsync(
+        string spaceKey, string? explicitSpaceKey, string sourceDir,
+        string? explicitPageId, string? explicitPageTitle, bool recursive, SyncReport report, CancellationToken ct)
+    {
         LocalStorageHelper.ValidateSourceDirectory(sourceDir);
 
         var (rootPageId, _) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle, ct);
@@ -42,10 +65,10 @@ public class UploadService
         // Resolve the tree's space once from the root's server value (the
         // authority) and flow it down: new children are created in it, existing
         // pages are checked against it (cross-space guard), and markers are
-        // stamped with it. Falls back to the requested space if the server
-        // omits it (older instances).
+        // stamped with it.
         var rootServer = await _apiClient.GetPageByIdAsync(rootPageId, ct);
-        var treeSpace = rootServer.SpaceKey ?? spaceKey;
+        var treeSpace = ResolveTreeSpace(rootServer.SpaceKey, explicitSpaceKey, spaceKey,
+            $"страница '{rootServer.Title}' (ID {rootPageId})");
 
         var moveToParentId = await DetectRootPageMoveAsync(rootServer, sourceDir, treeSpace, report, ct);
         var (result, effectiveTitle) = await UpdatePageContentAndAttachments(treeSpace, rootPageId, sourceDir, report, moveToParentId, ct);
@@ -59,27 +82,47 @@ public class UploadService
                 new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
                 async (childDir, _) => await ProcessChildForUpdate(treeSpace, childDir, rootPageId, report, ct));
         }
-
-        _logger.LogDebug(
-            "[PROFILE] UploadUpdate completed in {ElapsedMs}ms",
-            (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
-        return report;
     }
 
     // ── upload merge (smart: local → server, only local-newer) ────────
 
     public async Task<SyncReport> UploadMergeAsync(
         string spaceKey, string sourceDir, string? explicitPageId,
-        string? explicitPageTitle, bool recursive, ChangeSourceAnalyzer analyzer, CancellationToken ct = default)
+        string? explicitPageTitle, bool recursive, ChangeSourceAnalyzer analyzer,
+        string? explicitSpaceKey = null, bool multiTree = false, CancellationToken ct = default)
     {
         var started = Stopwatch.GetTimestamp();
         var report = new SyncReport();
+
+        if (multiTree && !LocalStorageHelper.IsPageDirectory(sourceDir))
+        {
+            await RunMultiTreeAsync(sourceDir, explicitPageId, explicitPageTitle, report,
+                rootDir => UploadMergeSingleTreeAsync(spaceKey, explicitSpaceKey, rootDir, null, null, recursive, analyzer, report, ct), ct);
+        }
+        else
+        {
+            EnsurePageDirectory(sourceDir);
+            await UploadMergeSingleTreeAsync(spaceKey, explicitSpaceKey, sourceDir, explicitPageId, explicitPageTitle, recursive, analyzer, report, ct);
+        }
+
+        _logger.LogDebug(
+            "[PROFILE] UploadMerge completed in {ElapsedMs}ms",
+            (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        return report;
+    }
+
+    private async Task UploadMergeSingleTreeAsync(
+        string spaceKey, string? explicitSpaceKey, string sourceDir,
+        string? explicitPageId, string? explicitPageTitle, bool recursive,
+        ChangeSourceAnalyzer analyzer, SyncReport report, CancellationToken ct)
+    {
         LocalStorageHelper.ValidateSourceDirectory(sourceDir);
 
         var (rootPageId, _) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle, ct);
 
         var rootServer = await _apiClient.GetPageByIdAsync(rootPageId, ct);
-        var treeSpace = rootServer.SpaceKey ?? spaceKey;
+        var treeSpace = ResolveTreeSpace(rootServer.SpaceKey, explicitSpaceKey, spaceKey,
+            $"страница '{rootServer.Title}' (ID {rootPageId})");
 
         // Симметрично upload update: если локальная родительская папка имеет
         // .id-маркер и его ID отличается от серверного родителя страницы,
@@ -95,16 +138,11 @@ public class UploadService
                 new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
                 async (childDir, _) => await ProcessChildForMerge(treeSpace, childDir, rootPageId, analyzer, report, ct));
         }
-
-        _logger.LogDebug(
-            "[PROFILE] UploadMerge completed in {ElapsedMs}ms",
-            (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
-        return report;
     }
 
     // ── upload create (unchanged) ─────────────────────────────────────
 
-    public async Task UploadCreateAsync(string spaceKey, string sourceDir, string? parentId, string? parentTitle, bool recursive, CancellationToken ct = default)
+    public async Task UploadCreateAsync(string spaceKey, string sourceDir, string? parentId, string? parentTitle, bool recursive, string? explicitSpaceKey = null, CancellationToken ct = default)
     {
         var started = Stopwatch.GetTimestamp();
         try
@@ -123,10 +161,12 @@ public class UploadService
                 // New pages must live in the parent's space (Confluence
                 // invariant). Take the parent's actual server space as the tree
                 // space so the whole created subtree lands in the right place
-                // regardless of the configured default.
+                // regardless of the configured default; an explicitly requested
+                // space that contradicts the parent is a user error.
                 var parentPage = await _apiClient.TryGetPageByIdAsync(resolvedParentId, ct);
                 if (parentPage?.SpaceKey != null)
-                    treeSpace = parentPage.SpaceKey;
+                    treeSpace = ResolveTreeSpace(parentPage.SpaceKey, explicitSpaceKey, spaceKey,
+                        $"родитель (ID {resolvedParentId})");
             }
 
             var (createResult, effectiveTitle) = await CreatePageFromDirectory(treeSpace, sourceDir, resolvedParentId, ct);
@@ -147,6 +187,90 @@ public class UploadService
                 "[PROFILE] UploadCreate completed in {ElapsedMs}ms",
                 (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         }
+    }
+
+    // ── multi-tree / tree-space resolution ────────────────────────────
+
+    private static void EnsurePageDirectory(string sourceDir)
+    {
+        // Preserve the original DirectoryNotFoundException (and its message) for
+        // a missing directory; only an existing-but-index-less folder gets the
+        // multi-tree hint.
+        if (!Directory.Exists(sourceDir))
+            throw new DirectoryNotFoundException($"Source directory does not exist: {sourceDir}");
+
+        if (!LocalStorageHelper.IsPageDirectory(sourceDir))
+            throw new InvalidOperationException(
+                $"'{sourceDir}' не содержит index.html (это не папка страницы). Укажите корень дерева, "
+                + "либо передайте multiTree=true для обработки всех деревьев (подпапок с index.html) в этом каталоге.");
+    }
+
+    /// <summary>
+    /// Multi-tree dispatch: process every page tree directly under
+    /// <paramref name="containerDir"/> independently — each resolves its own
+    /// space, so trees from different spaces can be synced in one call. One
+    /// tree's failure is recorded and skipped without aborting the rest; an
+    /// auth failure is global and propagates. <c>pageId</c>/<c>pageTitle</c>
+    /// identify a single page and are therefore incompatible with multi-tree.
+    /// </summary>
+    private async Task RunMultiTreeAsync(
+        string containerDir, string? explicitPageId, string? explicitPageTitle,
+        SyncReport report, Func<string, Task> processRoot, CancellationToken ct)
+    {
+        if (!string.IsNullOrEmpty(explicitPageId) || !string.IsNullOrEmpty(explicitPageTitle))
+            throw new InvalidOperationException(
+                "multiTree нельзя сочетать с pageId/pageTitle: они указывают одну страницу, а multiTree "
+                + "обрабатывает несколько деревьев. Уберите pageId/pageTitle.");
+
+        var roots = LocalStorageHelper.EnumerateTreeRoots(containerDir).ToList();
+        if (roots.Count == 0)
+            throw new InvalidOperationException(
+                $"multiTree: в каталоге '{containerDir}' не найдено деревьев (непосредственных подпапок с index.html).");
+
+        _logger.LogInformation("multiTree: обрабатываю {Count} дерев(а) из '{Dir}'", roots.Count, containerDir);
+        await Parallel.ForEachAsync(
+            roots,
+            new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
+            async (rootDir, _) =>
+            {
+                try
+                {
+                    await processRoot(rootDir);
+                }
+                catch (ConfluenceApiException ex) when (ex.IsAuthFailure)
+                {
+                    throw; // auth is global — abort the whole batch rather than per-tree skip
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "multiTree: дерево '{Dir}' пропущено из-за ошибки", rootDir);
+                    report.AddSkipped("-", LocalStorageHelper.GetPageTitleFromDirectory(rootDir),
+                        $"Дерево пропущено из-за ошибки: {ex.Message}");
+                }
+            });
+    }
+
+    /// <summary>
+    /// Resolves the space a tree belongs to. The server value (when known) is
+    /// the authority; an explicitly requested space that contradicts it throws
+    /// (a deliberate user choice that can't be honoured — we fail loud rather
+    /// than silently ignore it). A configured default never conflicts: it's
+    /// only the fallback when the server space is unknown.
+    /// </summary>
+    private static string ResolveTreeSpace(string? serverSpace, string? explicitSpaceKey, string fallbackSpace, string conflictSubject)
+    {
+        if (string.IsNullOrEmpty(serverSpace))
+            return fallbackSpace;
+
+        if (!string.IsNullOrEmpty(explicitSpaceKey)
+            && !string.Equals(explicitSpaceKey, serverSpace, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Запрошено пространство '{explicitSpaceKey}', но {conflictSubject} находится в пространстве '{serverSpace}'. "
+                + "Уберите параметр spaceKey либо укажите верный — пространство определяется деревом на сервере.");
+        }
+
+        return serverSpace;
     }
 
     // ── update internals ──────────────────────────────────────────────

@@ -47,6 +47,7 @@ public sealed class UploadMergeCommandHandler : ICommandHandler
             throw new ArgumentException("--page-id and --page-title are mutually exclusive.");
 
         var recursive = o.Recursive ?? g.Recursive ?? false;
+        var multiTree = o.MultiTree ?? false;
         var dryRun = g.DryRun ?? false;
         var showReport = g.Report ?? false;
         var maxParallelism = g.MaxParallelism ?? 8;
@@ -54,7 +55,7 @@ public sealed class UploadMergeCommandHandler : ICommandHandler
         if (dryRun)
             _writer.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
 
-        var desc = recursive ? " (recursive)" : "";
+        var desc = (recursive ? " (recursive)" : "") + (multiTree ? " (multi-tree)" : "");
         _writer.WriteLine($"Upload merge: pages in space '{spaceKey}' from '{sourceDir}'{desc}...");
 
         var analyzer = new ChangeSourceAnalyzer(
@@ -68,7 +69,7 @@ public sealed class UploadMergeCommandHandler : ICommandHandler
             dryRun,
             maxParallelism);
 
-        var report = await service.UploadMergeAsync(spaceKey, sourceDir, pageId, pageTitle, recursive, analyzer, ct);
+        var report = await service.UploadMergeAsync(spaceKey, sourceDir, pageId, pageTitle, recursive, analyzer, multiTree: multiTree, ct: ct);
 
         _writer.WriteLine("Upload merge completed.");
         if (showReport)
