@@ -38,7 +38,11 @@ public class DownloadService
 
         var pageDirectoryIndex = LocalStorageHelper.BuildPageDirectoryIndex(outputDir, _logger);
         var page = await _apiClient.GetPageByIdAsync(resolvedPageId, ct);
-        await DownloadPageUpdateAsync(page, outputDir, recursive, pageDirectoryIndex, report, ct);
+        // A Confluence tree lives in a single space; resolve it once from the
+        // root's server value and flow it down so every marker is stamped with
+        // it (children inherit — no per-child space fetch needed).
+        var treeSpace = page.SpaceKey ?? spaceKey;
+        await DownloadPageUpdateAsync(page, outputDir, recursive, pageDirectoryIndex, report, treeSpace, ct);
         _logger.LogDebug(
             "[PROFILE] DownloadUpdate completed in {ElapsedMs}ms",
             (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
@@ -55,7 +59,8 @@ public class DownloadService
 
         var pageDirectoryIndex = LocalStorageHelper.BuildPageDirectoryIndex(outputDir, _logger);
         var page = await _apiClient.GetPageByIdAsync(resolvedPageId, ct);
-        await DownloadPageMergeAsync(page, outputDir, recursive, pageDirectoryIndex, analyzer, report, ct);
+        var treeSpace = page.SpaceKey ?? spaceKey;
+        await DownloadPageMergeAsync(page, outputDir, recursive, pageDirectoryIndex, analyzer, report, treeSpace, ct);
         _logger.LogDebug(
             "[PROFILE] DownloadMerge completed in {ElapsedMs}ms",
             (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
@@ -71,7 +76,7 @@ public class DownloadService
 
     private async Task DownloadPageUpdateAsync(
         PageData page, string parentDir, bool recursive,
-        Dictionary<string, string> pageDirectoryIndex, SyncReport report, CancellationToken ct)
+        Dictionary<string, string> pageDirectoryIndex, SyncReport report, string treeSpaceKey, CancellationToken ct)
     {
         var pageDir = ResolvePageDirectoryForDownload(page, parentDir, pageDirectoryIndex);
 
@@ -79,7 +84,7 @@ public class DownloadService
             Directory.CreateDirectory(pageDir);
 
         await SavePageContentForUpdate(page, pageDir, ct);
-        await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, ct);
+        await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, ct);
 
         if (page.ChildTypes?.HasAttachments ?? true)
         {
@@ -93,14 +98,14 @@ public class DownloadService
             await Parallel.ForEachAsync(
                 children,
                 new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
-                async (child, _) => await DownloadPageUpdateAsync(child, pageDir, recursive, pageDirectoryIndex, report, ct));
+                async (child, _) => await DownloadPageUpdateAsync(child, pageDir, recursive, pageDirectoryIndex, report, treeSpaceKey, ct));
         }
     }
 
     private async Task DownloadPageMergeAsync(
         PageData page, string parentDir, bool recursive,
         Dictionary<string, string> pageDirectoryIndex,
-        ChangeSourceAnalyzer analyzer, SyncReport report, CancellationToken ct)
+        ChangeSourceAnalyzer analyzer, SyncReport report, string treeSpaceKey, CancellationToken ct)
     {
         var pageDir = ResolvePageDirectoryForDownload(page, parentDir, pageDirectoryIndex);
 
@@ -113,12 +118,12 @@ public class DownloadService
         if (localContent == null)
         {
             await WritePageContent(page.Title, pageDir, serverContent, ct);
-            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, ct);
+            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, ct);
         }
         else if (_normalizer.ContentEquals(localContent, serverContent))
         {
             _logger.LogDebug("Page '{Title}' content is unchanged, skipping", page.Title);
-            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, ct);
+            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, ct);
         }
         else
         {
@@ -136,7 +141,7 @@ public class DownloadService
                 case ChangeOrigin.Server:
                     _logger.LogInformation("Page '{Title}' changed on server, downloading", page.Title);
                     await WritePageContent(page.Title, pageDir, serverContent, ct);
-                    await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, ct);
+                    await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, ct);
                     break;
 
                 case ChangeOrigin.Local:
@@ -168,7 +173,7 @@ public class DownloadService
             await Parallel.ForEachAsync(
                 children,
                 new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
-                async (child, _) => await DownloadPageMergeAsync(child, pageDir, recursive, pageDirectoryIndex, analyzer, report, ct));
+                async (child, _) => await DownloadPageMergeAsync(child, pageDir, recursive, pageDirectoryIndex, analyzer, report, treeSpaceKey, ct));
         }
     }
 
@@ -279,7 +284,7 @@ public class DownloadService
         }
     }
 
-    private async Task SavePageIdMarker(string pageId, int? version, string pageDir, string? originalTitle = null, CancellationToken ct = default)
+    private async Task SavePageIdMarker(string pageId, int? version, string pageDir, string? originalTitle = null, string? spaceKey = null, CancellationToken ct = default)
     {
         if (_dryRun)
         {
@@ -287,17 +292,21 @@ public class DownloadService
             return;
         }
 
-        var existing = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
-        var existingTitle = LocalStorageHelper.ReadOriginalTitle(pageDir);
-        if (existing != null
-            && string.Equals(existing.PageId, pageId, StringComparison.OrdinalIgnoreCase)
-            && existing.Version == version
-            && existingTitle != null)
+        var existingInfo = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
+        var existing = LocalStorageHelper.ReadMarkerContent(pageDir);
+        // Skip the rewrite only when id, version, title AND space all already
+        // match — so a legacy (space-less) marker is upgraded once the space
+        // is known, rather than left stale.
+        if (existingInfo != null
+            && string.Equals(existingInfo.PageId, pageId, StringComparison.OrdinalIgnoreCase)
+            && existingInfo.Version == version
+            && existing.Title != null
+            && string.Equals(existing.SpaceKey, spaceKey, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version, originalTitle, ct: ct);
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version, originalTitle, spaceKey, ct);
     }
 
     private async Task SaveAttachments(List<AttachmentData> attachments, string pageDir, CancellationToken ct)

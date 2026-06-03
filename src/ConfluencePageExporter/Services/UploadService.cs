@@ -39,17 +39,25 @@ public class UploadService
 
         var (rootPageId, _) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle, ct);
 
-        var moveToParentId = await DetectRootPageMoveAsync(rootPageId, sourceDir, ct);
-        var (result, effectiveTitle) = await UpdatePageContentAndAttachments(spaceKey, rootPageId, sourceDir, report, moveToParentId, ct);
+        // Resolve the tree's space once from the root's server value (the
+        // authority) and flow it down: new children are created in it, existing
+        // pages are checked against it (cross-space guard), and markers are
+        // stamped with it. Falls back to the requested space if the server
+        // omits it (older instances).
+        var rootServer = await _apiClient.GetPageByIdAsync(rootPageId, ct);
+        var treeSpace = rootServer.SpaceKey ?? spaceKey;
+
+        var moveToParentId = await DetectRootPageMoveAsync(rootServer, sourceDir, treeSpace, report, ct);
+        var (result, effectiveTitle) = await UpdatePageContentAndAttachments(treeSpace, rootPageId, sourceDir, report, moveToParentId, ct);
         if (result != null)
-            await UpdatePageIdMarker(sourceDir, result.Id, result.VersionNumber, effectiveTitle, ct);
+            await UpdatePageIdMarker(sourceDir, result.Id, result.VersionNumber, effectiveTitle, treeSpace, ct);
 
         if (recursive)
         {
             await Parallel.ForEachAsync(
                 LocalStorageHelper.GetPageSubdirectories(sourceDir),
                 new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
-                async (childDir, _) => await ProcessChildForUpdate(spaceKey, childDir, rootPageId, report, ct));
+                async (childDir, _) => await ProcessChildForUpdate(treeSpace, childDir, rootPageId, report, ct));
         }
 
         _logger.LogDebug(
@@ -70,19 +78,22 @@ public class UploadService
 
         var (rootPageId, _) = await ResolveRootPageForUpdate(spaceKey, sourceDir, explicitPageId, explicitPageTitle, ct);
 
+        var rootServer = await _apiClient.GetPageByIdAsync(rootPageId, ct);
+        var treeSpace = rootServer.SpaceKey ?? spaceKey;
+
         // Симметрично upload update: если локальная родительская папка имеет
         // .id-маркер и его ID отличается от серверного родителя страницы,
         // считаем, что пользователь перенёс папку локально, и применяем
         // структурное перемещение на сервере как часть merge-операции.
-        var moveToParentId = await DetectRootPageMoveAsync(rootPageId, sourceDir, ct);
-        await MergeUploadPageAsync(spaceKey, rootPageId, sourceDir, moveToParentId, analyzer, report, ct);
+        var moveToParentId = await DetectRootPageMoveAsync(rootServer, sourceDir, treeSpace, report, ct);
+        await MergeUploadPageAsync(treeSpace, rootPageId, sourceDir, moveToParentId, analyzer, report, ct);
 
         if (recursive)
         {
             await Parallel.ForEachAsync(
                 LocalStorageHelper.GetPageSubdirectories(sourceDir),
                 new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
-                async (childDir, _) => await ProcessChildForMerge(spaceKey, childDir, rootPageId, analyzer, report, ct));
+                async (childDir, _) => await ProcessChildForMerge(treeSpace, childDir, rootPageId, analyzer, report, ct));
         }
 
         _logger.LogDebug(
@@ -101,24 +112,33 @@ public class UploadService
             LocalStorageHelper.ValidateSourceDirectory(sourceDir);
 
             string? resolvedParentId = null;
+            var treeSpace = spaceKey;
             if (!string.IsNullOrEmpty(parentId) || !string.IsNullOrEmpty(parentTitle))
             {
                 resolvedParentId = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, parentId, parentTitle, ct);
                 if (resolvedParentId == null)
                     throw new InvalidOperationException(
                         $"Parent page not found. ID: '{parentId}', Title: '{parentTitle}'");
+
+                // New pages must live in the parent's space (Confluence
+                // invariant). Take the parent's actual server space as the tree
+                // space so the whole created subtree lands in the right place
+                // regardless of the configured default.
+                var parentPage = await _apiClient.TryGetPageByIdAsync(resolvedParentId, ct);
+                if (parentPage?.SpaceKey != null)
+                    treeSpace = parentPage.SpaceKey;
             }
 
-            var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, sourceDir, resolvedParentId, ct);
+            var (createResult, effectiveTitle) = await CreatePageFromDirectory(treeSpace, sourceDir, resolvedParentId, ct);
             if (createResult == null) return;
-            await UpdatePageIdMarker(sourceDir, createResult.Id, createResult.VersionNumber, effectiveTitle, ct);
+            await UpdatePageIdMarker(sourceDir, createResult.Id, createResult.VersionNumber, effectiveTitle, treeSpace, ct);
 
             if (recursive)
             {
                 await Parallel.ForEachAsync(
                     LocalStorageHelper.GetPageSubdirectories(sourceDir),
                     new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
-                    async (childDir, _) => await ProcessChildForCreate(spaceKey, childDir, createResult.Id, ct));
+                    async (childDir, _) => await ProcessChildForCreate(treeSpace, childDir, createResult.Id, ct));
             }
         }
         finally
@@ -131,7 +151,18 @@ public class UploadService
 
     // ── update internals ──────────────────────────────────────────────
 
-    private async Task<string?> DetectRootPageMoveAsync(string rootPageId, string sourceDir, CancellationToken ct)
+    /// <summary>
+    /// True when a page's actual (server) space differs from the tree being
+    /// operated on. A Confluence tree is single-space, so this flags a page that
+    /// doesn't belong here — a manually-moved subfolder, a hand-edited marker,
+    /// or a stale mapping. Such pages are refused (not moved/updated) and
+    /// reported. Null/empty page space means "unknown" and never blocks.
+    /// </summary>
+    private static bool IsCrossSpace(string? pageSpace, string treeSpace) =>
+        !string.IsNullOrEmpty(pageSpace) && !string.Equals(pageSpace, treeSpace, StringComparison.OrdinalIgnoreCase);
+
+    private async Task<string?> DetectRootPageMoveAsync(
+        PageData rootPage, string sourceDir, string treeSpace, SyncReport report, CancellationToken ct)
     {
         var parentDir = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(sourceDir));
         if (string.IsNullOrEmpty(parentDir))
@@ -141,13 +172,28 @@ public class UploadService
         if (localParentPageId == null)
             return null;
 
-        var rootPage = await _apiClient.GetPageByIdAsync(rootPageId, ct);
         if (string.Equals(rootPage.ParentId, localParentPageId, StringComparison.OrdinalIgnoreCase))
             return null;
 
+        // Cross-space guard: refuse to move the root under a parent in another
+        // space. Confluence won't relocate a page across spaces via an
+        // ancestors change anyway; refuse early with a clear report entry
+        // instead of surfacing a confusing server error.
+        var parentPage = await _apiClient.TryGetPageByIdAsync(localParentPageId, ct);
+        if (parentPage != null && IsCrossSpace(parentPage.SpaceKey, treeSpace))
+        {
+            _logger.LogWarning(
+                "Cross-space move refused: root '{Title}' is in '{TreeSpace}', target parent {ParentId} is in '{ParentSpace}'",
+                rootPage.Title, treeSpace, localParentPageId, parentPage.SpaceKey);
+            report.AddSkipped(rootPage.Id, rootPage.Title,
+                $"Перемещение между пространствами отклонено: страница в '{treeSpace}', целевой родитель в '{parentPage.SpaceKey}'. "
+                + "Confluence не переносит страницы между пространствами сменой родителя — перемещение пропущено.");
+            return null;
+        }
+
         _logger.LogInformation(
             "Root page '{Title}' (ID: {PageId}) will be moved from parent {OldParent} to {NewParent}",
-            rootPage.Title, rootPageId, rootPage.ParentId, localParentPageId);
+            rootPage.Title, rootPage.Id, rootPage.ParentId, localParentPageId);
         return localParentPageId;
     }
 
@@ -202,6 +248,16 @@ public class UploadService
             var page = await _apiClient.TryGetPageByIdAsync(markerPageId, ct);
             if (page != null)
             {
+                if (IsCrossSpace(page.SpaceKey, spaceKey))
+                {
+                    _logger.LogWarning(
+                        "Cross-space: page '{Title}' (ID: {PageId}) is in '{PageSpace}', tree is '{TreeSpace}'; skipping it and its subtree",
+                        page.Title, page.Id, page.SpaceKey, spaceKey);
+                    report.AddSkipped(page.Id, page.Title,
+                        $"Межпространственное расхождение: страница в '{page.SpaceKey}', а дерево привязано к '{spaceKey}'. "
+                        + "Обновление/перемещение и обработка поддерева пропущены. Верните папку в правильное дерево или синхронизируйте заново.");
+                    return;
+                }
                 resolvedPageId = page.Id;
                 if (page.ParentId != parentPageId)
                 {
@@ -243,7 +299,7 @@ public class UploadService
             var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId, ct);
             if (createResult == null) return;
             resolvedPageId = createResult.Id;
-            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle, ct);
+            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle, spaceKey, ct);
 
             await Parallel.ForEachAsync(
                 LocalStorageHelper.GetPageSubdirectories(childDir),
@@ -254,7 +310,7 @@ public class UploadService
         {
             var (updateResult, effectiveTitle) = await UpdatePageContentAndAttachments(spaceKey, resolvedPageId!, childDir, report, moveToParentId, ct);
             if (updateResult != null)
-                await UpdatePageIdMarker(childDir, updateResult.Id, updateResult.VersionNumber, effectiveTitle, ct);
+                await UpdatePageIdMarker(childDir, updateResult.Id, updateResult.VersionNumber, effectiveTitle, spaceKey, ct);
 
             await Parallel.ForEachAsync(
                 LocalStorageHelper.GetPageSubdirectories(childDir),
@@ -300,7 +356,7 @@ public class UploadService
         if (!contentChanged && !titleChanged && !parentChanged)
         {
             _logger.LogDebug("Page {PageId} '{Title}' is unchanged, skipping merge-upload", pageId, title);
-            await UpdatePageIdMarker(pageDir, pageId, serverPage.Version?.Number, title, ct);
+            await UpdatePageIdMarker(pageDir, pageId, serverPage.Version?.Number, title, spaceKey, ct);
             return;
         }
 
@@ -317,7 +373,7 @@ public class UploadService
             try
             {
                 var moveResult = await _apiClient.UpdatePageAsync(pageId, serverPage.Title, serverPage.Body.Storage.Value, moveToParentId, ct);
-                await UpdatePageIdMarker(pageDir, moveResult.Id, moveResult.VersionNumber, serverPage.Title, ct);
+                await UpdatePageIdMarker(pageDir, moveResult.Id, moveResult.VersionNumber, serverPage.Title, spaceKey, ct);
                 await UploadPageAttachments(pageId, pageDir, ct);
             }
             catch (ConfluenceApiException ex)
@@ -347,7 +403,7 @@ public class UploadService
                 try
                 {
                     var result = await _apiClient.UpdatePageAsync(pageId, title, localContent, moveToParentId, ct);
-                    await UpdatePageIdMarker(pageDir, result.Id, result.VersionNumber, title, ct);
+                    await UpdatePageIdMarker(pageDir, result.Id, result.VersionNumber, title, spaceKey, ct);
                     await UploadPageAttachments(pageId, pageDir, ct);
                 }
                 catch (ConfluenceApiException ex)
@@ -407,6 +463,16 @@ public class UploadService
             var page = await _apiClient.TryGetPageByIdAsync(markerPageId, ct);
             if (page != null)
             {
+                if (IsCrossSpace(page.SpaceKey, spaceKey))
+                {
+                    _logger.LogWarning(
+                        "Cross-space: page '{Title}' (ID: {PageId}) is in '{PageSpace}', tree is '{TreeSpace}'; skipping it and its subtree",
+                        page.Title, page.Id, page.SpaceKey, spaceKey);
+                    report.AddSkipped(page.Id, page.Title,
+                        $"Межпространственное расхождение: страница в '{page.SpaceKey}', а дерево привязано к '{spaceKey}'. "
+                        + "Обновление/перемещение и обработка поддерева пропущены. Верните папку в правильное дерево или синхронизируйте заново.");
+                    return;
+                }
                 resolvedPageId = page.Id;
                 if (!string.Equals(page.ParentId, parentPageId, StringComparison.OrdinalIgnoreCase))
                 {
@@ -444,7 +510,7 @@ public class UploadService
             var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId, ct);
             if (createResult == null) return;
             resolvedPageId = createResult.Id;
-            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle, ct);
+            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle, spaceKey, ct);
 
             await Parallel.ForEachAsync(
                 LocalStorageHelper.GetPageSubdirectories(childDir),
@@ -468,7 +534,7 @@ public class UploadService
     {
         var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId, ct);
         if (createResult == null) return;
-        await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle, ct);
+        await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle, spaceKey, ct);
 
         await Parallel.ForEachAsync(
             LocalStorageHelper.GetPageSubdirectories(childDir),
@@ -699,21 +765,24 @@ public class UploadService
             _logger.LogInformation("DRY RUN: Would upload attachment '{FileName}'", Path.GetFileName(file));
     }
 
-    private async Task UpdatePageIdMarker(string pageDir, string pageId, int? version, string? originalTitle = null, CancellationToken ct = default)
+    private async Task UpdatePageIdMarker(string pageDir, string pageId, int? version, string? originalTitle = null, string? spaceKey = null, CancellationToken ct = default)
     {
         if (_dryRun) return;
 
-        var existing = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
-        var existingTitle = LocalStorageHelper.ReadOriginalTitle(pageDir);
-        if (existing != null
-            && string.Equals(existing.PageId, pageId, StringComparison.OrdinalIgnoreCase)
-            && existing.Version == version
-            && existingTitle != null)
+        var existingInfo = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
+        var existing = LocalStorageHelper.ReadMarkerContent(pageDir);
+        // Skip the rewrite only when id, version, title AND space already match,
+        // so a legacy (space-less) marker is upgraded once the space is known.
+        if (existingInfo != null
+            && string.Equals(existingInfo.PageId, pageId, StringComparison.OrdinalIgnoreCase)
+            && existingInfo.Version == version
+            && existing.Title != null
+            && string.Equals(existing.SpaceKey, spaceKey, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version, originalTitle, ct: ct);
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version, originalTitle, spaceKey, ct);
         _logger.LogInformation("Saved page ID marker '.id{PageId}_{Version}' in '{PageDir}'", pageId, version, pageDir);
     }
 }
