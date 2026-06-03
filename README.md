@@ -1,5 +1,7 @@
 # Confluence Page Exporter v2.11.0
 
+**Русский** | [English](README.en.md)
+
 Утилита командной строки для синхронизации страниц Confluence с локальной структурой папок.
 
 Инструмент поддерживает:
@@ -114,7 +116,7 @@ Claude Desktop / Cursor / Codex — в [`docs/mcp/`](docs/mcp/).
 | Linux x64     | `ConfluencePageExporter-v<версия>-linux-x64.tar.gz`       |
 | macOS arm64   | `ConfluencePageExporter-v<версия>-osx-arm64.tar.gz`       |
 
-После распаковки архива получаете один исполняемый файл (`ConfluencePageExporter.exe` или `ConfluencePageExporter`), `README.md` и `LICENSE`. На macOS/Linux потребуется `chmod +x ConfluencePageExporter`.
+После распаковки архива получаете один исполняемый файл (`ConfluencePageExporter.exe` или `ConfluencePageExporter`), `README.md`, `README.en.md` и `LICENSE`. На macOS/Linux потребуется `chmod +x ConfluencePageExporter`.
 
 ## Сборка из исходников
 

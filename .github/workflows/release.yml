@@ -53,7 +53,7 @@ jobs:
 
       - name: Stage release files
         run: |
-          cp README.md LICENSE publish/${{ matrix.rid }}/
+          cp README.md README.en.md LICENSE publish/${{ matrix.rid }}/
 
       - name: Create archive
         id: package
