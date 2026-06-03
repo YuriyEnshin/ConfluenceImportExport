@@ -1,5 +1,7 @@
 # MCP-сервер Confluence Page Exporter
 
+**Русский** | [English](README.en.md)
+
 Confluence Page Exporter может работать как сервер
 [Model Context Protocol (MCP)](https://modelcontextprotocol.io) — это
 позволяет ИИ-агентам (Claude Desktop, Cursor, Codex CLI, Continue и др.)

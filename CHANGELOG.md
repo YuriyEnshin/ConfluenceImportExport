@@ -1,8 +1,23 @@
 # История изменений
 
+**Русский** | [English](CHANGELOG.en.md)
+
 Все значимые изменения утилиты Confluence Page Exporter документируются в этом файле.
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/).
+
+## [Unreleased]
+
+### Добавлено
+
+- Английские версии документации (`README.en.md`, `CHANGELOG.en.md`,
+  `docs/ai-rules/README.en.md`, `docs/mcp/README.en.md`) с переключателем
+  языка. Русские версии остаются основными.
+
+### Изменено
+
+- В релизные архивы теперь включаются обе версии README — `README.md`
+  (русская) и `README.en.md` (английская).
 
 ## [2.11.0] — 2026-06-03
 
