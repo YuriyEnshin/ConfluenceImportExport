@@ -201,6 +201,7 @@ public class UploadServiceTests
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.FindPageByTitleAsync("SPACE", null, "ParentTitle")).ReturnsAsync("P100");
+        api.Setup(x => x.TryGetPageByIdAsync("P100")).ReturnsAsync(ApiClientMockFactory.CreatePage("P100", "ParentTitle", "<p>x</p>"));
         api.Setup(x => x.FindPageByTitleAsync("SPACE", null, "RootToCreate")).ReturnsAsync((string?)null);
         api.Setup(x => x.CreatePageAsync("SPACE", "P100", "RootToCreate", "<p>content</p>")).ReturnsAsync(new PageUpdateResult("C100", 1));
 
@@ -399,6 +400,7 @@ public class UploadServiceTests
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("400")).ReturnsAsync(serverPage);
         api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
+        api.Setup(x => x.TryGetPageByIdAsync("P2")).ReturnsAsync(ApiClientMockFactory.CreatePage("P2", "NewParent", "<p>x</p>"));
         api.Setup(x => x.UpdatePageAsync("400", "Subpage4", "<p>content</p>", "P2")).ReturnsAsync(new PageUpdateResult("400", 2));
 
         var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
@@ -554,6 +556,7 @@ public class UploadServiceTests
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("400")).ReturnsAsync(serverPage);
         api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
+        api.Setup(x => x.TryGetPageByIdAsync("P2")).ReturnsAsync(ApiClientMockFactory.CreatePage("P2", "NewParent", "<p>x</p>"));
         api.Setup(x => x.UpdatePageAsync("400", "Subpage4", "<p>same content</p>", "P2"))
             .ReturnsAsync(new PageUpdateResult("400", 6));
 
@@ -586,6 +589,7 @@ public class UploadServiceTests
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("400")).ReturnsAsync(serverPage);
         api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
+        api.Setup(x => x.TryGetPageByIdAsync("P2")).ReturnsAsync(ApiClientMockFactory.CreatePage("P2", "NewParent", "<p>x</p>"));
         api.Setup(x => x.UpdatePageAsync("400", "Subpage4", "<p>local edit</p>", "P2"))
             .ReturnsAsync(new PageUpdateResult("400", 6));
 
@@ -618,6 +622,7 @@ public class UploadServiceTests
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.TryGetPageByIdAsync("400")).ReturnsAsync(serverPage);
         api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
+        api.Setup(x => x.TryGetPageByIdAsync("P2")).ReturnsAsync(ApiClientMockFactory.CreatePage("P2", "NewParent", "<p>x</p>"));
 
         var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
         var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
@@ -683,5 +688,107 @@ public class UploadServiceTests
 
         api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
         report.ConflictPages.Should().HaveCount(1);
+    }
+
+    // ── multi-space: server-truth space flows down, cross-space is refused ──
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldCreateNewChild_InRootServerSpace_NotConfigDefault()
+    {
+        using var temp = new TempDirectoryScope();
+        var rootDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>root</p>", "111");
+        LocalPageTreeBuilder.CreatePage(rootDir, "NewChild", "<p>child</p>"); // no marker → created
+
+        // Root actually lives in REAL; the configured default (CFG) must NOT be
+        // used to place the new child — it inherits the root's server space.
+        var rootServer = ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>", spaceKey: "REAL");
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("111")).ReturnsAsync(rootServer);
+        api.Setup(x => x.GetPageByIdAsync("111")).ReturnsAsync(rootServer);
+        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync(new PageUpdateResult("111", 2));
+        api.Setup(x => x.FindPageByTitleAsync("REAL", "111", "NewChild")).ReturnsAsync((string?)null);
+        api.Setup(x => x.FindPageByTitleAsync("REAL", null, "NewChild")).ReturnsAsync((string?)null);
+        api.Setup(x => x.CreatePageAsync("REAL", "111", "NewChild", "<p>child</p>")).ReturnsAsync(new PageUpdateResult("500", 1));
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadUpdateAsync("CFG", rootDir, "111", null, recursive: true);
+
+        api.Verify(x => x.CreatePageAsync("REAL", "111", "NewChild", "<p>child</p>"), Times.Once);
+        api.Verify(x => x.CreatePageAsync("CFG", It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldSkipCrossSpaceChild_AndNotProcessItsSubtree()
+    {
+        using var temp = new TempDirectoryScope();
+        var rootDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>root</p>", "111");
+        var childDir = LocalPageTreeBuilder.CreatePage(rootDir, "ForeignChild", "<p>child</p>", "222");
+        LocalPageTreeBuilder.CreatePage(childDir, "Grandchild", "<p>gc</p>", "333");
+
+        var rootServer = ApiClientMockFactory.CreatePage("111", "Root", "<p>x</p>", spaceKey: "REAL");
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("111")).ReturnsAsync(rootServer);
+        api.Setup(x => x.GetPageByIdAsync("111")).ReturnsAsync(rootServer);
+        api.Setup(x => x.UpdatePageAsync("111", "Root", "<p>root</p>", null)).ReturnsAsync(new PageUpdateResult("111", 2));
+        // The child's marker resolves to a page in a DIFFERENT space.
+        api.Setup(x => x.TryGetPageByIdAsync("222"))
+            .ReturnsAsync(ApiClientMockFactory.CreatePage("222", "ForeignChild", "<p>x</p>", parentId: "111", spaceKey: "OTHER"));
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadUpdateAsync("CFG", rootDir, "111", null, recursive: true);
+
+        // Cross-space page is reported and not written...
+        report.SkippedPages.Should().ContainSingle(p => p.PageId == "222");
+        api.Verify(x => x.UpdatePageAsync("222", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
+        // ...and its subtree is not descended into: the strict mock has NO setup
+        // for grandchild "333", so any attempt to resolve it would throw.
+        api.Verify(x => x.TryGetPageByIdAsync("333"), Times.Never);
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldRefuseRootMove_WhenTargetParentInDifferentSpace()
+    {
+        using var temp = new TempDirectoryScope();
+        var parentDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "ForeignParent", "<p>p</p>", "P2");
+        var sourceDir = LocalPageTreeBuilder.CreatePage(parentDir, "Page", "<p>content</p>", "400");
+
+        // Page is in REAL; the local parent folder maps to P2 which is in OTHER —
+        // the cross-space move must be refused, but the content update proceeds.
+        var serverPage = ApiClientMockFactory.CreatePage("400", "Page", "<p>old</p>", parentId: "P1", spaceKey: "REAL");
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("400")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("400")).ReturnsAsync(serverPage);
+        api.Setup(x => x.TryGetPageByIdAsync("P2"))
+            .ReturnsAsync(ApiClientMockFactory.CreatePage("P2", "ForeignParent", "<p>x</p>", spaceKey: "OTHER"));
+        api.Setup(x => x.UpdatePageAsync("400", "Page", "<p>content</p>", null)).ReturnsAsync(new PageUpdateResult("400", 2));
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadUpdateAsync("CFG", sourceDir, null, null, recursive: false);
+
+        api.Verify(x => x.UpdatePageAsync("400", "Page", "<p>content</p>", null), Times.Once);
+        api.Verify(x => x.UpdatePageAsync("400", It.IsAny<string>(), It.IsAny<string>(), "P2"), Times.Never);
+        report.SkippedPages.Should().ContainSingle(p => p.PageId == "400");
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldStampServerSpaceIntoMarker()
+    {
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>new</p>", "100", version: 5);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>old</p>", versionNumber: 5, spaceKey: "DOCS");
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>new</p>", null)).ReturnsAsync(new PageUpdateResult("100", 6));
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadUpdateAsync("CFG", sourceDir, null, null, recursive: false);
+
+        LocalStorageHelper.ReadSpaceKey(sourceDir).Should().Be("DOCS");
     }
 }

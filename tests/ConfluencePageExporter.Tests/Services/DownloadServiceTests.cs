@@ -517,4 +517,45 @@ public class DownloadServiceTests
         report.SkippedPages.Select(x => x.PageId).Should().BeEquivalentTo(
             new[] { "ch1", "ch2", "ch3", "ch4", "ch5" });
     }
+
+    // ── space capture into markers ────────────────────────────────────────
+
+    [Fact]
+    public async Task DownloadUpdateAsync_ShouldStampServerSpaceIntoMarker()
+    {
+        using var temp = new TempDirectoryScope();
+
+        var api = ApiClientMockFactory.CreateLoose();
+        api.Setup(x => x.GetPageByIdAsync("100", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ApiClientMockFactory.CreatePage(
+                "100", "Root", "<p>x</p>", spaceKey: "DOCS", hasPages: false, hasAttachments: false));
+
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
+
+        // Configured/request space is CFG, but the page actually lives in DOCS —
+        // the server value is the authority and is what gets persisted.
+        await service.DownloadUpdateAsync("CFG", "100", null, temp.RootPath, recursive: false);
+
+        LocalStorageHelper.ReadSpaceKey(Path.Combine(temp.RootPath, "Root")).Should().Be("DOCS");
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_ShouldStampRootSpaceIntoChildMarkers_WhenChildrenLackSpace()
+    {
+        using var temp = new TempDirectoryScope();
+
+        var api = ApiClientMockFactory.CreateLoose();
+        api.Setup(x => x.GetPageByIdAsync("100", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Root", "<p>x</p>", spaceKey: "DOCS", hasAttachments: false));
+        // Children come from the list endpoint, which is not expanded with space —
+        // they must inherit the root's space, not end up space-less.
+        api.Setup(x => x.GetChildrenPagesAsync("100", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([ApiClientMockFactory.CreatePage("200", "Child", "<p>c</p>", parentId: "100", hasPages: false, hasAttachments: false)]);
+
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
+
+        await service.DownloadUpdateAsync("CFG", "100", null, temp.RootPath, recursive: true);
+
+        LocalStorageHelper.ReadSpaceKey(Path.Combine(temp.RootPath, "Root", "Child")).Should().Be("DOCS");
+    }
 }

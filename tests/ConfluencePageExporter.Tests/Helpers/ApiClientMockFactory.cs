@@ -18,7 +18,8 @@ public static class ApiClientMockFactory
         string? parentTitle = null,
         int versionNumber = 1,
         bool? hasPages = null,
-        bool? hasAttachments = null)
+        bool? hasAttachments = null,
+        string? spaceKey = null)
     {
         return new PageData
         {
@@ -42,7 +43,8 @@ public static class ApiClientMockFactory
                     Page = hasPages.HasValue ? new ChildTypeFlag { Value = hasPages.Value } : null,
                     Attachment = hasAttachments.HasValue ? new ChildTypeFlag { Value = hasAttachments.Value } : null
                 }
-                : null
+                : null,
+            Space = spaceKey == null ? null : new SpaceInfo { Key = spaceKey }
         };
     }
 
