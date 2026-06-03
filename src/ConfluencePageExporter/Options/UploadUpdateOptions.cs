@@ -6,4 +6,5 @@ public sealed class UploadUpdateOptions
     public string? PageId { get; set; }
     public string? PageTitle { get; set; }
     public bool? Recursive { get; set; }
+    public bool? MultiTree { get; set; }
 }

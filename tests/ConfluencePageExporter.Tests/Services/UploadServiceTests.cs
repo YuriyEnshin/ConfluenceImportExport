@@ -791,4 +791,141 @@ public class UploadServiceTests
 
         LocalStorageHelper.ReadSpaceKey(sourceDir).Should().Be("DOCS");
     }
+
+    // ── multi-tree mode + explicit-space conflict ──────────────────────────
+
+    [Fact]
+    public async Task UploadUpdateAsync_MultiTree_ShouldProcessEachTree_WithItsOwnSpace()
+    {
+        using var temp = new TempDirectoryScope();
+        var t1 = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Tree1", "<p>t1</p>", "100");
+        var t2 = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Tree2", "<p>t2</p>", "200");
+
+        var p1 = ApiClientMockFactory.CreatePage("100", "Tree1", "<p>x</p>", spaceKey: "DEV");
+        var p2 = ApiClientMockFactory.CreatePage("200", "Tree2", "<p>x</p>", spaceKey: "DOCS");
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(p1);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(p1);
+        api.Setup(x => x.UpdatePageAsync("100", "Tree1", "<p>t1</p>", null)).ReturnsAsync(new PageUpdateResult("100", 2));
+        api.Setup(x => x.TryGetPageByIdAsync("200")).ReturnsAsync(p2);
+        api.Setup(x => x.GetPageByIdAsync("200")).ReturnsAsync(p2);
+        api.Setup(x => x.UpdatePageAsync("200", "Tree2", "<p>t2</p>", null)).ReturnsAsync(new PageUpdateResult("200", 2));
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        // sourceDir is a container of two trees from different spaces.
+        await service.UploadUpdateAsync("CFG", temp.RootPath, null, null, recursive: false, multiTree: true);
+
+        api.Verify(x => x.UpdatePageAsync("100", "Tree1", "<p>t1</p>", null), Times.Once);
+        api.Verify(x => x.UpdatePageAsync("200", "Tree2", "<p>t2</p>", null), Times.Once);
+        LocalStorageHelper.ReadSpaceKey(t1).Should().Be("DEV");
+        LocalStorageHelper.ReadSpaceKey(t2).Should().Be("DOCS");
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_MultiTree_ShouldIsolateTreeFailures()
+    {
+        using var temp = new TempDirectoryScope();
+        var t1 = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Tree1", "<p>t1</p>", "100");
+        LocalPageTreeBuilder.CreatePage(temp.RootPath, "Tree2", "<p>t2</p>", "999");
+
+        var p1 = ApiClientMockFactory.CreatePage("100", "Tree1", "<p>x</p>", spaceKey: "DEV");
+        var api = ApiClientMockFactory.CreateLoose();
+        api.Setup(x => x.TryGetPageByIdAsync("100", It.IsAny<CancellationToken>())).ReturnsAsync(p1);
+        api.Setup(x => x.GetPageByIdAsync("100", It.IsAny<CancellationToken>())).ReturnsAsync(p1);
+        api.Setup(x => x.UpdatePageAsync("100", "Tree1", "<p>t1</p>", null, It.IsAny<CancellationToken>())).ReturnsAsync(new PageUpdateResult("100", 2));
+        // Tree2's page is gone and not found by title → that one tree fails…
+        api.Setup(x => x.TryGetPageByIdAsync("999", It.IsAny<CancellationToken>())).ReturnsAsync((PageData?)null);
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadUpdateAsync("CFG", temp.RootPath, null, null, recursive: false, multiTree: true);
+
+        // …without aborting the rest: Tree1 is still updated, Tree2 is reported.
+        api.Verify(x => x.UpdatePageAsync("100", "Tree1", "<p>t1</p>", null, It.IsAny<CancellationToken>()), Times.Once);
+        report.SkippedPages.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldThrow_WhenContainerWithoutMultiTree()
+    {
+        using var temp = new TempDirectoryScope();
+        LocalPageTreeBuilder.CreatePage(temp.RootPath, "Tree1", "<p>t1</p>", "100");
+
+        var api = ApiClientMockFactory.CreateStrict();
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var act = () => service.UploadUpdateAsync("CFG", temp.RootPath, null, null, recursive: false);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("multiTree");
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldThrow_WhenMultiTreeCombinedWithPageId()
+    {
+        using var temp = new TempDirectoryScope();
+        LocalPageTreeBuilder.CreatePage(temp.RootPath, "Tree1", "<p>t1</p>", "100");
+
+        var api = ApiClientMockFactory.CreateStrict();
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var act = () => service.UploadUpdateAsync("CFG", temp.RootPath, "100", null, recursive: false, multiTree: true);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("pageId");
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_MultiTreeIgnored_WhenSourceDirIsItselfAPage()
+    {
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>new</p>", "100");
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>old</p>", spaceKey: "DEV");
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>new</p>", null)).ReturnsAsync(new PageUpdateResult("100", 2));
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        // multiTree=true but sourceDir is itself a page folder → single-tree path.
+        await service.UploadUpdateAsync("CFG", sourceDir, null, null, recursive: false, multiTree: true);
+
+        api.Verify(x => x.UpdatePageAsync("100", "Root", "<p>new</p>", null), Times.Once);
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldThrow_WhenExplicitSpaceConflictsWithServer()
+    {
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Root", "<p>x</p>", "100");
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>x</p>", spaceKey: "REAL");
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        // An explicitly requested space that contradicts the page's real space errors.
+        var act = () => service.UploadUpdateAsync("REAL", sourceDir, null, null, recursive: false, explicitSpaceKey: "WRONG");
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("WRONG");
+    }
+
+    [Fact]
+    public async Task UploadCreateAsync_ShouldThrow_WhenExplicitSpaceConflictsWithParent()
+    {
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "NewRoot", "<p>x</p>");
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("P1")).ReturnsAsync(ApiClientMockFactory.CreatePage("P1", "Parent", "<p>x</p>", spaceKey: "REAL"));
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var act = () => service.UploadCreateAsync("REAL", sourceDir, "P1", null, recursive: false, explicitSpaceKey: "WRONG");
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("WRONG");
+    }
 }
