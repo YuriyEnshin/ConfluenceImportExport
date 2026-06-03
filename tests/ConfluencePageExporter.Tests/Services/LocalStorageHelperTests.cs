@@ -571,4 +571,100 @@ public class LocalStorageHelperTests
 
         result.Should().Be("Модуль _Провайдеры_");
     }
+
+    // ── marker body: space (JSON) + legacy fallback ───────────────────────
+
+    [Fact]
+    public async Task WritePageIdMarkerAsync_ShouldWriteJsonBody_WhenSpaceProvided()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, "123", 5, "Модуль \"Провайдеры\"", "DEV");
+
+        var body = await File.ReadAllTextAsync(Path.Combine(pageDir, ".id123_5"), TestContext.Current.CancellationToken);
+        body.Should().Contain("\"space\":\"DEV\"");
+        body.Should().Contain("Модуль"); // readable Cyrillic, not \uXXXX-escaped
+        LocalStorageHelper.ReadOriginalTitle(pageDir).Should().Be("Модуль \"Провайдеры\"");
+        LocalStorageHelper.ReadSpaceKey(pageDir).Should().Be("DEV");
+    }
+
+    [Fact]
+    public async Task WritePageIdMarkerAsync_ShouldWriteLegacyPlainTitle_WhenNoSpace()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, "123", 5, "Plain Title");
+
+        var body = await File.ReadAllTextAsync(Path.Combine(pageDir, ".id123_5"), TestContext.Current.CancellationToken);
+        body.Should().Be("Plain Title"); // unchanged on-disk format — zero churn until space is captured
+        LocalStorageHelper.ReadSpaceKey(pageDir).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task WritePageIdMarkerAsync_ShouldRoundTripJsonBody_WithSpecialCharsInTitle()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, "777", 2, "A \"quoted\" & <odd> title", "TEAM");
+
+        var content = LocalStorageHelper.ReadMarkerContent(pageDir);
+        content.Title.Should().Be("A \"quoted\" & <odd> title");
+        content.SpaceKey.Should().Be("TEAM");
+    }
+
+    [Fact]
+    public void ReadSpaceKey_ShouldReturnNull_ForLegacyPlainTitleMarker()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        File.WriteAllText(Path.Combine(pageDir, ".id123_5"), "Legacy Title");
+
+        LocalStorageHelper.ReadSpaceKey(pageDir).Should().BeNull();
+        LocalStorageHelper.ReadOriginalTitle(pageDir).Should().Be("Legacy Title");
+    }
+
+    [Fact]
+    public void ReadMarkerContent_ShouldParseJsonBody()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        File.WriteAllText(Path.Combine(pageDir, ".id123_5"), """{"title":"My Page","space":"DOCS"}""");
+
+        var content = LocalStorageHelper.ReadMarkerContent(pageDir);
+
+        content.Title.Should().Be("My Page");
+        content.SpaceKey.Should().Be("DOCS");
+    }
+
+    [Fact]
+    public void ReadMarkerContent_ShouldReturnEmpty_WhenNoMarkerExists()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+
+        var content = LocalStorageHelper.ReadMarkerContent(pageDir);
+
+        content.Title.Should().BeNull();
+        content.SpaceKey.Should().BeNull();
+    }
+
+    [Fact]
+    public void GetPageTitle_ShouldReturnOriginalTitle_FromJsonMarkerBody()
+    {
+        // " is sanitised to _ only on Windows, where the folder name matches the
+        // sanitised title and GetPageTitle should restore the original from JSON.
+        if (!OperatingSystem.IsWindows())
+            Assert.Skip("Quote character is a valid filename char on non-Windows filesystems.");
+
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Модуль _Провайдеры_");
+        File.WriteAllText(Path.Combine(pageDir, ".id123"), """{"title":"Модуль \"Провайдеры\"","space":"DEV"}""");
+
+        var result = LocalStorageHelper.GetPageTitle(pageDir);
+
+        result.Should().Be("Модуль \"Провайдеры\"");
+    }
 }

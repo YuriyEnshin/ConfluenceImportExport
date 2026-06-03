@@ -326,6 +326,45 @@ public class HttpClientConfluenceApiClientTests
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
+    [Fact]
+    public async Task GetPageByIdAsync_ShouldExpandSpace_AndParseSpaceKey()
+    {
+        var handler = new StubHttpMessageHandler();
+        var json = JsonConvert.SerializeObject(new
+        {
+            id = "100",
+            title = "Test",
+            body = new { storage = new { value = "<p>x</p>", representation = "storage" } },
+            ancestors = Array.Empty<object>(),
+            version = new { number = 5, when = "2026-03-15T10:00:00.000+0000" },
+            space = new { key = "DOCS" }
+        });
+        handler.EnqueueResponse(HttpStatusCode.OK, json);
+        var client = CreateClient(handler);
+
+        var result = await client.GetPageByIdAsync("100");
+
+        result.SpaceKey.Should().Be("DOCS");
+        handler.Requests[0].RequestUri!.ToString().Should().Contain("childTypes.all,space");
+    }
+
+    [Fact]
+    public async Task FindPageByTitleAsync_ShouldEscapeQuotesInCql()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.OK, """{"results":[]}""");
+        var client = CreateClient(handler);
+
+        await client.FindPageByTitleAsync("DOCS", null, "a \"quoted\" title");
+
+        // The literal quotes in the title are backslash-escaped before the CQL
+        // is built; the backslash survives URL-encoding as %5C (the quote
+        // itself is normalised back to " by Uri). Nothing else in the query
+        // contains a backslash, so %5C present ⇔ escaping happened — without it
+        // the raw quote would have terminated the CQL string early.
+        handler.Requests[0].RequestUri!.ToString().Should().Contain("%5C");
+    }
+
     private static HttpClientConfluenceApiClient CreateClient(StubHttpMessageHandler handler)
     {
         var httpClient = new HttpClient(handler);

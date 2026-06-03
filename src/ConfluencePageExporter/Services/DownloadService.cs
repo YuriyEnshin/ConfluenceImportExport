@@ -297,7 +297,7 @@ public class DownloadService
             return;
         }
 
-        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version, originalTitle, ct);
+        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version, originalTitle, ct: ct);
     }
 
     private async Task SaveAttachments(List<AttachmentData> attachments, string pageDir, CancellationToken ct)

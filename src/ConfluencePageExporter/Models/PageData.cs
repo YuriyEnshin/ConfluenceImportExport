@@ -25,7 +25,18 @@ public class PageData
     [JsonProperty("childTypes")]
     public ChildTypes? ChildTypes { get; set; }
 
+    [JsonProperty("space")]
+    public SpaceInfo? Space { get; set; }
+
     public string? ParentId => Ancestors.Count > 0 ? Ancestors[^1].Id : null;
+
+    /// <summary>
+    /// Space key the page belongs to. Populated when the API response was
+    /// requested with <c>expand=space</c>; null otherwise. A Confluence page
+    /// tree always lives in a single space, so the server value is the
+    /// authority for where a page (and its descendants) reside.
+    /// </summary>
+    public string? SpaceKey => Space?.Key;
 }
 
 public class ChildTypes
@@ -44,6 +55,12 @@ public class ChildTypeFlag
 {
     [JsonProperty("value")]
     public bool Value { get; set; }
+}
+
+public class SpaceInfo
+{
+    [JsonProperty("key")]
+    public string Key { get; set; } = "";
 }
 
 public class PageAncestor
