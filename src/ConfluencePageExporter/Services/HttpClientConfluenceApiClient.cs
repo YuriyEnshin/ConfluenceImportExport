@@ -27,7 +27,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
 
     public async Task<PageData> GetPageByIdAsync(string pageId, CancellationToken ct = default)
     {
-        var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors,version,childTypes.all";
+        var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors,version,childTypes.all,space";
         using var response = await _httpClient.GetAsync(url, ct);
         response.EnsureSuccessStatusCode();
         var content = await response.Content.ReadAsStringAsync(ct);
@@ -37,7 +37,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
 
     public async Task<PageData?> TryGetPageByIdAsync(string pageId, CancellationToken ct = default)
     {
-        var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors,version,childTypes.all";
+        var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors,version,childTypes.all,space";
         using var response = await _httpClient.GetAsync(url, ct);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             return null;
@@ -113,7 +113,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
     {
         try
         {
-            var cqlQuery = $"space=\"{spaceKey}\" AND title=\"{title}\"";
+            var cqlQuery = $"space=\"{EscapeCql(spaceKey)}\" AND title=\"{EscapeCql(title)}\"";
             if (!string.IsNullOrEmpty(parentId))
             {
                 cqlQuery += $" AND parent={parentId}";
@@ -304,6 +304,15 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
             : new ConfluenceApiException(status, message, responseBody);
     }
 
+    /// <summary>
+    /// Escapes a value for safe interpolation into a double-quoted CQL string
+    /// literal. CQL uses backslash escaping inside quotes, so a space key or
+    /// title containing <c>"</c> or <c>\</c> (both legal in page titles) would
+    /// otherwise break the query or silently change its meaning.
+    /// </summary>
+    private static string EscapeCql(string value) =>
+        value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+
     public async Task<bool> UploadAttachmentAsync(string pageId, string filePath, string fileName, CancellationToken ct = default)
     {
         try
@@ -468,7 +477,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         // caller explicitly asked for a specific historical version, so any
         // failure (404 = version doesn't exist, 401 = lost auth, etc.) is
         // an actionable user-visible error rather than tolerable noise.
-        var url = $"{_baseUrl}/rest/api/content/{pageId}?status=historical&version={versionNumber}&expand=body.storage,version";
+        var url = $"{_baseUrl}/rest/api/content/{pageId}?status=historical&version={versionNumber}&expand=body.storage,version,space";
         using var response = await _httpClient.GetAsync(url, ct);
         response.EnsureSuccessStatusCode();
         var content = await response.Content.ReadAsStringAsync(ct);
