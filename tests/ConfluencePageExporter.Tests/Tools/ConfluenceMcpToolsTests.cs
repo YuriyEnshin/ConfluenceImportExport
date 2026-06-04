@@ -6,7 +6,7 @@ using ConfluencePageExporter.Options;
 using ConfluencePageExporter.Services;
 using ConfluencePageExporter.Tests.Helpers;
 using ConfluencePageExporter.Tools;
-using FluentAssertions;
+using Shouldly;
 using Moq;
 
 namespace ConfluencePageExporter.Tests.Tools;
@@ -167,14 +167,14 @@ public class ConfluenceMcpToolsTests
 
         AssertSuccess(result);
         var report = result.GetType().GetProperty("report")!.GetValue(result)!;
-        report.GetType().GetProperty("baseUrl")!.GetValue(report).Should().Be("https://confluence.example.com");
-        report.GetType().GetProperty("spaceKey")!.GetValue(report).Should().Be("SPACE");
+        report.GetType().GetProperty("baseUrl")!.GetValue(report).ShouldBe("https://confluence.example.com");
+        report.GetType().GetProperty("spaceKey")!.GetValue(report).ShouldBe("SPACE");
         var auth = report.GetType().GetProperty("authenticatedAs")!.GetValue(report)!;
-        auth.GetType().GetProperty("username")!.GetValue(auth).Should().Be("alice");
-        auth.GetType().GetProperty("displayName")!.GetValue(auth).Should().Be("Alice A.");
+        auth.GetType().GetProperty("username")!.GetValue(auth).ShouldBe("alice");
+        auth.GetType().GetProperty("displayName")!.GetValue(auth).ShouldBe("Alice A.");
         var sandbox = report.GetType().GetProperty("sandbox")!.GetValue(report)!;
-        sandbox.GetType().GetProperty("rootDir")!.GetValue(sandbox).Should().Be(temp.RootPath);
-        sandbox.GetType().GetProperty("readOnly")!.GetValue(sandbox).Should().Be(false);
+        sandbox.GetType().GetProperty("rootDir")!.GetValue(sandbox).ShouldBe(temp.RootPath);
+        sandbox.GetType().GetProperty("readOnly")!.GetValue(sandbox).ShouldBe(false);
     }
 
     [Fact]
@@ -244,11 +244,11 @@ public class ConfluenceMcpToolsTests
 
         AssertSuccess(result);
         var report = result.GetType().GetProperty("report")!.GetValue(result)!;
-        report.GetType().GetProperty("pageId")!.GetValue(report).Should().Be("123");
-        report.GetType().GetProperty("title")!.GetValue(report).Should().Be("My Page");
-        report.GetType().GetProperty("content")!.GetValue(report).Should().Be(SampleStorage);
-        report.GetType().GetProperty("truncated")!.GetValue(report).Should().Be(false);
-        report.GetType().GetProperty("normalized")!.GetValue(report).Should().Be(false);
+        report.GetType().GetProperty("pageId")!.GetValue(report).ShouldBe("123");
+        report.GetType().GetProperty("title")!.GetValue(report).ShouldBe("My Page");
+        report.GetType().GetProperty("content")!.GetValue(report).ShouldBe(SampleStorage);
+        report.GetType().GetProperty("truncated")!.GetValue(report).ShouldBe(false);
+        report.GetType().GetProperty("normalized")!.GetValue(report).ShouldBe(false);
         api.Verify(x => x.GetPageByIdAsync("123"), Times.Once);
         api.Verify(x => x.GetPageContentAtVersionAsync(It.IsAny<string>(), It.IsAny<int>()), Times.Never);
     }
@@ -333,8 +333,8 @@ public class ConfluenceMcpToolsTests
         var normContent = (string)normalized.GetType().GetProperty("report")!.GetValue(normalized)!
             .GetType().GetProperty("content")!.GetValue(normalized.GetType().GetProperty("report")!.GetValue(normalized)!)!;
 
-        rawContent.Should().Be(withQuirkySpacing);
-        normContent.Should().NotBe(withQuirkySpacing); // canonicalisation must change something
+        rawContent.ShouldBe(withQuirkySpacing);
+        normContent.ShouldNotBe(withQuirkySpacing); // canonicalisation must change something
     }
 
     [Fact]
@@ -351,9 +351,9 @@ public class ConfluenceMcpToolsTests
 
         AssertSuccess(result);
         var report = result.GetType().GetProperty("report")!.GetValue(result)!;
-        report.GetType().GetProperty("truncated")!.GetValue(report).Should().Be(true);
-        ((int)report.GetType().GetProperty("fullSize")!.GetValue(report)!).Should().Be(5000);
-        ((int)report.GetType().GetProperty("contentLength")!.GetValue(report)!).Should().BeLessThanOrEqualTo(1024);
+        report.GetType().GetProperty("truncated")!.GetValue(report).ShouldBe(true);
+        ((int)report.GetType().GetProperty("fullSize")!.GetValue(report)!).ShouldBe(5000);
+        ((int)report.GetType().GetProperty("contentLength")!.GetValue(report)!).ShouldBeLessThanOrEqualTo(1024);
     }
 
     [Fact]
@@ -372,15 +372,15 @@ public class ConfluenceMcpToolsTests
     private static void AssertSuccess(object result)
     {
         var success = result.GetType().GetProperty("success")!.GetValue(result);
-        success.Should().Be(true, "expected a success envelope, got {0}",
-            result.GetType().GetProperty("errorCode")?.GetValue(result));
+        success.ShouldBe(true,
+            $"expected a success envelope, got {result.GetType().GetProperty("errorCode")?.GetValue(result)}");
     }
 
     private static void AssertError(object result, string expectedCode)
     {
         var success = result.GetType().GetProperty("success")!.GetValue(result);
-        success.Should().Be(false);
+        success.ShouldBe(false);
         var errorCode = result.GetType().GetProperty("errorCode")!.GetValue(result) as string;
-        errorCode.Should().Be(expectedCode);
+        errorCode.ShouldBe(expectedCode);
     }
 }

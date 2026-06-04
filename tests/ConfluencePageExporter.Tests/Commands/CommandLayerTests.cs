@@ -1,5 +1,5 @@
 using ConfluencePageExporter.Infrastructure;
-using FluentAssertions;
+using Shouldly;
 
 namespace ConfluencePageExporter.Tests.Commands;
 
@@ -10,8 +10,8 @@ public class CommandLayerTests
     {
         var root = CommandDefinitions.Build();
 
-        root.Subcommands.Select(c => c.Name)
-            .Should().Contain(["download", "upload", "compare", "config"]);
+        new[] { "download", "upload", "compare", "config" }
+            .ShouldBeSubsetOf(root.Subcommands.Select(c => c.Name));
     }
 
     [Fact]
@@ -20,11 +20,12 @@ public class CommandLayerTests
         var root = CommandDefinitions.Build();
 
         var optionNames = root.Options.Select(o => o.Name).ToList();
-        optionNames.Should().Contain([
+        new[]
+        {
             "--config", "--verbose",
             "--base-url", "--username", "--token", "--space-key", "--auth-type",
             "--dry-run", "--recursive", "--report"
-        ]);
+        }.ShouldBeSubsetOf(optionNames);
     }
 
     [Fact]
@@ -33,7 +34,7 @@ public class CommandLayerTests
         var root = CommandDefinitions.Build();
         var download = root.Subcommands.First(c => c.Name == "download");
 
-        download.Subcommands.Select(c => c.Name).Should().Contain(["update", "merge"]);
+        new[] { "update", "merge" }.ShouldBeSubsetOf(download.Subcommands.Select(c => c.Name));
     }
 
     [Fact]
@@ -44,7 +45,7 @@ public class CommandLayerTests
         var update = download.Subcommands.First(c => c.Name == "update");
 
         var optionNames = update.Options.Select(o => o.Name).ToList();
-        optionNames.Should().Contain(["--page-id", "--page-title", "--output-dir"]);
+        new[] { "--page-id", "--page-title", "--output-dir" }.ShouldBeSubsetOf(optionNames);
     }
 
     [Fact]
@@ -53,7 +54,7 @@ public class CommandLayerTests
         var root = CommandDefinitions.Build();
         var upload = root.Subcommands.First(c => c.Name == "upload");
 
-        upload.Subcommands.Select(c => c.Name).Should().Contain(["update", "create", "merge"]);
+        new[] { "update", "create", "merge" }.ShouldBeSubsetOf(upload.Subcommands.Select(c => c.Name));
     }
 
     [Fact]
@@ -64,7 +65,7 @@ public class CommandLayerTests
         var update = upload.Subcommands.First(c => c.Name == "update");
 
         var optionNames = update.Options.Select(o => o.Name).ToList();
-        optionNames.Should().Contain(["--source-dir", "--page-id", "--page-title"]);
+        new[] { "--source-dir", "--page-id", "--page-title" }.ShouldBeSubsetOf(optionNames);
     }
 
     [Fact]
@@ -75,7 +76,7 @@ public class CommandLayerTests
         var create = upload.Subcommands.First(c => c.Name == "create");
 
         var optionNames = create.Options.Select(o => o.Name).ToList();
-        optionNames.Should().Contain(["--source-dir", "--parent-id", "--parent-title"]);
+        new[] { "--source-dir", "--parent-id", "--parent-title" }.ShouldBeSubsetOf(optionNames);
     }
 
     [Fact]
@@ -85,7 +86,7 @@ public class CommandLayerTests
         var compare = root.Subcommands.First(c => c.Name == "compare");
 
         var optionNames = compare.Options.Select(o => o.Name).ToList();
-        optionNames.Should().Contain(["--page-id", "--page-title", "--output-dir", "--match-by-title"]);
+        new[] { "--page-id", "--page-title", "--output-dir", "--match-by-title" }.ShouldBeSubsetOf(optionNames);
     }
 
     [Fact]
@@ -96,11 +97,12 @@ public class CommandLayerTests
         var show = config.Subcommands.First(c => c.Name == "show");
 
         var optionNames = show.Options.Select(o => o.Name).ToList();
-        optionNames.Should().Contain([
+        new[]
+        {
             "--page-id", "--page-title", "--output-dir",
             "--source-dir",
             "--parent-id", "--parent-title", "--match-by-title", "--detect-source"
-        ]);
+        }.ShouldBeSubsetOf(optionNames);
     }
 
     [Fact]
@@ -108,13 +110,13 @@ public class CommandLayerTests
     {
         var root = CommandDefinitions.Build();
 
-        root.Parse("download update --base-url https://x.com --page-id 1").Errors.Should().BeEmpty();
-        root.Parse("download merge --base-url https://x.com --page-id 1").Errors.Should().BeEmpty();
-        root.Parse("upload update --token t --source-dir ./src").Errors.Should().BeEmpty();
-        root.Parse("upload create --username u --source-dir ./src").Errors.Should().BeEmpty();
-        root.Parse("upload merge --token t --source-dir ./src").Errors.Should().BeEmpty();
-        root.Parse("compare --space-key S --page-id 1").Errors.Should().BeEmpty();
-        root.Parse("config show --base-url https://x.com --page-id 1").Errors.Should().BeEmpty();
+        root.Parse("download update --base-url https://x.com --page-id 1").Errors.ShouldBeEmpty();
+        root.Parse("download merge --base-url https://x.com --page-id 1").Errors.ShouldBeEmpty();
+        root.Parse("upload update --token t --source-dir ./src").Errors.ShouldBeEmpty();
+        root.Parse("upload create --username u --source-dir ./src").Errors.ShouldBeEmpty();
+        root.Parse("upload merge --token t --source-dir ./src").Errors.ShouldBeEmpty();
+        root.Parse("compare --space-key S --page-id 1").Errors.ShouldBeEmpty();
+        root.Parse("config show --base-url https://x.com --page-id 1").Errors.ShouldBeEmpty();
     }
 
     [Fact]
@@ -123,6 +125,6 @@ public class CommandLayerTests
         var root = CommandDefinitions.Build();
         var pr = root.Parse("nonexistent");
 
-        pr.Errors.Should().NotBeEmpty();
+        pr.Errors.ShouldNotBeEmpty();
     }
 }

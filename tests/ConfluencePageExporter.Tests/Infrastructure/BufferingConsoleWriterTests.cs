@@ -1,5 +1,5 @@
 using ConfluencePageExporter.Infrastructure;
-using FluentAssertions;
+using Shouldly;
 
 namespace ConfluencePageExporter.Tests.Infrastructure;
 
@@ -13,7 +13,7 @@ public class BufferingConsoleWriterTests
         w.WriteLine("second");
         w.WriteLine();
 
-        w.Lines.Should().Equal("first", "second", "");
+        w.Lines.ShouldBe(["first", "second", ""]);
     }
 
     [Fact]
@@ -24,7 +24,7 @@ public class BufferingConsoleWriterTests
         w.Write("world");
         w.WriteLine("!");
 
-        w.Lines.Should().Equal("hello world!");
+        w.Lines.ShouldBe(["hello world!"]);
     }
 
     [Fact]
@@ -34,12 +34,12 @@ public class BufferingConsoleWriterTests
         w.WriteLine("done");
         w.Write("partial");
 
-        w.Lines.Should().Equal("done", "partial");
+        w.Lines.ShouldBe(["done", "partial"]);
     }
 
     [Fact]
     public void Lines_ShouldBeEmpty_OnFreshInstance()
     {
-        new BufferingConsoleWriter().Lines.Should().BeEmpty();
+        new BufferingConsoleWriter().Lines.ShouldBeEmpty();
     }
 }

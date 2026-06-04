@@ -1,5 +1,5 @@
 using ConfluencePageExporter.Infrastructure;
-using FluentAssertions;
+using Shouldly;
 
 namespace ConfluencePageExporter.Tests.Infrastructure;
 
@@ -11,7 +11,7 @@ public class PathNormalizerTests
     [InlineData("  ", null)]
     public void Normalize_ShouldReturnInput_WhenNullOrWhitespace(string? input, string? _)
     {
-        PathNormalizer.Normalize(input).Should().Be(input);
+        PathNormalizer.Normalize(input).ShouldBe(input);
     }
 
     [Theory]
@@ -24,18 +24,18 @@ public class PathNormalizerTests
     [InlineData("'single'", "single")]
     public void Normalize_ShouldHandleQuotesAndEscapedSpaces(string input, string expected)
     {
-        PathNormalizer.Normalize(input).Should().Be(expected);
+        PathNormalizer.Normalize(input).ShouldBe(expected);
     }
 
     [Fact]
     public void Normalize_ShouldNotStripMismatchedQuotes()
     {
-        PathNormalizer.Normalize("\"mixed'").Should().Be("\"mixed'");
+        PathNormalizer.Normalize("\"mixed'").ShouldBe("\"mixed'");
     }
 
     [Fact]
     public void Normalize_ShouldTrimWhitespace()
     {
-        PathNormalizer.Normalize("  /tmp/dir  ").Should().Be("/tmp/dir");
+        PathNormalizer.Normalize("  /tmp/dir  ").ShouldBe("/tmp/dir");
     }
 }

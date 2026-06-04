@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using ConfluencePageExporter.Infrastructure;
-using FluentAssertions;
+using Shouldly;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ConfluencePageExporter.Tests.Infrastructure;
@@ -32,8 +32,8 @@ public class RetryingHttpHandlerTests
 
         var response = await client.GetAsync("http://example.com/", TestContext.Current.CancellationToken);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        inner.AttemptCount.Should().Be(3);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        inner.AttemptCount.ShouldBe(3);
     }
 
     [Fact]
@@ -46,8 +46,8 @@ public class RetryingHttpHandlerTests
 
         var response = await client.GetAsync("http://example.com/", TestContext.Current.CancellationToken);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        inner.AttemptCount.Should().Be(2);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        inner.AttemptCount.ShouldBe(2);
     }
 
     [Fact]
@@ -60,8 +60,8 @@ public class RetryingHttpHandlerTests
 
         var response = await client.GetAsync("http://example.com/", TestContext.Current.CancellationToken);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        inner.AttemptCount.Should().Be(2);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        inner.AttemptCount.ShouldBe(2);
     }
 
     [Fact]
@@ -72,8 +72,8 @@ public class RetryingHttpHandlerTests
 
         var act = async () => await client.GetAsync("http://example.com/", TestContext.Current.CancellationToken);
 
-        await act.Should().ThrowAsync<HttpRequestException>().WithMessage("perma-down");
-        inner.AttemptCount.Should().Be(3);
+        (await Should.ThrowAsync<HttpRequestException>(act)).Message.ShouldContain("perma-down");
+        inner.AttemptCount.ShouldBe(3);
     }
 
     [Fact]
@@ -87,8 +87,8 @@ public class RetryingHttpHandlerTests
 
         var response = await client.GetAsync("http://example.com/", TestContext.Current.CancellationToken);
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadGateway);
-        inner.AttemptCount.Should().Be(3);
+        response.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
+        inner.AttemptCount.ShouldBe(3);
     }
 
     // ── Non-transient: do not retry ──────────────────────────────────────
@@ -101,8 +101,8 @@ public class RetryingHttpHandlerTests
 
         var response = await client.GetAsync("http://example.com/", TestContext.Current.CancellationToken);
 
-        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        inner.AttemptCount.Should().Be(1);
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        inner.AttemptCount.ShouldBe(1);
     }
 
     [Fact]
@@ -113,8 +113,8 @@ public class RetryingHttpHandlerTests
 
         var response = await client.GetAsync("http://example.com/", TestContext.Current.CancellationToken);
 
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        inner.AttemptCount.Should().Be(1);
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        inner.AttemptCount.ShouldBe(1);
     }
 
     [Fact]
@@ -126,8 +126,8 @@ public class RetryingHttpHandlerTests
 
         var response = await client.GetAsync("http://example.com/", TestContext.Current.CancellationToken);
 
-        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
-        inner.AttemptCount.Should().Be(1);
+        response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+        inner.AttemptCount.ShouldBe(1);
     }
 
     // ── Non-idempotent: never retry ──────────────────────────────────────
@@ -142,8 +142,8 @@ public class RetryingHttpHandlerTests
 
         var act = async () => await client.PostAsync("http://example.com/", new StringContent("{}"), TestContext.Current.CancellationToken);
 
-        await act.Should().ThrowAsync<HttpRequestException>();
-        inner.AttemptCount.Should().Be(1);
+        await Should.ThrowAsync<HttpRequestException>(act);
+        inner.AttemptCount.ShouldBe(1);
     }
 
     [Fact]
@@ -154,8 +154,8 @@ public class RetryingHttpHandlerTests
 
         var response = await client.PostAsync("http://example.com/", new StringContent("{}"), TestContext.Current.CancellationToken);
 
-        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
-        inner.AttemptCount.Should().Be(1);
+        response.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
+        inner.AttemptCount.ShouldBe(1);
     }
 
     // ── Cancellation ─────────────────────────────────────────────────────
@@ -178,7 +178,7 @@ public class RetryingHttpHandlerTests
         // Either HttpRequestException (caught before cancellation check) or
         // OperationCanceledException (the Task.Delay throws on cancel). The
         // contract is "do not silently succeed".
-        await act.Should().ThrowAsync<Exception>();
+        await Should.ThrowAsync<Exception>(act);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

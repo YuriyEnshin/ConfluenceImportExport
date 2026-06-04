@@ -1,5 +1,5 @@
 using ConfluencePageExporter.Infrastructure;
-using FluentAssertions;
+using Shouldly;
 
 namespace ConfluencePageExporter.Tests.Infrastructure;
 
@@ -13,11 +13,11 @@ public class CliOverrideBuilderTests
 
         var overrides = CliOverrideBuilder.Build(pr, "download update");
 
-        overrides.Should().ContainKey("Global:BaseUrl").WhoseValue.Should().Be("https://x.com");
-        overrides.Should().ContainKey("Global:Username").WhoseValue.Should().Be("u");
-        overrides.Should().ContainKey("Global:Token").WhoseValue.Should().Be("t");
-        overrides.Should().ContainKey("Global:SpaceKey").WhoseValue.Should().Be("S");
-        overrides.Should().ContainKey("Global:DryRun").WhoseValue.Should().Be("True");
+        overrides.ShouldContainKeyAndValue("Global:BaseUrl", "https://x.com");
+        overrides.ShouldContainKeyAndValue("Global:Username", "u");
+        overrides.ShouldContainKeyAndValue("Global:Token", "t");
+        overrides.ShouldContainKeyAndValue("Global:SpaceKey", "S");
+        overrides.ShouldContainKeyAndValue("Global:DryRun", "True");
     }
 
     [Fact]
@@ -28,9 +28,9 @@ public class CliOverrideBuilderTests
 
         var overrides = CliOverrideBuilder.Build(pr, "download update");
 
-        overrides.Should().ContainKey("Download:Update:PageId").WhoseValue.Should().Be("123");
-        overrides.Should().ContainKey("Download:Update:OutputDir").WhoseValue.Should().Be("./out");
-        overrides.Should().ContainKey("Download:Update:Recursive").WhoseValue.Should().Be("True");
+        overrides.ShouldContainKeyAndValue("Download:Update:PageId", "123");
+        overrides.ShouldContainKeyAndValue("Download:Update:OutputDir", "./out");
+        overrides.ShouldContainKeyAndValue("Download:Update:Recursive", "True");
     }
 
     [Fact]
@@ -41,9 +41,9 @@ public class CliOverrideBuilderTests
 
         var overrides = CliOverrideBuilder.Build(pr, "download merge");
 
-        overrides.Should().ContainKey("Download:Merge:PageId").WhoseValue.Should().Be("123");
-        overrides.Should().ContainKey("Download:Merge:OutputDir").WhoseValue.Should().Be("./out");
-        overrides.Should().ContainKey("Global:Report").WhoseValue.Should().Be("True");
+        overrides.ShouldContainKeyAndValue("Download:Merge:PageId", "123");
+        overrides.ShouldContainKeyAndValue("Download:Merge:OutputDir", "./out");
+        overrides.ShouldContainKeyAndValue("Global:Report", "True");
     }
 
     [Fact]
@@ -54,8 +54,8 @@ public class CliOverrideBuilderTests
 
         var overrides = CliOverrideBuilder.Build(pr, "upload update");
 
-        overrides.Should().ContainKey("Upload:Update:SourceDir").WhoseValue.Should().Be("./src");
-        overrides.Should().ContainKey("Upload:Update:PageId").WhoseValue.Should().Be("1");
+        overrides.ShouldContainKeyAndValue("Upload:Update:SourceDir", "./src");
+        overrides.ShouldContainKeyAndValue("Upload:Update:PageId", "1");
     }
 
     [Fact]
@@ -66,9 +66,9 @@ public class CliOverrideBuilderTests
 
         var overrides = CliOverrideBuilder.Build(pr, "upload merge");
 
-        overrides.Should().ContainKey("Upload:Merge:SourceDir").WhoseValue.Should().Be("./src");
-        overrides.Should().ContainKey("Upload:Merge:PageId").WhoseValue.Should().Be("1");
-        overrides.Should().ContainKey("Global:Report").WhoseValue.Should().Be("True");
+        overrides.ShouldContainKeyAndValue("Upload:Merge:SourceDir", "./src");
+        overrides.ShouldContainKeyAndValue("Upload:Merge:PageId", "1");
+        overrides.ShouldContainKeyAndValue("Global:Report", "True");
     }
 
     [Fact]
@@ -79,9 +79,9 @@ public class CliOverrideBuilderTests
 
         var overrides = CliOverrideBuilder.Build(pr, "upload create");
 
-        overrides.Should().ContainKey("Upload:Create:SourceDir").WhoseValue.Should().Be("./src");
-        overrides.Should().ContainKey("Upload:Create:ParentId").WhoseValue.Should().Be("99");
-        overrides.Should().ContainKey("Upload:Create:Recursive").WhoseValue.Should().Be("True");
+        overrides.ShouldContainKeyAndValue("Upload:Create:SourceDir", "./src");
+        overrides.ShouldContainKeyAndValue("Upload:Create:ParentId", "99");
+        overrides.ShouldContainKeyAndValue("Upload:Create:Recursive", "True");
     }
 
     [Fact]
@@ -92,9 +92,9 @@ public class CliOverrideBuilderTests
 
         var overrides = CliOverrideBuilder.Build(pr, "compare");
 
-        overrides.Should().ContainKey("Compare:PageTitle").WhoseValue.Should().Be("MyPage");
-        overrides.Should().ContainKey("Compare:OutputDir").WhoseValue.Should().Be("./out");
-        overrides.Should().ContainKey("Compare:MatchByTitle").WhoseValue.Should().Be("True");
+        overrides.ShouldContainKeyAndValue("Compare:PageTitle", "MyPage");
+        overrides.ShouldContainKeyAndValue("Compare:OutputDir", "./out");
+        overrides.ShouldContainKeyAndValue("Compare:MatchByTitle", "True");
     }
 
     [Fact]
@@ -105,10 +105,10 @@ public class CliOverrideBuilderTests
 
         var overrides = CliOverrideBuilder.Build(pr, "download update");
 
-        overrides.Should().ContainKey("Download:Update:PageId");
-        overrides.Should().NotContainKey("Download:Update:OutputDir");
-        overrides.Should().NotContainKey("Download:Update:Recursive");
-        overrides.Should().NotContainKey("Global:BaseUrl");
+        overrides.ShouldContainKey("Download:Update:PageId");
+        overrides.ShouldNotContainKey("Download:Update:OutputDir");
+        overrides.ShouldNotContainKey("Download:Update:Recursive");
+        overrides.ShouldNotContainKey("Global:BaseUrl");
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public class CliOverrideBuilderTests
 
         var overrides = CliOverrideBuilder.Build(pr, "download update");
 
-        overrides.Should().ContainKey("Download:Update:OutputDir").WhoseValue.Should().Be("/tmp/My Dir");
+        overrides.ShouldContainKeyAndValue("Download:Update:OutputDir", "/tmp/My Dir");
     }
 
     [Fact]
@@ -130,8 +130,8 @@ public class CliOverrideBuilderTests
 
         var overrides = CliOverrideBuilder.Build(pr, "download update");
 
-        overrides.Should().ContainKey("Global:BaseUrl").WhoseValue.Should().Be("https://x.com");
-        overrides.Should().ContainKey("Download:Update:PageId").WhoseValue.Should().Be("1");
+        overrides.ShouldContainKeyAndValue("Global:BaseUrl", "https://x.com");
+        overrides.ShouldContainKeyAndValue("Download:Update:PageId", "1");
     }
 
     [Fact]
@@ -142,22 +142,22 @@ public class CliOverrideBuilderTests
 
         var overrides = CliOverrideBuilder.Build(pr, "config show");
 
-        overrides.Should().ContainKey("Download:Update:PageId").WhoseValue.Should().Be("42");
-        overrides.Should().ContainKey("Download:Merge:PageId").WhoseValue.Should().Be("42");
-        overrides.Should().ContainKey("Upload:Update:PageId").WhoseValue.Should().Be("42");
-        overrides.Should().ContainKey("Upload:Merge:PageId").WhoseValue.Should().Be("42");
-        overrides.Should().ContainKey("Compare:PageId").WhoseValue.Should().Be("42");
+        overrides.ShouldContainKeyAndValue("Download:Update:PageId", "42");
+        overrides.ShouldContainKeyAndValue("Download:Merge:PageId", "42");
+        overrides.ShouldContainKeyAndValue("Upload:Update:PageId", "42");
+        overrides.ShouldContainKeyAndValue("Upload:Merge:PageId", "42");
+        overrides.ShouldContainKeyAndValue("Compare:PageId", "42");
 
-        overrides.Should().ContainKey("Download:Update:Recursive").WhoseValue.Should().Be("True");
-        overrides.Should().ContainKey("Download:Merge:Recursive").WhoseValue.Should().Be("True");
-        overrides.Should().ContainKey("Upload:Update:Recursive").WhoseValue.Should().Be("True");
-        overrides.Should().ContainKey("Upload:Create:Recursive").WhoseValue.Should().Be("True");
-        overrides.Should().ContainKey("Upload:Merge:Recursive").WhoseValue.Should().Be("True");
-        overrides.Should().ContainKey("Compare:Recursive").WhoseValue.Should().Be("True");
+        overrides.ShouldContainKeyAndValue("Download:Update:Recursive", "True");
+        overrides.ShouldContainKeyAndValue("Download:Merge:Recursive", "True");
+        overrides.ShouldContainKeyAndValue("Upload:Update:Recursive", "True");
+        overrides.ShouldContainKeyAndValue("Upload:Create:Recursive", "True");
+        overrides.ShouldContainKeyAndValue("Upload:Merge:Recursive", "True");
+        overrides.ShouldContainKeyAndValue("Compare:Recursive", "True");
 
-        overrides.Should().ContainKey("Upload:Update:SourceDir").WhoseValue.Should().Be("./src");
-        overrides.Should().ContainKey("Upload:Create:SourceDir").WhoseValue.Should().Be("./src");
-        overrides.Should().ContainKey("Upload:Merge:SourceDir").WhoseValue.Should().Be("./src");
+        overrides.ShouldContainKeyAndValue("Upload:Update:SourceDir", "./src");
+        overrides.ShouldContainKeyAndValue("Upload:Create:SourceDir", "./src");
+        overrides.ShouldContainKeyAndValue("Upload:Merge:SourceDir", "./src");
     }
 
     [Fact]
@@ -168,7 +168,7 @@ public class CliOverrideBuilderTests
 
         var overrides = CliOverrideBuilder.Build(pr, "config show");
 
-        overrides.Should().ContainKey("Global:BaseUrl").WhoseValue.Should().Be("https://x.com");
-        overrides.Should().ContainKey("Global:DryRun").WhoseValue.Should().Be("True");
+        overrides.ShouldContainKeyAndValue("Global:BaseUrl", "https://x.com");
+        overrides.ShouldContainKeyAndValue("Global:DryRun", "True");
     }
 }

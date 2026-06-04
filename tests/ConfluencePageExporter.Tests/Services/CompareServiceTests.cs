@@ -1,7 +1,7 @@
 using ConfluencePageExporter.Models;
 using ConfluencePageExporter.Services;
 using ConfluencePageExporter.Tests.Helpers;
-using FluentAssertions;
+using Shouldly;
 using Moq;
 
 namespace ConfluencePageExporter.Tests.Services;
@@ -26,7 +26,7 @@ public class CompareServiceTests
 
         var act = () => service.CompareAsync("SPACE", null, "Root", outputDir, recursive: false);
 
-        await act.Should().ThrowAsync<InvalidOperationException>();
+        await Should.ThrowAsync<InvalidOperationException>(act);
     }
 
     [Fact]
@@ -49,9 +49,9 @@ public class CompareServiceTests
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
 
-        report.AddedInConfluence.Should().ContainSingle(x => x.PageId == "2");
-        report.DeletedInConfluence.Should().BeEmpty();
-        report.RenamedOrMovedInConfluence.Should().BeEmpty();
+        report.AddedInConfluence.Where(x => x.PageId == "2").ShouldHaveSingleItem();
+        report.DeletedInConfluence.ShouldBeEmpty();
+        report.RenamedOrMovedInConfluence.ShouldBeEmpty();
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class CompareServiceTests
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
 
-        report.DeletedInConfluence.Should().ContainSingle(x => x.PageId == "2");
+        report.DeletedInConfluence.Where(x => x.PageId == "2").ShouldHaveSingleItem();
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public class CompareServiceTests
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
 
-        report.RenamedOrMovedInConfluence.Should().ContainSingle(x => x.PageId == "2");
+        report.RenamedOrMovedInConfluence.Where(x => x.PageId == "2").ShouldHaveSingleItem();
     }
 
     [Fact]
@@ -118,7 +118,7 @@ public class CompareServiceTests
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
 
-        report.ContentChanged.Should().ContainSingle(x => x.PageId == "2");
+        report.ContentChanged.Where(x => x.PageId == "2").ShouldHaveSingleItem();
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public class CompareServiceTests
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: false);
 
-        report.ContentChanged.Should().BeEmpty();
+        report.ContentChanged.ShouldBeEmpty();
     }
 
     [Fact]
@@ -156,8 +156,8 @@ public class CompareServiceTests
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: false, matchByTitleWhenNoId: true);
 
-        report.AddedInConfluence.Should().BeEmpty();
-        report.Notes.Should().Contain(n => n.Contains("matched by title/folder name", StringComparison.OrdinalIgnoreCase));
+        report.AddedInConfluence.ShouldBeEmpty();
+        report.Notes.ShouldContain(n => n.Contains("matched by title/folder name", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -176,7 +176,7 @@ public class CompareServiceTests
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: false);
 
-        report.DeletedInConfluence.Should().BeEmpty();
+        report.DeletedInConfluence.ShouldBeEmpty();
     }
 
     [Fact]
@@ -200,10 +200,10 @@ public class CompareServiceTests
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
 
-        report.ContentChanged.Should().ContainSingle();
+        report.ContentChanged.ShouldHaveSingleItem();
         var changed = report.ContentChanged[0];
-        changed.ChangeSource.Should().NotBeNull();
-        changed.ChangeSource!.Origin.Should().Be(ChangeOrigin.Server);
+        changed.ChangeSource.ShouldNotBeNull();
+        changed.ChangeSource!.Origin.ShouldBe(ChangeOrigin.Server);
     }
 
     [Fact]
@@ -234,10 +234,10 @@ public class CompareServiceTests
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
 
-        report.Conflicts.Should().ContainSingle(x => x.PageId == "2");
-        report.Conflicts[0].ChangeSource.Should().NotBeNull();
-        report.Conflicts[0].ChangeSource!.Origin.Should().Be(ChangeOrigin.Conflict);
-        report.ContentChanged.Should().NotContain(x => x.PageId == "2");
+        report.Conflicts.Where(x => x.PageId == "2").ShouldHaveSingleItem();
+        report.Conflicts[0].ChangeSource.ShouldNotBeNull();
+        report.Conflicts[0].ChangeSource!.Origin.ShouldBe(ChangeOrigin.Conflict);
+        report.ContentChanged.ShouldNotContain(x => x.PageId == "2");
     }
 
     [Fact]
@@ -270,11 +270,11 @@ public class CompareServiceTests
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true,
             matchByTitleWhenNoId: false, detectSource: true);
 
-        report.RenamedOrMovedInConfluence.Should().ContainSingle();
+        report.RenamedOrMovedInConfluence.ShouldHaveSingleItem();
         var renamed = report.RenamedOrMovedInConfluence[0];
-        renamed.RenameSource.Should().NotBeNull();
-        renamed.RenameSource!.Origin.Should().Be(ChangeOrigin.Server);
-        renamed.RenameSource.Confidence.Should().Be(ChangeConfidence.High);
+        renamed.RenameSource.ShouldNotBeNull();
+        renamed.RenameSource!.Origin.ShouldBe(ChangeOrigin.Server);
+        renamed.RenameSource.Confidence.ShouldBe(ChangeConfidence.High);
     }
 
     [Fact]
@@ -295,9 +295,9 @@ public class CompareServiceTests
 
         var report = await service.CompareAsync("SPACE", "400", null, outputDir, recursive: false);
 
-        report.RenamedOrMovedInConfluence.Should().ContainSingle(x => x.PageId == "400");
+        report.RenamedOrMovedInConfluence.Where(x => x.PageId == "400").ShouldHaveSingleItem();
         var moved = report.RenamedOrMovedInConfluence[0];
-        moved.MoveSource.Should().NotBeNull();
+        moved.MoveSource.ShouldNotBeNull();
     }
 
     [Fact]
@@ -317,7 +317,7 @@ public class CompareServiceTests
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: false);
 
-        report.RenamedOrMovedInConfluence.Should().BeEmpty();
+        report.RenamedOrMovedInConfluence.ShouldBeEmpty();
     }
 
     [Fact]
@@ -336,7 +336,7 @@ public class CompareServiceTests
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: false);
 
-        report.RenamedOrMovedInConfluence.Should().BeEmpty();
+        report.RenamedOrMovedInConfluence.ShouldBeEmpty();
     }
 
     [Fact]
@@ -359,8 +359,8 @@ public class CompareServiceTests
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
 
-        report.AddedInConfluence.Should().BeEmpty();
-        report.DeletedInConfluence.Should().BeEmpty();
+        report.AddedInConfluence.ShouldBeEmpty();
+        report.DeletedInConfluence.ShouldBeEmpty();
         api.Verify(x => x.GetChildrenPagesAsync(It.IsAny<string>()), Times.Never);
     }
 
@@ -409,8 +409,7 @@ public class CompareServiceTests
 
         var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
 
-        report.AddedInConfluence.Should().HaveCount(10);
-        report.AddedInConfluence.Select(p => p.PageId).Should()
-            .BeEquivalentTo(children.Select(c => c.Id));
+        report.AddedInConfluence.Count().ShouldBe(10);
+        report.AddedInConfluence.Select(p => p.PageId).ShouldBe(children.Select(c => c.Id), ignoreOrder: true);
     }
 }

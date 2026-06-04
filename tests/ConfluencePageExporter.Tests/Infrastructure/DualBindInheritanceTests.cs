@@ -1,5 +1,5 @@
 using ConfluencePageExporter.Options;
-using FluentAssertions;
+using Shouldly;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -26,8 +26,8 @@ public class DualBindInheritanceTests
         var opts = services.BuildServiceProvider()
             .GetRequiredService<Microsoft.Extensions.Options.IOptions<DownloadUpdateOptions>>().Value;
 
-        opts.PageId.Should().Be("100");
-        opts.OutputDir.Should().Be("/shared");
+        opts.PageId.ShouldBe("100");
+        opts.OutputDir.ShouldBe("/shared");
     }
 
     [Fact]
@@ -50,8 +50,8 @@ public class DualBindInheritanceTests
         var opts = services.BuildServiceProvider()
             .GetRequiredService<Microsoft.Extensions.Options.IOptions<DownloadUpdateOptions>>().Value;
 
-        opts.PageId.Should().Be("100", "inherited from parent");
-        opts.OutputDir.Should().Be("/override", "overridden by subcommand");
+        opts.PageId.ShouldBe("100", "inherited from parent");
+        opts.OutputDir.ShouldBe("/override", "overridden by subcommand");
     }
 
     [Fact]
@@ -79,11 +79,11 @@ public class DualBindInheritanceTests
         var update = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<DownloadUpdateOptions>>().Value;
         var merge = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<DownloadMergeOptions>>().Value;
 
-        update.PageId.Should().Be("100");
-        update.OutputDir.Should().Be("/update-dir");
+        update.PageId.ShouldBe("100");
+        update.OutputDir.ShouldBe("/update-dir");
 
-        merge.PageId.Should().Be("100");
-        merge.OutputDir.Should().Be("/merge-dir");
+        merge.PageId.ShouldBe("100");
+        merge.OutputDir.ShouldBe("/merge-dir");
     }
 
     [Fact]
@@ -115,14 +115,14 @@ public class DualBindInheritanceTests
         var create = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<UploadCreateOptions>>().Value;
         var merge = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<UploadMergeOptions>>().Value;
 
-        update.SourceDir.Should().Be("/shared-src");
-        update.PageId.Should().Be("200");
+        update.SourceDir.ShouldBe("/shared-src");
+        update.PageId.ShouldBe("200");
 
-        create.SourceDir.Should().Be("/shared-src");
-        create.ParentTitle.Should().Be("Root");
+        create.SourceDir.ShouldBe("/shared-src");
+        create.ParentTitle.ShouldBe("Root");
 
-        merge.SourceDir.Should().Be("/shared-src");
-        merge.PageTitle.Should().Be("MergePage");
+        merge.SourceDir.ShouldBe("/shared-src");
+        merge.PageTitle.ShouldBe("MergePage");
     }
 
     [Fact]
@@ -149,12 +149,12 @@ public class DualBindInheritanceTests
         var update = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<DownloadUpdateOptions>>().Value;
         var merge = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<DownloadMergeOptions>>().Value;
 
-        update.PageId.Should().Be("100");
-        update.OutputDir.Should().Be("/shared");
-        update.Recursive.Should().BeTrue();
+        update.PageId.ShouldBe("100");
+        update.OutputDir.ShouldBe("/shared");
+        update.Recursive.ShouldBe(true);
 
-        merge.PageId.Should().Be("100");
-        merge.OutputDir.Should().Be("/shared");
-        merge.Recursive.Should().BeTrue();
+        merge.PageId.ShouldBe("100");
+        merge.OutputDir.ShouldBe("/shared");
+        merge.Recursive.ShouldBe(true);
     }
 }
