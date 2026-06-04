@@ -1,6 +1,6 @@
 using System.Text.Json;
 using ConfluencePageExporter.Infrastructure;
-using FluentAssertions;
+using Shouldly;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Moq;
@@ -22,7 +22,7 @@ public class ToolExceptionFilterTests
         var handler = ToolExceptionFilter.Handle(next);
         var result = await handler(CreateContext("confluence_ping"), CancellationToken.None);
 
-        result.Should().BeSameAs(expected);
+        result.ShouldBeSameAs(expected);
     }
 
     [Fact]
@@ -34,14 +34,14 @@ public class ToolExceptionFilterTests
         var handler = ToolExceptionFilter.Handle(next);
         var result = await handler(CreateContext("confluence_compare"), CancellationToken.None);
 
-        result.IsError.Should().BeTrue();
-        result.Content.Should().ContainSingle();
+        result.IsError.ShouldBe(true);
+        result.Content.ShouldHaveSingleItem();
 
         var text = (result.Content[0] as TextContentBlock)!.Text;
         var envelope = JsonDocument.Parse(text).RootElement;
-        envelope.GetProperty("success").GetBoolean().Should().BeFalse();
-        envelope.GetProperty("errorCode").GetString().Should().Be("INVALID_ARGS");
-        envelope.GetProperty("error").GetString().Should().Contain("pageTitle");
+        envelope.GetProperty("success").GetBoolean().ShouldBeFalse();
+        envelope.GetProperty("errorCode").GetString().ShouldBe("INVALID_ARGS");
+        envelope.GetProperty("error").GetString()!.ShouldContain("pageTitle");
     }
 
     [Fact]
@@ -53,10 +53,10 @@ public class ToolExceptionFilterTests
         var handler = ToolExceptionFilter.Handle(next);
         var result = await handler(CreateContext("confluence_get_page_content"), CancellationToken.None);
 
-        result.IsError.Should().BeTrue();
+        result.IsError.ShouldBe(true);
         var text = (result.Content[0] as TextContentBlock)!.Text;
         var envelope = JsonDocument.Parse(text).RootElement;
-        envelope.GetProperty("errorCode").GetString().Should().Be("NETWORK_ERROR");
+        envelope.GetProperty("errorCode").GetString().ShouldBe("NETWORK_ERROR");
     }
 
     [Fact]
@@ -74,7 +74,7 @@ public class ToolExceptionFilterTests
         var handler = ToolExceptionFilter.Handle(next);
 
         var act = () => handler(CreateContext("confluence_ping"), cts.Token).AsTask();
-        await act.Should().ThrowAsync<OperationCanceledException>();
+        await Should.ThrowAsync<OperationCanceledException>(act);
     }
 
     [Fact]
@@ -86,11 +86,11 @@ public class ToolExceptionFilterTests
         var handler = ToolExceptionFilter.Handle(next);
         var result = await handler(CreateContext("confluence_download_update"), CancellationToken.None);
 
-        result.IsError.Should().BeTrue();
+        result.IsError.ShouldBe(true);
         var text = (result.Content[0] as TextContentBlock)!.Text;
         var envelope = JsonDocument.Parse(text).RootElement;
-        envelope.GetProperty("errorCode").GetString().Should().Be("OUT_OF_SANDBOX");
-        envelope.GetProperty("error").GetString().Should().Contain("/etc/passwd");
+        envelope.GetProperty("errorCode").GetString().ShouldBe("OUT_OF_SANDBOX");
+        envelope.GetProperty("error").GetString()!.ShouldContain("/etc/passwd");
     }
 
     private static RequestContext<CallToolRequestParams> CreateContext(string toolName)

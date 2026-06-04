@@ -1,5 +1,5 @@
 using ConfluencePageExporter.Infrastructure;
-using FluentAssertions;
+using Shouldly;
 
 namespace ConfluencePageExporter.Tests.Infrastructure;
 
@@ -16,9 +16,9 @@ public class AgentInstructionsLoaderTests
     {
         var instructions = AgentInstructionsLoader.TryLoad();
 
-        instructions.Should().NotBeNullOrWhiteSpace(
+        instructions.ShouldNotBeNullOrWhiteSpace(
             "the embedded agent-instructions.md must ship with the assembly");
-        instructions!.Length.Should().BeGreaterThan(500,
+        instructions!.Length.ShouldBeGreaterThan(500,
             "the cheat sheet should not be a stub");
     }
 
@@ -30,10 +30,10 @@ public class AgentInstructionsLoaderTests
         // this fires.
         var instructions = AgentInstructionsLoader.TryLoad();
 
-        instructions.Should().NotBeNull();
-        instructions!.Should().Contain("confluence_get_page_content");
-        instructions!.Should().Contain("confluence_ping");
-        instructions!.Should().Contain("3-way merge");
-        instructions!.Should().Contain("OUT_OF_SANDBOX");
+        instructions.ShouldNotBeNull();
+        instructions!.ShouldContain("confluence_get_page_content");
+        instructions!.ShouldContain("confluence_ping");
+        instructions!.ShouldContain("3-way merge");
+        instructions!.ShouldContain("OUT_OF_SANDBOX");
     }
 }

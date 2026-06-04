@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using ConfluencePageExporter.Infrastructure;
 using ConfluencePageExporter.Tests.Helpers;
-using FluentAssertions;
+using Shouldly;
 
 namespace ConfluencePageExporter.Tests.Infrastructure;
 
@@ -11,14 +11,14 @@ public class PathSandboxTests
     public void Constructor_ShouldThrow_WhenRootDirIsNull()
     {
         Action act = () => _ = new PathSandbox(null!);
-        act.Should().Throw<ArgumentException>();
+        Should.Throw<ArgumentException>(act);
     }
 
     [Fact]
     public void Constructor_ShouldThrow_WhenRootDirIsEmpty()
     {
         Action act = () => _ = new PathSandbox("");
-        act.Should().Throw<ArgumentException>();
+        Should.Throw<ArgumentException>(act);
     }
 
     [Fact]
@@ -29,8 +29,8 @@ public class PathSandboxTests
 
         var resolved = sandbox.Resolve("sub/dir");
 
-        resolved.Should().StartWith(scope.RootPath);
-        resolved.Should().EndWith($"sub{Path.DirectorySeparatorChar}dir");
+        resolved.ShouldStartWith(scope.RootPath);
+        resolved.ShouldEndWith($"sub{Path.DirectorySeparatorChar}dir");
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class PathSandboxTests
 
         var resolved = sandbox.Resolve(inside);
 
-        resolved.Should().Be(Path.GetFullPath(inside));
+        resolved.ShouldBe(Path.GetFullPath(inside));
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public class PathSandboxTests
 
         Action act = () => sandbox.Resolve(outside);
 
-        act.Should().Throw<OutOfSandboxException>();
+        Should.Throw<OutOfSandboxException>(act);
     }
 
     [Fact]
@@ -65,7 +65,7 @@ public class PathSandboxTests
 
         Action act = () => sandbox.Resolve("../../../etc/passwd");
 
-        act.Should().Throw<OutOfSandboxException>();
+        Should.Throw<OutOfSandboxException>(act);
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public class PathSandboxTests
 
         Action act = () => sandbox.Resolve(unrelated);
 
-        act.Should().Throw<OutOfSandboxException>();
+        Should.Throw<OutOfSandboxException>(act);
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public class PathSandboxTests
 
         var resolved = sandbox.Resolve(scope.RootPath);
 
-        resolved.Should().Be(Path.GetFullPath(scope.RootPath));
+        resolved.ShouldBe(Path.GetFullPath(scope.RootPath));
     }
 
     [Fact]
@@ -105,7 +105,7 @@ public class PathSandboxTests
         {
             var sandbox = new PathSandbox(scope.RootPath);
             Action act = () => sandbox.Resolve(sibling);
-            act.Should().Throw<OutOfSandboxException>();
+            Should.Throw<OutOfSandboxException>(act);
         }
         finally
         {
@@ -121,7 +121,7 @@ public class PathSandboxTests
 
         Action act = () => sandbox.Resolve("");
 
-        act.Should().Throw<ArgumentException>();
+        Should.Throw<ArgumentException>(act);
     }
 
     // ── Trailing-separator robustness (regression: in v2.7.0 the agent
@@ -138,8 +138,8 @@ public class PathSandboxTests
 
         var sandbox = new PathSandbox(rootWithSlash);
 
-        sandbox.RootDir.Should().NotEndWith(Path.DirectorySeparatorChar.ToString());
-        sandbox.RootDir.Should().Be(Path.GetFullPath(scope.RootPath).TrimEnd(Path.DirectorySeparatorChar));
+        sandbox.RootDir.ShouldNotEndWith(Path.DirectorySeparatorChar.ToString());
+        sandbox.RootDir.ShouldBe(Path.GetFullPath(scope.RootPath).TrimEnd(Path.DirectorySeparatorChar));
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public class PathSandboxTests
 
         var resolved = sandbox.Resolve(".");
 
-        resolved.Should().Be(Path.GetFullPath(scope.RootPath));
+        resolved.ShouldBe(Path.GetFullPath(scope.RootPath));
     }
 
     [Fact]
@@ -164,7 +164,7 @@ public class PathSandboxTests
 
         var resolved = sandbox.Resolve(".");
 
-        resolved.Should().Be(Path.GetFullPath(scope.RootPath));
+        resolved.ShouldBe(Path.GetFullPath(scope.RootPath));
     }
 
     [Fact]
@@ -176,6 +176,6 @@ public class PathSandboxTests
 
         var resolved = sandbox.Resolve("./child");
 
-        resolved.Should().Be(Path.Combine(Path.GetFullPath(scope.RootPath), "child"));
+        resolved.ShouldBe(Path.Combine(Path.GetFullPath(scope.RootPath), "child"));
     }
 }

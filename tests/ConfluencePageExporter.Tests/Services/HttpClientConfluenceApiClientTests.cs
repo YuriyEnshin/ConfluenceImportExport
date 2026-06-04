@@ -1,7 +1,7 @@
 using System.Net;
 using ConfluencePageExporter.Services;
 using ConfluencePageExporter.Tests.Helpers;
-using FluentAssertions;
+using Shouldly;
 using Newtonsoft.Json;
 
 namespace ConfluencePageExporter.Tests.Services;
@@ -17,7 +17,7 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.TryGetPageByIdAsync("123");
 
-        result.Should().BeNull();
+        result.ShouldBeNull();
     }
 
     [Fact]
@@ -30,10 +30,10 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.GetChildrenPagesAsync("10");
 
-        result.Should().HaveCount(101);
-        handler.Requests.Should().HaveCount(2);
-        handler.Requests[0].RequestUri!.ToString().Should().Contain("start=0");
-        handler.Requests[1].RequestUri!.ToString().Should().Contain("start=100");
+        result.Count().ShouldBe(101);
+        handler.Requests.Count().ShouldBe(2);
+        handler.Requests[0].RequestUri!.ToString().ShouldContain("start=0");
+        handler.Requests[1].RequestUri!.ToString().ShouldContain("start=100");
     }
 
     [Fact]
@@ -46,10 +46,10 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.GetAttachmentsAsync("20");
 
-        result.Should().HaveCount(102);
-        handler.Requests.Should().HaveCount(2);
-        handler.Requests[0].RequestUri!.ToString().Should().Contain("start=0");
-        handler.Requests[1].RequestUri!.ToString().Should().Contain("start=100");
+        result.Count().ShouldBe(102);
+        handler.Requests.Count().ShouldBe(2);
+        handler.Requests[0].RequestUri!.ToString().ShouldContain("start=0");
+        handler.Requests[1].RequestUri!.ToString().ShouldContain("start=100");
     }
 
     [Fact]
@@ -61,9 +61,9 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.FindPageByTitleAsync("DOCS", null, "Target");
 
-        result.Should().Be("55");
-        handler.Requests.Should().ContainSingle();
-        handler.Requests[0].RequestUri!.ToString().Should().Contain("/rest/api/content/search");
+        result.ShouldBe("55");
+        handler.Requests.ShouldHaveSingleItem();
+        handler.Requests[0].RequestUri!.ToString().ShouldContain("/rest/api/content/search");
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.FindPageByTitleAsync("DOCS", null, "Target");
 
-        result.Should().BeNull();
+        result.ShouldBeNull();
     }
 
     [Fact]
@@ -84,10 +84,10 @@ public class HttpClientConfluenceApiClientTests
         var handler = new StubHttpMessageHandler();
         handler.EnqueueResponder(request =>
         {
-            request.Method.Should().Be(HttpMethod.Post);
+            request.Method.ShouldBe(HttpMethod.Post);
             var body = request.Content!.ReadAsStringAsync().Result;
-            body.Should().Contain(@"""title"":""NewPage""");
-            body.Should().Contain(@"""ancestors""");
+            body.ShouldContain(@"""title"":""NewPage""");
+            body.ShouldContain(@"""ancestors""");
 
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
@@ -98,9 +98,9 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.CreatePageAsync("DOCS", "10", "NewPage", "<p>x</p>");
 
-        result.Should().NotBeNull();
-        result!.Id.Should().Be("700");
-        result.VersionNumber.Should().Be(1);
+        result.ShouldNotBeNull();
+        result!.Id.ShouldBe("700");
+        result.VersionNumber.ShouldBe(1);
     }
 
     [Fact]
@@ -112,9 +112,9 @@ public class HttpClientConfluenceApiClientTests
 
         var act = async () => await client.CreatePageAsync("DOCS", null, "NewPage", "<p>x</p>");
 
-        var ex = (await act.Should().ThrowAsync<ConfluenceApiException>()).Which;
-        ex.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        ex.Should().NotBeOfType<ConfluenceConflictException>();
+        var ex = await Should.ThrowAsync<ConfluenceApiException>(act);
+        ex.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        ex.ShouldNotBeOfType<ConfluenceConflictException>();
     }
 
     [Fact]
@@ -128,8 +128,8 @@ public class HttpClientConfluenceApiClientTests
 
         var act = async () => await client.UpdatePageAsync("900", "New", "<p>new</p>", null);
 
-        var ex = (await act.Should().ThrowAsync<ConfluenceConflictException>()).Which;
-        ex.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var ex = await Should.ThrowAsync<ConfluenceConflictException>(act);
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
     }
 
     [Fact]
@@ -142,9 +142,9 @@ public class HttpClientConfluenceApiClientTests
 
         var act = async () => await client.UpdatePageAsync("900", "New", "<p>new</p>", null);
 
-        var ex = (await act.Should().ThrowAsync<ConfluenceApiException>()).Which;
-        ex.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        ex.IsAuthFailure.Should().BeTrue();
+        var ex = await Should.ThrowAsync<ConfluenceApiException>(act);
+        ex.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        ex.IsAuthFailure.ShouldBeTrue();
     }
 
     [Fact]
@@ -154,9 +154,9 @@ public class HttpClientConfluenceApiClientTests
         handler.EnqueueResponse(HttpStatusCode.OK, """{"id":"900","title":"Old","version":{"number":3}}""");
         handler.EnqueueResponder(request =>
         {
-            request.Method.Should().Be(HttpMethod.Put);
+            request.Method.ShouldBe(HttpMethod.Put);
             var body = request.Content!.ReadAsStringAsync().Result;
-            body.Should().Contain(@"""number"":4");
+            body.ShouldContain(@"""number"":4");
 
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
@@ -168,12 +168,12 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.UpdatePageAsync("900", "New", "<p>new</p>", null);
 
-        result.Should().NotBeNull();
-        result!.Id.Should().Be("900");
-        result.VersionNumber.Should().Be(4);
-        handler.Requests.Should().HaveCount(2);
-        handler.Requests[0].Method.Should().Be(HttpMethod.Get);
-        handler.Requests[1].Method.Should().Be(HttpMethod.Put);
+        result.ShouldNotBeNull();
+        result!.Id.ShouldBe("900");
+        result.VersionNumber.ShouldBe(4);
+        handler.Requests.Count().ShouldBe(2);
+        handler.Requests[0].Method.ShouldBe(HttpMethod.Get);
+        handler.Requests[1].Method.ShouldBe(HttpMethod.Put);
     }
 
     [Fact]
@@ -182,7 +182,7 @@ public class HttpClientConfluenceApiClientTests
         var handler = new StubHttpMessageHandler();
         handler.EnqueueResponder(request =>
         {
-            request.RequestUri!.ToString().Should().Be("https://wiki.example.com/download/path");
+            request.RequestUri!.ToString().ShouldBe("https://wiki.example.com/download/path");
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new ByteArrayContent([1, 2, 3])
@@ -192,7 +192,7 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.DownloadAttachmentAsync("/download/path");
 
-        result.Should().Equal([1, 2, 3]);
+        result.ShouldBe([1, 2, 3]);
     }
 
     [Fact]
@@ -201,7 +201,7 @@ public class HttpClientConfluenceApiClientTests
         var handler = new StubHttpMessageHandler();
         handler.EnqueueResponder(request =>
         {
-            request.RequestUri!.ToString().Should().Be("https://cdn.example.com/file.bin");
+            request.RequestUri!.ToString().ShouldBe("https://cdn.example.com/file.bin");
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new ByteArrayContent([9, 9])
@@ -211,7 +211,7 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.DownloadAttachmentAsync("https://cdn.example.com/file.bin");
 
-        result.Should().Equal([9, 9]);
+        result.ShouldBe([9, 9]);
     }
 
     [Fact]
@@ -235,11 +235,11 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.GetPageVersionsAsync("100", 10);
 
-        result.Should().HaveCount(3);
-        result[0].Number.Should().Be(3);
-        result[2].Number.Should().Be(1);
-        handler.Requests.Should().ContainSingle();
-        handler.Requests[0].RequestUri!.ToString().Should().Contain("/rest/experimental/content/100/version");
+        result.Count().ShouldBe(3);
+        result[0].Number.ShouldBe(3);
+        result[2].Number.ShouldBe(1);
+        handler.Requests.ShouldHaveSingleItem();
+        handler.Requests[0].RequestUri!.ToString().ShouldContain("/rest/experimental/content/100/version");
     }
 
     [Fact]
@@ -251,7 +251,7 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.GetPageVersionsAsync("999");
 
-        result.Should().BeEmpty();
+        result.ShouldBeEmpty();
     }
 
     [Fact]
@@ -270,11 +270,11 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.GetPageAtVersionAsync("100", 2);
 
-        result.Should().NotBeNull();
-        result!.Title.Should().Be("OldTitle");
-        result.Ancestors.Should().ContainSingle(a => a.Title == "Parent");
-        handler.Requests[0].RequestUri!.ToString().Should().Contain("status=historical");
-        handler.Requests[0].RequestUri!.ToString().Should().Contain("version=2");
+        result.ShouldNotBeNull();
+        result!.Title.ShouldBe("OldTitle");
+        result.Ancestors.Where(a => a.Title == "Parent").ShouldHaveSingleItem();
+        handler.Requests[0].RequestUri!.ToString().ShouldContain("status=historical");
+        handler.Requests[0].RequestUri!.ToString().ShouldContain("version=2");
     }
 
     [Fact]
@@ -286,7 +286,7 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.GetPageAtVersionAsync("999", 1);
 
-        result.Should().BeNull();
+        result.ShouldBeNull();
     }
 
     [Fact]
@@ -306,10 +306,10 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.GetPageByIdAsync("100");
 
-        result.Version.Should().NotBeNull();
-        result.Version!.Number.Should().Be(5);
-        result.Version.When.Should().NotBeNull();
-        handler.Requests[0].RequestUri!.ToString().Should().Contain("expand=body.storage,ancestors,version");
+        result.Version.ShouldNotBeNull();
+        result.Version!.Number.ShouldBe(5);
+        result.Version.When.ShouldNotBeNull();
+        handler.Requests[0].RequestUri!.ToString().ShouldContain("expand=body.storage,ancestors,version");
     }
 
     [Fact]
@@ -323,7 +323,7 @@ public class HttpClientConfluenceApiClientTests
 
         var act = async () => await client.GetPageByIdAsync("100", cts.Token);
 
-        await act.Should().ThrowAsync<OperationCanceledException>();
+        await Should.ThrowAsync<OperationCanceledException>(act);
     }
 
     [Fact]
@@ -344,8 +344,8 @@ public class HttpClientConfluenceApiClientTests
 
         var result = await client.GetPageByIdAsync("100");
 
-        result.SpaceKey.Should().Be("DOCS");
-        handler.Requests[0].RequestUri!.ToString().Should().Contain("childTypes.all,space");
+        result.SpaceKey.ShouldBe("DOCS");
+        handler.Requests[0].RequestUri!.ToString().ShouldContain("childTypes.all,space");
     }
 
     [Fact]
@@ -362,7 +362,7 @@ public class HttpClientConfluenceApiClientTests
         // itself is normalised back to " by Uri). Nothing else in the query
         // contains a backslash, so %5C present ⇔ escaping happened — without it
         // the raw quote would have terminated the CQL string early.
-        handler.Requests[0].RequestUri!.ToString().Should().Contain("%5C");
+        handler.Requests[0].RequestUri!.ToString().ShouldContain("%5C");
     }
 
     private static HttpClientConfluenceApiClient CreateClient(StubHttpMessageHandler handler)

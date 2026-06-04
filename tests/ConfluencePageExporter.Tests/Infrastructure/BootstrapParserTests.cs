@@ -1,5 +1,5 @@
 using ConfluencePageExporter.Infrastructure;
-using FluentAssertions;
+using Shouldly;
 
 namespace ConfluencePageExporter.Tests.Infrastructure;
 
@@ -13,9 +13,9 @@ public class BootstrapParserTests
 
         var result = BootstrapParser.Parse(pr);
 
-        result.CommandPath.Should().Be("download");
-        result.ConfigPath.Should().BeNull();
-        result.Verbose.Should().BeFalse();
+        result.CommandPath.ShouldBe("download");
+        result.ConfigPath.ShouldBeNull();
+        result.Verbose.ShouldBeFalse();
     }
 
     [Fact]
@@ -26,7 +26,7 @@ public class BootstrapParserTests
 
         var result = BootstrapParser.Parse(pr);
 
-        result.CommandPath.Should().Be("upload update");
+        result.CommandPath.ShouldBe("upload update");
     }
 
     [Fact]
@@ -37,7 +37,7 @@ public class BootstrapParserTests
 
         var result = BootstrapParser.Parse(pr);
 
-        result.CommandPath.Should().Be("upload create");
+        result.CommandPath.ShouldBe("upload create");
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public class BootstrapParserTests
 
         var result = BootstrapParser.Parse(pr);
 
-        result.CommandPath.Should().Be("compare");
+        result.CommandPath.ShouldBe("compare");
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class BootstrapParserTests
 
         var result = BootstrapParser.Parse(pr);
 
-        result.CommandPath.Should().Be("config show");
+        result.CommandPath.ShouldBe("config show");
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public class BootstrapParserTests
 
         var result = BootstrapParser.Parse(pr);
 
-        result.CommandPath.Should().BeEmpty();
+        result.CommandPath.ShouldBeEmpty();
     }
 
     [Fact]
@@ -81,8 +81,8 @@ public class BootstrapParserTests
 
         var result = BootstrapParser.Parse(pr);
 
-        result.Verbose.Should().BeTrue();
-        result.CommandPath.Should().Be("download");
+        result.Verbose.ShouldBeTrue();
+        result.CommandPath.ShouldBe("download");
     }
 
     [Fact]
@@ -93,8 +93,8 @@ public class BootstrapParserTests
 
         var result = BootstrapParser.Parse(pr);
 
-        result.Verbose.Should().BeTrue();
-        result.CommandPath.Should().Be("download");
+        result.Verbose.ShouldBeTrue();
+        result.CommandPath.ShouldBe("download");
     }
 
     [Fact]
@@ -105,7 +105,7 @@ public class BootstrapParserTests
 
         var result = BootstrapParser.Parse(pr);
 
-        result.ConfigPath.Should().Be("my-config.json");
+        result.ConfigPath.ShouldBe("my-config.json");
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public class BootstrapParserTests
 
         var result = BootstrapParser.Parse(pr);
 
-        result.ConfigPath.Should().Be("my-config.json");
+        result.ConfigPath.ShouldBe("my-config.json");
     }
 
     [Fact]
@@ -127,6 +127,6 @@ public class BootstrapParserTests
 
         var result = BootstrapParser.Parse(pr);
 
-        result.ConfigPath.Should().Be("/tmp/My Config.json");
+        result.ConfigPath.ShouldBe("/tmp/My Config.json");
     }
 }

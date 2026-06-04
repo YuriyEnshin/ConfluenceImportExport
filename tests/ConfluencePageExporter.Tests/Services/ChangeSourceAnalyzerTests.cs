@@ -1,7 +1,7 @@
 using ConfluencePageExporter.Models;
 using ConfluencePageExporter.Services;
 using ConfluencePageExporter.Tests.Helpers;
-using FluentAssertions;
+using Shouldly;
 using Moq;
 
 namespace ConfluencePageExporter.Tests.Services;
@@ -25,8 +25,8 @@ public class ChangeSourceAnalyzerTests
 
         var result = analyzer.AnalyzeContentChange(serverDate, localDate);
 
-        result.Origin.Should().Be(ChangeOrigin.Local);
-        result.Confidence.Should().Be(ChangeConfidence.Medium);
+        result.Origin.ShouldBe(ChangeOrigin.Local);
+        result.Confidence.ShouldBe(ChangeConfidence.Medium);
     }
 
     [Fact]
@@ -38,8 +38,8 @@ public class ChangeSourceAnalyzerTests
 
         var result = analyzer.AnalyzeContentChange(serverDate, localDate);
 
-        result.Origin.Should().Be(ChangeOrigin.Server);
-        result.Confidence.Should().Be(ChangeConfidence.Medium);
+        result.Origin.ShouldBe(ChangeOrigin.Server);
+        result.Confidence.ShouldBe(ChangeConfidence.Medium);
     }
 
     [Fact]
@@ -50,8 +50,8 @@ public class ChangeSourceAnalyzerTests
 
         var result = analyzer.AnalyzeContentChange(date, date);
 
-        result.Origin.Should().Be(ChangeOrigin.Unknown);
-        result.Confidence.Should().Be(ChangeConfidence.Low);
+        result.Origin.ShouldBe(ChangeOrigin.Unknown);
+        result.Confidence.ShouldBe(ChangeConfidence.Low);
     }
 
     [Fact]
@@ -61,8 +61,8 @@ public class ChangeSourceAnalyzerTests
 
         var result = analyzer.AnalyzeContentChange(null, null);
 
-        result.Origin.Should().Be(ChangeOrigin.Unknown);
-        result.Confidence.Should().Be(ChangeConfidence.Low);
+        result.Origin.ShouldBe(ChangeOrigin.Unknown);
+        result.Confidence.ShouldBe(ChangeConfidence.Low);
     }
 
     [Fact]
@@ -73,8 +73,8 @@ public class ChangeSourceAnalyzerTests
 
         var result = analyzer.AnalyzeContentChange(null, localDate);
 
-        result.Origin.Should().Be(ChangeOrigin.Local);
-        result.Confidence.Should().Be(ChangeConfidence.Low);
+        result.Origin.ShouldBe(ChangeOrigin.Local);
+        result.Confidence.ShouldBe(ChangeConfidence.Low);
     }
 
     [Fact]
@@ -85,8 +85,8 @@ public class ChangeSourceAnalyzerTests
 
         var result = analyzer.AnalyzeContentChange(serverDate, null);
 
-        result.Origin.Should().Be(ChangeOrigin.Server);
-        result.Confidence.Should().Be(ChangeConfidence.Low);
+        result.Origin.ShouldBe(ChangeOrigin.Server);
+        result.Confidence.ShouldBe(ChangeConfidence.Low);
     }
 
     [Fact]
@@ -97,8 +97,8 @@ public class ChangeSourceAnalyzerTests
         var result = analyzer.AnalyzeContentChange(DateTime.UtcNow, DateTime.UtcNow,
             localMarkerVersion: 5, serverVersion: 5);
 
-        result.Origin.Should().Be(ChangeOrigin.Local);
-        result.Confidence.Should().Be(ChangeConfidence.High);
+        result.Origin.ShouldBe(ChangeOrigin.Local);
+        result.Confidence.ShouldBe(ChangeConfidence.High);
     }
 
     [Fact]
@@ -109,8 +109,8 @@ public class ChangeSourceAnalyzerTests
         var result = analyzer.AnalyzeContentChange(DateTime.UtcNow, DateTime.UtcNow,
             localMarkerVersion: 3, serverVersion: 5);
 
-        result.Origin.Should().Be(ChangeOrigin.Server);
-        result.Confidence.Should().Be(ChangeConfidence.High);
+        result.Origin.ShouldBe(ChangeOrigin.Server);
+        result.Confidence.ShouldBe(ChangeConfidence.High);
     }
 
     [Fact]
@@ -125,8 +125,8 @@ public class ChangeSourceAnalyzerTests
             localMarkerVersion: 3, serverVersion: 5,
             syncTimeUtc: syncTime);
 
-        result.Origin.Should().Be(ChangeOrigin.Conflict);
-        result.Confidence.Should().Be(ChangeConfidence.High);
+        result.Origin.ShouldBe(ChangeOrigin.Conflict);
+        result.Confidence.ShouldBe(ChangeConfidence.High);
     }
 
     [Fact]
@@ -141,8 +141,8 @@ public class ChangeSourceAnalyzerTests
             localMarkerVersion: 3, serverVersion: 5,
             syncTimeUtc: syncTime);
 
-        result.Origin.Should().Be(ChangeOrigin.Server);
-        result.Confidence.Should().Be(ChangeConfidence.High);
+        result.Origin.ShouldBe(ChangeOrigin.Server);
+        result.Confidence.ShouldBe(ChangeConfidence.High);
     }
 
     [Fact]
@@ -155,8 +155,8 @@ public class ChangeSourceAnalyzerTests
         var result = analyzer.AnalyzeContentChange(serverDate, localDate,
             localMarkerVersion: null, serverVersion: 5);
 
-        result.Origin.Should().Be(ChangeOrigin.Server);
-        result.Confidence.Should().Be(ChangeConfidence.Medium);
+        result.Origin.ShouldBe(ChangeOrigin.Server);
+        result.Confidence.ShouldBe(ChangeConfidence.Medium);
     }
 
     // --- Rename analysis with dates only ---
@@ -171,8 +171,8 @@ public class ChangeSourceAnalyzerTests
         var result = await analyzer.AnalyzeRenameAsync("1", "NewTitle", "OldTitle",
             serverDate, localDate, useVersionHistory: false);
 
-        result.Origin.Should().Be(ChangeOrigin.Local);
-        result.Confidence.Should().Be(ChangeConfidence.Medium);
+        result.Origin.ShouldBe(ChangeOrigin.Local);
+        result.Confidence.ShouldBe(ChangeConfidence.Medium);
     }
 
     [Fact]
@@ -185,8 +185,8 @@ public class ChangeSourceAnalyzerTests
         var result = await analyzer.AnalyzeRenameAsync("1", "NewTitle", "OldTitle",
             serverDate, localDate, useVersionHistory: false);
 
-        result.Origin.Should().Be(ChangeOrigin.Server);
-        result.Confidence.Should().Be(ChangeConfidence.Medium);
+        result.Origin.ShouldBe(ChangeOrigin.Server);
+        result.Confidence.ShouldBe(ChangeConfidence.Medium);
     }
 
     // --- Rename analysis with version history ---
@@ -208,10 +208,10 @@ public class ChangeSourceAnalyzerTests
         var result = await analyzer.AnalyzeRenameAsync("1", "NewTitle", "OldTitle",
             DateTime.UtcNow, DateTime.UtcNow.AddDays(-5), useVersionHistory: true);
 
-        result.Origin.Should().Be(ChangeOrigin.Server);
-        result.Confidence.Should().Be(ChangeConfidence.High);
-        result.Reason.Should().Contain("OldTitle");
-        result.Reason.Should().Contain("версии 2");
+        result.Origin.ShouldBe(ChangeOrigin.Server);
+        result.Confidence.ShouldBe(ChangeConfidence.High);
+        result.Reason.ShouldContain("OldTitle");
+        result.Reason.ShouldContain("версии 2");
     }
 
     [Fact]
@@ -232,8 +232,8 @@ public class ChangeSourceAnalyzerTests
         var result = await analyzer.AnalyzeRenameAsync("1", "NewTitle", "OldTitle",
             serverDate, localDate, useVersionHistory: true);
 
-        result.Origin.Should().Be(ChangeOrigin.Server);
-        result.Confidence.Should().Be(ChangeConfidence.Medium);
+        result.Origin.ShouldBe(ChangeOrigin.Server);
+        result.Confidence.ShouldBe(ChangeConfidence.Medium);
     }
 
     // --- Move analysis with dates only ---
@@ -248,8 +248,8 @@ public class ChangeSourceAnalyzerTests
         var result = await analyzer.AnalyzeMoveAsync("1", "NewParent", "OldParent",
             serverDate, localDate, useVersionHistory: false);
 
-        result.Origin.Should().Be(ChangeOrigin.Local);
-        result.Confidence.Should().Be(ChangeConfidence.Medium);
+        result.Origin.ShouldBe(ChangeOrigin.Local);
+        result.Confidence.ShouldBe(ChangeConfidence.Medium);
     }
 
     // --- Move analysis with version history ---
@@ -275,9 +275,9 @@ public class ChangeSourceAnalyzerTests
         var result = await analyzer.AnalyzeMoveAsync("1", "NewParent", "OldParent",
             DateTime.UtcNow, DateTime.UtcNow.AddDays(-5), useVersionHistory: true);
 
-        result.Origin.Should().Be(ChangeOrigin.Server);
-        result.Confidence.Should().Be(ChangeConfidence.High);
-        result.Reason.Should().Contain("OldParent");
+        result.Origin.ShouldBe(ChangeOrigin.Server);
+        result.Confidence.ShouldBe(ChangeConfidence.High);
+        result.Reason.ShouldContain("OldParent");
     }
 
     [Fact]
@@ -303,8 +303,8 @@ public class ChangeSourceAnalyzerTests
         var result = await analyzer.AnalyzeMoveAsync("1", "NewParent", "OldParent",
             serverDate, localDate, useVersionHistory: true);
 
-        result.Origin.Should().Be(ChangeOrigin.Server);
-        result.Confidence.Should().Be(ChangeConfidence.Medium);
+        result.Origin.ShouldBe(ChangeOrigin.Server);
+        result.Confidence.ShouldBe(ChangeConfidence.Medium);
     }
 
     // --- Caching ---

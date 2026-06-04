@@ -2,7 +2,7 @@ using System.Net;
 using ConfluencePageExporter.Models;
 using ConfluencePageExporter.Services;
 using ConfluencePageExporter.Tests.Helpers;
-using FluentAssertions;
+using Shouldly;
 using Moq;
 
 namespace ConfluencePageExporter.Tests.Services;
@@ -45,7 +45,7 @@ public class UploadServiceTests
         var report = await service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: true);
 
         // The 409 surfaces as a conflict in the report instead of being silently dropped...
-        report.ConflictPages.Should().ContainSingle(p => p.PageId == "222");
+        report.ConflictPages.Where(p => p.PageId == "222").ShouldHaveSingleItem();
         // ...and the sibling is still processed (the batch is not aborted).
         api.Verify(x => x.UpdatePageAsync("333", "Child2", "<p>c2</p>", null, It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -69,7 +69,7 @@ public class UploadServiceTests
         var act = () => service.UploadUpdateAsync("SPACE", rootDir, "111", null, recursive: false);
 
         // Auth failures are global — the run aborts rather than recording per-page and continuing.
-        await act.Should().ThrowAsync<ConfluenceApiException>();
+        await Should.ThrowAsync<ConfluenceApiException>(act);
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public class UploadServiceTests
 
         var act = () => service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
-        await act.Should().ThrowAsync<InvalidOperationException>();
+        await Should.ThrowAsync<InvalidOperationException>(act);
     }
 
     [Fact]
@@ -141,7 +141,7 @@ public class UploadServiceTests
         await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
         api.VerifyAll();
-        LocalStorageHelper.ReadPageIdFromMarker(sourceDir).Should().Be("300");
+        LocalStorageHelper.ReadPageIdFromMarker(sourceDir).ShouldBe("300");
     }
 
     [Fact]
@@ -190,7 +190,7 @@ public class UploadServiceTests
 
         api.Verify(x => x.CreatePageAsync("SPACE", "111", "ChildNew", "<p>child</p>"), Times.Once);
         var childDir = Path.Combine(rootDir, "ChildNew");
-        LocalStorageHelper.ReadPageIdFromMarker(childDir).Should().Be("500");
+        LocalStorageHelper.ReadPageIdFromMarker(childDir).ShouldBe("500");
     }
 
     [Fact]
@@ -210,7 +210,7 @@ public class UploadServiceTests
         await service.UploadCreateAsync("SPACE", sourceDir, null, "ParentTitle", recursive: false);
 
         api.VerifyAll();
-        LocalStorageHelper.ReadPageIdFromMarker(sourceDir).Should().Be("C100");
+        LocalStorageHelper.ReadPageIdFromMarker(sourceDir).ShouldBe("C100");
     }
 
     [Fact]
@@ -227,7 +227,7 @@ public class UploadServiceTests
         await service.UploadCreateAsync("SPACE", sourceDir, null, null, recursive: false);
 
         api.Verify(x => x.CreatePageAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
-        LocalStorageHelper.ReadPageIdFromMarker(sourceDir).Should().BeNull();
+        LocalStorageHelper.ReadPageIdFromMarker(sourceDir).ShouldBeNull();
     }
 
     [Fact]
@@ -484,9 +484,9 @@ public class UploadServiceTests
         await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
         var markerInfo = LocalStorageHelper.ReadPageMarkerInfo(sourceDir);
-        markerInfo.Should().NotBeNull();
-        markerInfo!.PageId.Should().Be("100");
-        markerInfo.Version.Should().Be(6);
+        markerInfo.ShouldNotBeNull();
+        markerInfo!.PageId.ShouldBe("100");
+        markerInfo.Version.ShouldBe(6);
     }
 
     [Fact]
@@ -513,7 +513,7 @@ public class UploadServiceTests
         var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
 
         api.Verify(x => x.UpdatePageAsync("100", "Root", "<p>local edit</p>", null), Times.Once);
-        report.HasIssues.Should().BeFalse();
+        report.HasIssues.ShouldBeFalse();
     }
 
     [Fact]
@@ -538,7 +538,7 @@ public class UploadServiceTests
         var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
 
         api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
-        report.SkippedPages.Should().HaveCount(1);
+        report.SkippedPages.Count().ShouldBe(1);
     }
 
     [Fact]
@@ -566,7 +566,7 @@ public class UploadServiceTests
         var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
 
         api.Verify(x => x.UpdatePageAsync("400", "Subpage4", "<p>same content</p>", "P2"), Times.Once);
-        report.HasIssues.Should().BeFalse();
+        report.HasIssues.ShouldBeFalse();
     }
 
     [Fact]
@@ -599,7 +599,7 @@ public class UploadServiceTests
         var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
 
         api.Verify(x => x.UpdatePageAsync("400", "Subpage4", "<p>local edit</p>", "P2"), Times.Once);
-        report.HasIssues.Should().BeFalse();
+        report.HasIssues.ShouldBeFalse();
     }
 
     [Fact]
@@ -630,8 +630,8 @@ public class UploadServiceTests
         var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
 
         api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
-        report.SkippedPages.Should().HaveCount(1);
-        report.SkippedPages.First().Reason.Should().Contain("перемещение отложено");
+        report.SkippedPages.Count().ShouldBe(1);
+        report.SkippedPages.First().Reason.ShouldContain("перемещение отложено");
     }
 
     [Fact]
@@ -661,7 +661,7 @@ public class UploadServiceTests
         var report = await service.UploadMergeAsync("SPACE", rootDir, "111", null, recursive: true, analyzer);
 
         api.Verify(x => x.UpdatePageAsync("222", "Child", "<p>child</p>", "111"), Times.Once);
-        report.HasIssues.Should().BeFalse();
+        report.HasIssues.ShouldBeFalse();
     }
 
     [Fact]
@@ -687,7 +687,7 @@ public class UploadServiceTests
         var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
 
         api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
-        report.ConflictPages.Should().HaveCount(1);
+        report.ConflictPages.Count().ShouldBe(1);
     }
 
     // ── multi-space: server-truth space flows down, cross-space is refused ──
@@ -740,7 +740,7 @@ public class UploadServiceTests
         var report = await service.UploadUpdateAsync("CFG", rootDir, "111", null, recursive: true);
 
         // Cross-space page is reported and not written...
-        report.SkippedPages.Should().ContainSingle(p => p.PageId == "222");
+        report.SkippedPages.Where(p => p.PageId == "222").ShouldHaveSingleItem();
         api.Verify(x => x.UpdatePageAsync("222", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
         // ...and its subtree is not descended into: the strict mock has NO setup
         // for grandchild "333", so any attempt to resolve it would throw.
@@ -770,7 +770,7 @@ public class UploadServiceTests
 
         api.Verify(x => x.UpdatePageAsync("400", "Page", "<p>content</p>", null), Times.Once);
         api.Verify(x => x.UpdatePageAsync("400", It.IsAny<string>(), It.IsAny<string>(), "P2"), Times.Never);
-        report.SkippedPages.Should().ContainSingle(p => p.PageId == "400");
+        report.SkippedPages.Where(p => p.PageId == "400").ShouldHaveSingleItem();
     }
 
     [Fact]
@@ -789,7 +789,7 @@ public class UploadServiceTests
 
         await service.UploadUpdateAsync("CFG", sourceDir, null, null, recursive: false);
 
-        LocalStorageHelper.ReadSpaceKey(sourceDir).Should().Be("DOCS");
+        LocalStorageHelper.ReadSpaceKey(sourceDir).ShouldBe("DOCS");
     }
 
     // ── multi-tree mode + explicit-space conflict ──────────────────────────
@@ -818,8 +818,8 @@ public class UploadServiceTests
 
         api.Verify(x => x.UpdatePageAsync("100", "Tree1", "<p>t1</p>", null), Times.Once);
         api.Verify(x => x.UpdatePageAsync("200", "Tree2", "<p>t2</p>", null), Times.Once);
-        LocalStorageHelper.ReadSpaceKey(t1).Should().Be("DEV");
-        LocalStorageHelper.ReadSpaceKey(t2).Should().Be("DOCS");
+        LocalStorageHelper.ReadSpaceKey(t1).ShouldBe("DEV");
+        LocalStorageHelper.ReadSpaceKey(t2).ShouldBe("DOCS");
     }
 
     [Fact]
@@ -843,7 +843,7 @@ public class UploadServiceTests
 
         // …without aborting the rest: Tree1 is still updated, Tree2 is reported.
         api.Verify(x => x.UpdatePageAsync("100", "Tree1", "<p>t1</p>", null, It.IsAny<CancellationToken>()), Times.Once);
-        report.SkippedPages.Should().ContainSingle();
+        report.SkippedPages.ShouldHaveSingleItem();
     }
 
     [Fact]
@@ -857,7 +857,7 @@ public class UploadServiceTests
 
         var act = () => service.UploadUpdateAsync("CFG", temp.RootPath, null, null, recursive: false);
 
-        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("multiTree");
+        (await Should.ThrowAsync<InvalidOperationException>(act)).Message.ShouldContain("multiTree");
     }
 
     [Fact]
@@ -871,7 +871,7 @@ public class UploadServiceTests
 
         var act = () => service.UploadUpdateAsync("CFG", temp.RootPath, "100", null, recursive: false, multiTree: true);
 
-        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("pageId");
+        (await Should.ThrowAsync<InvalidOperationException>(act)).Message.ShouldContain("pageId");
     }
 
     [Fact]
@@ -910,7 +910,7 @@ public class UploadServiceTests
         // An explicitly requested space that contradicts the page's real space errors.
         var act = () => service.UploadUpdateAsync("REAL", sourceDir, null, null, recursive: false, explicitSpaceKey: "WRONG");
 
-        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("WRONG");
+        (await Should.ThrowAsync<InvalidOperationException>(act)).Message.ShouldContain("WRONG");
     }
 
     [Fact]
@@ -926,6 +926,6 @@ public class UploadServiceTests
 
         var act = () => service.UploadCreateAsync("REAL", sourceDir, "P1", null, recursive: false, explicitSpaceKey: "WRONG");
 
-        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("WRONG");
+        (await Should.ThrowAsync<InvalidOperationException>(act)).Message.ShouldContain("WRONG");
     }
 }

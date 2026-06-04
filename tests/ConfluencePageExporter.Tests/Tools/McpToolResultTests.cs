@@ -5,7 +5,7 @@ using ConfluencePageExporter.Infrastructure;
 using ConfluencePageExporter.Services;
 using ConfluencePageExporter.Tests.Helpers;
 using ConfluencePageExporter.Tools;
-using FluentAssertions;
+using Shouldly;
 
 namespace ConfluencePageExporter.Tests.Tools;
 
@@ -30,11 +30,11 @@ public class McpToolResultTests
 
         var (code, message) = McpToolResult.Classify(http);
 
-        code.Should().Be("NETWORK_ERROR");
-        message.Should().Contain("The SSL connection could not be established");
-        message.Should().Contain("Authentication failed because");
-        message.Should().Contain("Received an unexpected EOF");
-        message.Should().Contain("→");
+        code.ShouldBe("NETWORK_ERROR");
+        message.ShouldContain("The SSL connection could not be established");
+        message.ShouldContain("Authentication failed because");
+        message.ShouldContain("Received an unexpected EOF");
+        message.ShouldContain("→");
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class McpToolResultTests
     {
         var ex = new HttpRequestException("Unauthorized", inner: null, HttpStatusCode.Unauthorized);
         var (code, _) = McpToolResult.Classify(ex);
-        code.Should().Be("AUTH_FAILED");
+        code.ShouldBe("AUTH_FAILED");
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public class McpToolResultTests
     {
         var ex = new HttpRequestException("Not Found", inner: null, HttpStatusCode.NotFound);
         var (code, _) = McpToolResult.Classify(ex);
-        code.Should().Be("PAGE_NOT_FOUND");
+        code.ShouldBe("PAGE_NOT_FOUND");
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public class McpToolResultTests
         // genuine network failures (DNS, TCP refusal, SSL EOF, etc.).
         var ex = new HttpRequestException("Some network failure");
         var (code, _) = McpToolResult.Classify(ex);
-        code.Should().Be("NETWORK_ERROR");
+        code.ShouldBe("NETWORK_ERROR");
     }
 
     [Fact]
@@ -68,8 +68,8 @@ public class McpToolResultTests
     {
         var ex = new OutOfSandboxException("Path escapes sandbox root");
         var (code, message) = McpToolResult.Classify(ex);
-        code.Should().Be("OUT_OF_SANDBOX");
-        message.Should().Be("Path escapes sandbox root");
+        code.ShouldBe("OUT_OF_SANDBOX");
+        message.ShouldBe("Path escapes sandbox root");
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public class McpToolResultTests
     {
         var ex = new ConfluenceConflictException("the page was updated on the server");
         var (code, _) = McpToolResult.Classify(ex);
-        code.Should().Be("VERSION_CONFLICT");
+        code.ShouldBe("VERSION_CONFLICT");
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public class McpToolResultTests
     {
         var ex = new ConfluenceApiException(HttpStatusCode.Forbidden, "no permission");
         var (code, _) = McpToolResult.Classify(ex);
-        code.Should().Be("AUTH_FAILED");
+        code.ShouldBe("AUTH_FAILED");
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public class McpToolResultTests
     {
         var ex = new ConfluenceApiException(HttpStatusCode.BadRequest, "malformed storage format");
         var (code, _) = McpToolResult.Classify(ex);
-        code.Should().Be("CONFLUENCE_API_ERROR");
+        code.ShouldBe("CONFLUENCE_API_ERROR");
     }
 
     [Fact]
@@ -104,8 +104,8 @@ public class McpToolResultTests
 
         var (_, message) = McpToolResult.Classify(outer);
 
-        message.Should().Be("Same message");
-        message.Should().NotContain("→");
+        message.ShouldBe("Same message");
+        message.ShouldNotContain("→");
     }
 
     [Fact]
@@ -120,8 +120,8 @@ public class McpToolResultTests
         var errorCode = result.GetType().GetProperty("errorCode")!.GetValue(result) as string;
         var error = result.GetType().GetProperty("error")!.GetValue(result) as string;
 
-        success.Should().Be(false);
-        errorCode.Should().Be("NETWORK_ERROR");
-        error.Should().Be("outer wrapper → inner cause");
+        success.ShouldBe(false);
+        errorCode.ShouldBe("NETWORK_ERROR");
+        error.ShouldBe("outer wrapper → inner cause");
     }
 }

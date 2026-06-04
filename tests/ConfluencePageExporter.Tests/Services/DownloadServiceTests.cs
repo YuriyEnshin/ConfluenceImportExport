@@ -1,7 +1,7 @@
 using ConfluencePageExporter.Models;
 using ConfluencePageExporter.Services;
 using ConfluencePageExporter.Tests.Helpers;
-using FluentAssertions;
+using Shouldly;
 using Moq;
 
 namespace ConfluencePageExporter.Tests.Services;
@@ -30,7 +30,7 @@ public class DownloadServiceTests
 
         var act = async () => await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false, cts.Token);
 
-        await act.Should().ThrowAsync<OperationCanceledException>();
+        await Should.ThrowAsync<OperationCanceledException>(act);
     }
 
     [Fact]
@@ -55,11 +55,11 @@ public class DownloadServiceTests
         var report = await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
         var pageDir = Path.Combine(outputDir, "Root");
-        File.Exists(Path.Combine(pageDir, "index.html")).Should().BeTrue();
-        LocalStorageHelper.ReadPageIdFromMarker(pageDir).Should().Be("1");
-        File.Exists(Path.Combine(pageDir, "file.txt")).Should().BeTrue();
+        File.Exists(Path.Combine(pageDir, "index.html")).ShouldBeTrue();
+        LocalStorageHelper.ReadPageIdFromMarker(pageDir).ShouldBe("1");
+        File.Exists(Path.Combine(pageDir, "file.txt")).ShouldBeTrue();
         api.Verify(x => x.GetChildrenPagesAsync(It.IsAny<string>()), Times.Never);
-        report.HasIssues.Should().BeFalse();
+        report.HasIssues.ShouldBeFalse();
         api.VerifyAll();
     }
 
@@ -83,8 +83,8 @@ public class DownloadServiceTests
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: true);
 
-        File.Exists(Path.Combine(outputDir, "Root", "index.html")).Should().BeTrue();
-        File.Exists(Path.Combine(outputDir, "Root", "Child", "index.html")).Should().BeTrue();
+        File.Exists(Path.Combine(outputDir, "Root", "index.html")).ShouldBeTrue();
+        File.Exists(Path.Combine(outputDir, "Root", "Child", "index.html")).ShouldBeTrue();
         api.VerifyAll();
     }
 
@@ -103,7 +103,7 @@ public class DownloadServiceTests
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
-        Directory.Exists(Path.Combine(outputDir, "Root")).Should().BeFalse();
+        Directory.Exists(Path.Combine(outputDir, "Root")).ShouldBeFalse();
         api.VerifyAll();
     }
 
@@ -123,10 +123,10 @@ public class DownloadServiceTests
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
-        Directory.Exists(oldDir).Should().BeFalse();
+        Directory.Exists(oldDir).ShouldBeFalse();
         var newDir = Path.Combine(outputDir, "NewTitle");
-        Directory.Exists(newDir).Should().BeTrue();
-        LocalStorageHelper.ReadPageIdFromMarker(newDir).Should().Be("1");
+        Directory.Exists(newDir).ShouldBeTrue();
+        LocalStorageHelper.ReadPageIdFromMarker(newDir).ShouldBe("1");
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public class DownloadServiceTests
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
-        File.GetLastWriteTimeUtc(indexPath).Should().Be(expectedTimestamp);
+        File.GetLastWriteTimeUtc(indexPath).ShouldBe(expectedTimestamp);
     }
 
     [Fact]
@@ -174,7 +174,7 @@ public class DownloadServiceTests
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
-        File.Exists(Path.Combine(outputDir, "Root", "good.txt")).Should().BeTrue();
+        File.Exists(Path.Combine(outputDir, "Root", "good.txt")).ShouldBeTrue();
     }
 
     [Fact]
@@ -230,7 +230,7 @@ public class DownloadServiceTests
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
         var downloaded = await File.ReadAllBytesAsync(Path.Combine(pageDir, "file.txt"), TestContext.Current.CancellationToken);
-        downloaded.Should().Equal(newContent);
+        downloaded.ShouldBe(newContent);
         api.VerifyAll();
     }
 
@@ -261,8 +261,8 @@ public class DownloadServiceTests
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
-        File.GetLastWriteTimeUtc(filePath).Should().Be(originalTimestamp);
-        (await File.ReadAllBytesAsync(filePath, TestContext.Current.CancellationToken)).Should().Equal(actualContent);
+        File.GetLastWriteTimeUtc(filePath).ShouldBe(originalTimestamp);
+        (await File.ReadAllBytesAsync(filePath, TestContext.Current.CancellationToken)).ShouldBe(actualContent);
         api.VerifyAll();
     }
 
@@ -292,7 +292,7 @@ public class DownloadServiceTests
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
 
         var downloaded = await File.ReadAllBytesAsync(Path.Combine(pageDir, "file.txt"), TestContext.Current.CancellationToken);
-        downloaded.Should().Equal(serverContent);
+        downloaded.ShouldBe(serverContent);
         api.VerifyAll();
     }
 
@@ -320,8 +320,8 @@ public class DownloadServiceTests
         var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: false, analyzer);
 
         var content = await File.ReadAllTextAsync(indexPath, TestContext.Current.CancellationToken);
-        content.Should().Be("<p>local edit</p>");
-        report.SkippedPages.Should().HaveCount(1);
+        content.ShouldBe("<p>local edit</p>");
+        report.SkippedPages.Count().ShouldBe(1);
     }
 
     [Fact]
@@ -347,8 +347,8 @@ public class DownloadServiceTests
         var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: false, analyzer);
 
         var content = await File.ReadAllTextAsync(indexPath, TestContext.Current.CancellationToken);
-        content.Should().Be("<p>new server</p>");
-        report.HasIssues.Should().BeFalse();
+        content.ShouldBe("<p>new server</p>");
+        report.HasIssues.ShouldBeFalse();
     }
 
     [Fact]
@@ -376,8 +376,8 @@ public class DownloadServiceTests
         var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: false, analyzer);
 
         var content = await File.ReadAllTextAsync(indexPath, TestContext.Current.CancellationToken);
-        content.Should().Be("<p>local edit</p>");
-        report.ConflictPages.Should().HaveCount(1);
+        content.ShouldBe("<p>local edit</p>");
+        report.ConflictPages.Count().ShouldBe(1);
     }
 
     [Fact]
@@ -414,8 +414,8 @@ public class DownloadServiceTests
         foreach (var ch in children)
         {
             var childDir = Path.Combine(outputDir, "Root", ch.Title);
-            File.Exists(Path.Combine(childDir, "index.html")).Should().BeTrue();
-            LocalStorageHelper.ReadPageIdFromMarker(childDir).Should().Be(ch.Id);
+            File.Exists(Path.Combine(childDir, "index.html")).ShouldBeTrue();
+            LocalStorageHelper.ReadPageIdFromMarker(childDir).ShouldBe(ch.Id);
         }
 
         foreach (var ch in children)
@@ -443,7 +443,7 @@ public class DownloadServiceTests
 
         await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: true);
 
-        File.Exists(Path.Combine(outputDir, "Leaf", "index.html")).Should().BeTrue();
+        File.Exists(Path.Combine(outputDir, "Leaf", "index.html")).ShouldBeTrue();
         api.Verify(x => x.GetAttachmentsAsync(It.IsAny<string>()), Times.Never);
         api.Verify(x => x.GetChildrenPagesAsync(It.IsAny<string>()), Times.Never);
     }
@@ -513,9 +513,9 @@ public class DownloadServiceTests
 
         var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: true, analyzer);
 
-        report.SkippedPages.Should().HaveCount(5);
-        report.SkippedPages.Select(x => x.PageId).Should().BeEquivalentTo(
-            new[] { "ch1", "ch2", "ch3", "ch4", "ch5" });
+        report.SkippedPages.Count().ShouldBe(5);
+        report.SkippedPages.Select(x => x.PageId).ShouldBe(
+            new[] { "ch1", "ch2", "ch3", "ch4", "ch5" }, ignoreOrder: true);
     }
 
     // ── space capture into markers ────────────────────────────────────────
@@ -536,7 +536,7 @@ public class DownloadServiceTests
         // the server value is the authority and is what gets persisted.
         await service.DownloadUpdateAsync("CFG", "100", null, temp.RootPath, recursive: false);
 
-        LocalStorageHelper.ReadSpaceKey(Path.Combine(temp.RootPath, "Root")).Should().Be("DOCS");
+        LocalStorageHelper.ReadSpaceKey(Path.Combine(temp.RootPath, "Root")).ShouldBe("DOCS");
     }
 
     [Fact]
@@ -556,6 +556,6 @@ public class DownloadServiceTests
 
         await service.DownloadUpdateAsync("CFG", "100", null, temp.RootPath, recursive: true);
 
-        LocalStorageHelper.ReadSpaceKey(Path.Combine(temp.RootPath, "Root", "Child")).Should().Be("DOCS");
+        LocalStorageHelper.ReadSpaceKey(Path.Combine(temp.RootPath, "Root", "Child")).ShouldBe("DOCS");
     }
 }

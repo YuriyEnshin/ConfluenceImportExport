@@ -1,6 +1,6 @@
 using ConfluencePageExporter.Services;
 using ConfluencePageExporter.Tests.Helpers;
-using FluentAssertions;
+using Shouldly;
 using Moq;
 
 namespace ConfluencePageExporter.Tests.Services;
@@ -15,7 +15,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.SanitizeFileName(input);
 
-        result.Should().Be("ab_cd");
+        result.ShouldBe("ab_cd");
     }
 
     [Fact]
@@ -27,7 +27,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.SanitizeFileName("Модуль \"Провайдеры\"");
 
-        result.Should().Be("Модуль _Провайдеры_");
+        result.ShouldBe("Модуль _Провайдеры_");
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.SanitizeFileName("a<>b");
 
-        result.Should().Be("a__b");
+        result.ShouldBe("a__b");
     }
 
     [Theory]
@@ -53,7 +53,7 @@ public class LocalStorageHelperTests
     {
         var result = LocalStorageHelper.SanitizeFileName(input);
 
-        result.Should().Be(expected);
+        result.ShouldBe(expected);
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public class LocalStorageHelperTests
     {
         var result = LocalStorageHelper.ReadPageIdFromMarker("X:\\not-existing-dir");
 
-        result.Should().BeNull();
+        result.ShouldBeNull();
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.ReadPageIdFromMarker(pageDir);
 
-        result.Should().Be("123");
+        result.ShouldBe("123");
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.ReadPageIdFromMarker(pageDir);
 
-        result.Should().Be("123");
+        result.ShouldBe("123");
     }
 
     [Fact]
@@ -97,9 +97,9 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
 
-        result.Should().NotBeNull();
-        result!.PageId.Should().Be("456");
-        result.Version.Should().Be(7);
+        result.ShouldNotBeNull();
+        result!.PageId.ShouldBe("456");
+        result.Version.ShouldBe(7);
     }
 
     [Fact]
@@ -111,9 +111,9 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
 
-        result.Should().NotBeNull();
-        result!.PageId.Should().Be("456");
-        result.Version.Should().BeNull();
+        result.ShouldNotBeNull();
+        result!.PageId.ShouldBe("456");
+        result.Version.ShouldBeNull();
     }
 
     [Fact]
@@ -121,8 +121,8 @@ public class LocalStorageHelperTests
     {
         var result = LocalStorageHelper.ParseMarkerFileName(".id12345_42");
 
-        result.PageId.Should().Be("12345");
-        result.Version.Should().Be(42);
+        result.PageId.ShouldBe("12345");
+        result.Version.ShouldBe(42);
     }
 
     [Fact]
@@ -130,8 +130,8 @@ public class LocalStorageHelperTests
     {
         var result = LocalStorageHelper.ParseMarkerFileName(".id12345");
 
-        result.PageId.Should().Be("12345");
-        result.Version.Should().BeNull();
+        result.PageId.ShouldBe("12345");
+        result.Version.ShouldBeNull();
     }
 
     [Fact]
@@ -143,7 +143,7 @@ public class LocalStorageHelperTests
 
         var result = await LocalStorageHelper.ReadPageContent(pageDir);
 
-        result.Should().Be("<p>hello</p>");
+        result.ShouldBe("<p>hello</p>");
     }
 
     [Fact]
@@ -154,7 +154,7 @@ public class LocalStorageHelperTests
 
         var act = async () => await LocalStorageHelper.ReadPageContent(pageDir);
 
-        await act.Should().ThrowAsync<InvalidOperationException>();
+        await Should.ThrowAsync<InvalidOperationException>(act);
     }
 
     [Fact]
@@ -165,7 +165,7 @@ public class LocalStorageHelperTests
 
         var result = await LocalStorageHelper.ReadLocalPageContentOrNull(pageDir);
 
-        result.Should().BeNull();
+        result.ShouldBeNull();
     }
 
     [Fact]
@@ -177,7 +177,7 @@ public class LocalStorageHelperTests
 
         var result = await LocalStorageHelper.ReadLocalPageContentOrNull(pageDir);
 
-        result.Should().Be("<p>abc</p>");
+        result.ShouldBe("<p>abc</p>");
     }
 
     [Fact]
@@ -192,7 +192,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.GetAttachmentFiles(pageDir).Select(Path.GetFileName).ToArray();
 
-        result.Should().BeEquivalentTo(["a.txt", "b.png"]);
+        result.ShouldBe(["a.txt", "b.png"], ignoreOrder: true);
     }
 
     [Fact]
@@ -205,7 +205,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.GetPageSubdirectories(root).Select(Path.GetFileName).ToArray();
 
-        result.Should().BeEquivalentTo(["A", "B"]);
+        result.ShouldBe(["A", "B"], ignoreOrder: true);
     }
 
     [Fact]
@@ -213,7 +213,7 @@ public class LocalStorageHelperTests
     {
         var act = () => LocalStorageHelper.ValidateSourceDirectory("X:\\does-not-exist");
 
-        act.Should().Throw<DirectoryNotFoundException>();
+        Should.Throw<DirectoryNotFoundException>(act);
     }
 
     [Fact]
@@ -224,7 +224,7 @@ public class LocalStorageHelperTests
 
         var act = () => LocalStorageHelper.ValidateSourceDirectory(root);
 
-        act.Should().Throw<FileNotFoundException>();
+        Should.Throw<FileNotFoundException>(act);
     }
 
     [Fact]
@@ -236,7 +236,7 @@ public class LocalStorageHelperTests
 
         var act = () => LocalStorageHelper.ValidateSourceDirectory(root);
 
-        act.Should().NotThrow();
+        Should.NotThrow(act);
     }
 
     [Fact]
@@ -249,7 +249,7 @@ public class LocalStorageHelperTests
 
         var act = () => LocalStorageHelper.ValidateSourceDirectory(pathWithTrailing);
 
-        act.Should().NotThrow();
+        Should.NotThrow(act);
     }
 
     [Fact]
@@ -259,7 +259,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.GetPageTitleFromDirectory(path);
 
-        result.Should().Be("PageName");
+        result.ShouldBe("PageName");
     }
 
     [Fact]
@@ -269,7 +269,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.GetPageTitleFromDirectory(path);
 
-        result.Should().Be("PageName");
+        result.ShouldBe("PageName");
     }
 
     [Fact]
@@ -279,7 +279,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.NormalizeRelativePath(input);
 
-        result.Should().Be("one/two/three");
+        result.ShouldBe("one/two/three");
     }
 
     [Fact]
@@ -300,9 +300,9 @@ public class LocalStorageHelperTests
             .Select(Path.GetFullPath)
             .ToArray();
 
-        result.Should().Contain(Path.GetFullPath(root));
-        result.Should().Contain(Path.GetFullPath(childWithIndex));
-        result.Should().NotContain(Path.GetFullPath(childWithoutIndex));
+        result.ShouldContain(Path.GetFullPath(root));
+        result.ShouldContain(Path.GetFullPath(childWithIndex));
+        result.ShouldNotContain(Path.GetFullPath(childWithoutIndex));
     }
 
     [Fact]
@@ -313,7 +313,7 @@ public class LocalStorageHelperTests
         var withTrailing = root + Path.DirectorySeparatorChar;
         var upper = root.ToUpperInvariant();
 
-        LocalStorageHelper.PathsEqual(withTrailing, upper).Should().BeTrue();
+        LocalStorageHelper.PathsEqual(withTrailing, upper).ShouldBeTrue();
     }
 
     [Fact]
@@ -331,9 +331,9 @@ public class LocalStorageHelperTests
 
         var index = LocalStorageHelper.BuildPageDirectoryIndex(root);
 
-        index.Should().ContainKey("100");
-        index.Should().ContainKey("200");
-        index["100"].Should().Be(Path.GetFullPath(first));
+        index.ShouldContainKey("100");
+        index.ShouldContainKey("200");
+        index["100"].ShouldBe(Path.GetFullPath(first));
     }
 
     [Fact]
@@ -347,8 +347,8 @@ public class LocalStorageHelperTests
 
         var index = LocalStorageHelper.BuildPageDirectoryIndex(root);
 
-        index.Should().ContainKey("100");
-        index["100"].Should().Be(Path.GetFullPath(pageA));
+        index.ShouldContainKey("100");
+        index["100"].ShouldBe(Path.GetFullPath(pageA));
     }
 
     [Fact]
@@ -359,7 +359,7 @@ public class LocalStorageHelperTests
 
         await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, "123", 5);
 
-        File.Exists(Path.Combine(pageDir, ".id123_5")).Should().BeTrue();
+        File.Exists(Path.Combine(pageDir, ".id123_5")).ShouldBeTrue();
     }
 
     [Fact]
@@ -371,8 +371,8 @@ public class LocalStorageHelperTests
 
         await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, "123", 3);
 
-        File.Exists(Path.Combine(pageDir, ".id123")).Should().BeFalse();
-        File.Exists(Path.Combine(pageDir, ".id123_3")).Should().BeTrue();
+        File.Exists(Path.Combine(pageDir, ".id123")).ShouldBeFalse();
+        File.Exists(Path.Combine(pageDir, ".id123_3")).ShouldBeTrue();
     }
 
     [Fact]
@@ -391,8 +391,8 @@ public class LocalStorageHelperTests
 
         LocalStorageHelper.UpdateDirectoryIndexPaths(index, oldRoot, newRoot);
 
-        index["1"].Should().Be(newRoot);
-        index["2"].Should().Be(Path.Combine(newRoot, "Child"));
+        index["1"].ShouldBe(newRoot);
+        index["2"].ShouldBe(Path.Combine(newRoot, "Child"));
     }
 
     [Fact]
@@ -402,7 +402,7 @@ public class LocalStorageHelperTests
 
         var result = await LocalStorageHelper.ResolvePageIdAsync(mock.Object, "SPACE", "123", "Title");
 
-        result.Should().Be("123");
+        result.ShouldBe("123");
     }
 
     [Fact]
@@ -413,7 +413,7 @@ public class LocalStorageHelperTests
 
         var result = await LocalStorageHelper.ResolvePageIdAsync(mock.Object, "SPACE", null, "Title");
 
-        result.Should().Be("777");
+        result.ShouldBe("777");
         mock.VerifyAll();
     }
 
@@ -424,7 +424,7 @@ public class LocalStorageHelperTests
 
         var result = await LocalStorageHelper.ResolvePageIdAsync(mock.Object, "SPACE", null, null);
 
-        result.Should().BeNull();
+        result.ShouldBeNull();
     }
 
     [Fact]
@@ -436,8 +436,8 @@ public class LocalStorageHelperTests
         await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, "123", 5, "Модуль \"Провайдеры\"");
 
         var markerPath = Path.Combine(pageDir, ".id123_5");
-        File.Exists(markerPath).Should().BeTrue();
-        (await File.ReadAllTextAsync(markerPath, TestContext.Current.CancellationToken)).Should().Be("Модуль \"Провайдеры\"");
+        File.Exists(markerPath).ShouldBeTrue();
+        (await File.ReadAllTextAsync(markerPath, TestContext.Current.CancellationToken)).ShouldBe("Модуль \"Провайдеры\"");
     }
 
     [Fact]
@@ -449,7 +449,7 @@ public class LocalStorageHelperTests
         await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, "123", 5);
 
         var content = await File.ReadAllTextAsync(Path.Combine(pageDir, ".id123_5"), TestContext.Current.CancellationToken);
-        content.Should().BeEmpty();
+        content.ShouldBeEmpty();
     }
 
     [Fact]
@@ -461,7 +461,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.ReadOriginalTitle(pageDir);
 
-        result.Should().Be("Original Title");
+        result.ShouldBe("Original Title");
     }
 
     [Fact]
@@ -473,7 +473,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.ReadOriginalTitle(pageDir);
 
-        result.Should().BeNull();
+        result.ShouldBeNull();
     }
 
     [Fact]
@@ -484,7 +484,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.ReadOriginalTitle(pageDir);
 
-        result.Should().BeNull();
+        result.ShouldBeNull();
     }
 
     [Fact]
@@ -492,7 +492,7 @@ public class LocalStorageHelperTests
     {
         var result = LocalStorageHelper.ReadOriginalTitle("X:\\not-existing-dir");
 
-        result.Should().BeNull();
+        result.ShouldBeNull();
     }
 
     [Fact]
@@ -510,7 +510,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.GetPageTitle(pageDir);
 
-        result.Should().Be("Модуль \"Провайдеры\"");
+        result.ShouldBe("Модуль \"Провайдеры\"");
     }
 
     [Fact]
@@ -522,7 +522,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.GetPageTitle(pageDir);
 
-        result.Should().Be("Новый модуль");
+        result.ShouldBe("Новый модуль");
     }
 
     [Fact]
@@ -534,7 +534,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.GetPageTitle(pageDir);
 
-        result.Should().Be("SomeFolder");
+        result.ShouldBe("SomeFolder");
     }
 
     [Fact]
@@ -545,7 +545,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.GetPageTitle(pageDir);
 
-        result.Should().Be("SomeFolder");
+        result.ShouldBe("SomeFolder");
     }
 
     [Fact]
@@ -557,7 +557,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.GetPageTitle(pageDir);
 
-        result.Should().Be("Simple Title");
+        result.ShouldBe("Simple Title");
     }
 
     [Fact]
@@ -569,7 +569,7 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.GetPageTitle(pageDir);
 
-        result.Should().Be("Модуль _Провайдеры_");
+        result.ShouldBe("Модуль _Провайдеры_");
     }
 
     // ── marker body: space (JSON) + legacy fallback ───────────────────────
@@ -583,10 +583,10 @@ public class LocalStorageHelperTests
         await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, "123", 5, "Модуль \"Провайдеры\"", "DEV");
 
         var body = await File.ReadAllTextAsync(Path.Combine(pageDir, ".id123_5"), TestContext.Current.CancellationToken);
-        body.Should().Contain("\"space\":\"DEV\"");
-        body.Should().Contain("Модуль"); // readable Cyrillic, not \uXXXX-escaped
-        LocalStorageHelper.ReadOriginalTitle(pageDir).Should().Be("Модуль \"Провайдеры\"");
-        LocalStorageHelper.ReadSpaceKey(pageDir).Should().Be("DEV");
+        body.ShouldContain("\"space\":\"DEV\"");
+        body.ShouldContain("Модуль"); // readable Cyrillic, not \uXXXX-escaped
+        LocalStorageHelper.ReadOriginalTitle(pageDir).ShouldBe("Модуль \"Провайдеры\"");
+        LocalStorageHelper.ReadSpaceKey(pageDir).ShouldBe("DEV");
     }
 
     [Fact]
@@ -598,8 +598,8 @@ public class LocalStorageHelperTests
         await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, "123", 5, "Plain Title");
 
         var body = await File.ReadAllTextAsync(Path.Combine(pageDir, ".id123_5"), TestContext.Current.CancellationToken);
-        body.Should().Be("Plain Title"); // unchanged on-disk format — zero churn until space is captured
-        LocalStorageHelper.ReadSpaceKey(pageDir).Should().BeNull();
+        body.ShouldBe("Plain Title"); // unchanged on-disk format — zero churn until space is captured
+        LocalStorageHelper.ReadSpaceKey(pageDir).ShouldBeNull();
     }
 
     [Fact]
@@ -611,8 +611,8 @@ public class LocalStorageHelperTests
         await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, "777", 2, "A \"quoted\" & <odd> title", "TEAM");
 
         var content = LocalStorageHelper.ReadMarkerContent(pageDir);
-        content.Title.Should().Be("A \"quoted\" & <odd> title");
-        content.SpaceKey.Should().Be("TEAM");
+        content.Title.ShouldBe("A \"quoted\" & <odd> title");
+        content.SpaceKey.ShouldBe("TEAM");
     }
 
     [Fact]
@@ -622,8 +622,8 @@ public class LocalStorageHelperTests
         var pageDir = temp.CreateDirectory("Page");
         File.WriteAllText(Path.Combine(pageDir, ".id123_5"), "Legacy Title");
 
-        LocalStorageHelper.ReadSpaceKey(pageDir).Should().BeNull();
-        LocalStorageHelper.ReadOriginalTitle(pageDir).Should().Be("Legacy Title");
+        LocalStorageHelper.ReadSpaceKey(pageDir).ShouldBeNull();
+        LocalStorageHelper.ReadOriginalTitle(pageDir).ShouldBe("Legacy Title");
     }
 
     [Fact]
@@ -635,8 +635,8 @@ public class LocalStorageHelperTests
 
         var content = LocalStorageHelper.ReadMarkerContent(pageDir);
 
-        content.Title.Should().Be("My Page");
-        content.SpaceKey.Should().Be("DOCS");
+        content.Title.ShouldBe("My Page");
+        content.SpaceKey.ShouldBe("DOCS");
     }
 
     [Fact]
@@ -647,8 +647,8 @@ public class LocalStorageHelperTests
 
         var content = LocalStorageHelper.ReadMarkerContent(pageDir);
 
-        content.Title.Should().BeNull();
-        content.SpaceKey.Should().BeNull();
+        content.Title.ShouldBeNull();
+        content.SpaceKey.ShouldBeNull();
     }
 
     [Fact]
@@ -665,6 +665,6 @@ public class LocalStorageHelperTests
 
         var result = LocalStorageHelper.GetPageTitle(pageDir);
 
-        result.Should().Be("Модуль \"Провайдеры\"");
+        result.ShouldBe("Модуль \"Провайдеры\"");
     }
 }

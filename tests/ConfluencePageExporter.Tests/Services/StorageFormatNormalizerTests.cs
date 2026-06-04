@@ -1,5 +1,5 @@
 using ConfluencePageExporter.Services;
-using FluentAssertions;
+using Shouldly;
 
 namespace ConfluencePageExporter.Tests.Services;
 
@@ -11,34 +11,34 @@ public class StorageFormatNormalizerTests
     public void NormalizeLineEndings_ShouldReplaceCrLfWithLf()
     {
         StorageFormatNormalizer.NormalizeLineEndings("<p>Hello</p>\r\n<p>World</p>")
-            .Should().Be("<p>Hello</p>\n<p>World</p>");
+            .ShouldBe("<p>Hello</p>\n<p>World</p>");
     }
 
     [Fact]
     public void NormalizeLineEndings_ShouldReplaceStandaloneCrWithLf()
     {
         StorageFormatNormalizer.NormalizeLineEndings("<p>Hello</p>\r<p>World</p>")
-            .Should().Be("<p>Hello</p>\n<p>World</p>");
+            .ShouldBe("<p>Hello</p>\n<p>World</p>");
     }
 
     [Fact]
     public void NormalizeLineEndings_ShouldPreserveLf()
     {
         var input = "<p>Hello</p>\n<p>World</p>";
-        StorageFormatNormalizer.NormalizeLineEndings(input).Should().Be(input);
+        StorageFormatNormalizer.NormalizeLineEndings(input).ShouldBe(input);
     }
 
     [Fact]
     public void NormalizeLineEndings_ShouldHandleMixedLineEndings()
     {
         StorageFormatNormalizer.NormalizeLineEndings("line1\r\nline2\nline3\rline4")
-            .Should().Be("line1\nline2\nline3\nline4");
+            .ShouldBe("line1\nline2\nline3\nline4");
     }
 
     [Fact]
     public void NormalizeLineEndings_ShouldHandleEmptyString()
     {
-        StorageFormatNormalizer.NormalizeLineEndings("").Should().BeEmpty();
+        StorageFormatNormalizer.NormalizeLineEndings("").ShouldBeEmpty();
     }
 
     // ── ContentEquals: null / identity ────────────────────────────────
@@ -46,21 +46,21 @@ public class StorageFormatNormalizerTests
     [Fact]
     public void ContentEquals_ShouldReturnTrue_WhenBothNull()
     {
-        StorageFormatNormalizer.ContentEquals(null, null).Should().BeTrue();
+        StorageFormatNormalizer.ContentEquals(null, null).ShouldBeTrue();
     }
 
     [Fact]
     public void ContentEquals_ShouldReturnFalse_WhenOneIsNull()
     {
-        StorageFormatNormalizer.ContentEquals("<p>text</p>", null).Should().BeFalse();
-        StorageFormatNormalizer.ContentEquals(null, "<p>text</p>").Should().BeFalse();
+        StorageFormatNormalizer.ContentEquals("<p>text</p>", null).ShouldBeFalse();
+        StorageFormatNormalizer.ContentEquals(null, "<p>text</p>").ShouldBeFalse();
     }
 
     [Fact]
     public void ContentEquals_ShouldReturnTrue_WhenIdentical()
     {
         var content = "<p>Hello</p>\n<p>World</p>";
-        StorageFormatNormalizer.ContentEquals(content, content).Should().BeTrue();
+        StorageFormatNormalizer.ContentEquals(content, content).ShouldBeTrue();
     }
 
     // ── ContentEquals: line endings ───────────────────────────────────
@@ -70,7 +70,7 @@ public class StorageFormatNormalizerTests
     {
         var lf = "<p>Hello</p>\n<p>World</p>\n<ul>\n<li>item</li>\n</ul>";
         var crlf = "<p>Hello</p>\r\n<p>World</p>\r\n<ul>\r\n<li>item</li>\r\n</ul>";
-        StorageFormatNormalizer.ContentEquals(lf, crlf).Should().BeTrue();
+        StorageFormatNormalizer.ContentEquals(lf, crlf).ShouldBeTrue();
     }
 
     // ── ContentEquals: XML whitespace / indentation ──────────────────
@@ -80,7 +80,7 @@ public class StorageFormatNormalizerTests
     {
         var compact = "<p><strong>Hello</strong></p>";
         var indented = "<p>\n  <strong>Hello</strong>\n</p>";
-        StorageFormatNormalizer.ContentEquals(compact, indented).Should().BeTrue();
+        StorageFormatNormalizer.ContentEquals(compact, indented).ShouldBeTrue();
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public class StorageFormatNormalizerTests
     {
         var compact = "<ul><li><p>Item</p></li></ul>";
         var indented = "<ul>\n  <li>\n    <p>Item</p>\n  </li>\n</ul>";
-        StorageFormatNormalizer.ContentEquals(compact, indented).Should().BeTrue();
+        StorageFormatNormalizer.ContentEquals(compact, indented).ShouldBeTrue();
     }
 
     // ── ContentEquals: attribute ordering ─────────────────────────────
@@ -98,7 +98,7 @@ public class StorageFormatNormalizerTests
     {
         var a = "<ac:structured-macro ac:name=\"toc\" ac:schema-version=\"1\" ac:macro-id=\"abc\" />";
         var b = "<ac:structured-macro ac:macro-id=\"abc\" ac:name=\"toc\" ac:schema-version=\"1\" />";
-        StorageFormatNormalizer.ContentEquals(a, b).Should().BeTrue();
+        StorageFormatNormalizer.ContentEquals(a, b).ShouldBeTrue();
     }
 
     [Fact]
@@ -112,7 +112,7 @@ public class StorageFormatNormalizerTests
         var b = "<ac:structured-macro ac:macro-id=\"x\" ac:name=\"toc\" ac:schema-version=\"1\">" +
                 "<ac:parameter ac:name=\"outline\">true</ac:parameter>" +
                 "</ac:structured-macro>";
-        StorageFormatNormalizer.ContentEquals(a, b).Should().BeTrue();
+        StorageFormatNormalizer.ContentEquals(a, b).ShouldBeTrue();
     }
 
     // ── ContentEquals: self-closing tags ──────────────────────────────
@@ -122,7 +122,7 @@ public class StorageFormatNormalizerTests
     {
         var withSpace = "<p><br /></p>";
         var withoutSpace = "<p><br/></p>";
-        StorageFormatNormalizer.ContentEquals(withSpace, withoutSpace).Should().BeTrue();
+        StorageFormatNormalizer.ContentEquals(withSpace, withoutSpace).ShouldBeTrue();
     }
 
     // ── ContentEquals: HTML entities ──────────────────────────────────
@@ -132,7 +132,7 @@ public class StorageFormatNormalizerTests
     {
         var withEntity = "<p>&mdash;</p>";
         var withChar = "<p>\u2014</p>";
-        StorageFormatNormalizer.ContentEquals(withEntity, withChar).Should().BeTrue();
+        StorageFormatNormalizer.ContentEquals(withEntity, withChar).ShouldBeTrue();
     }
 
     [Fact]
@@ -140,7 +140,7 @@ public class StorageFormatNormalizerTests
     {
         var emDash = "<p>&mdash;</p>";
         var hyphen = "<p>-</p>";
-        StorageFormatNormalizer.ContentEquals(emDash, hyphen).Should().BeFalse();
+        StorageFormatNormalizer.ContentEquals(emDash, hyphen).ShouldBeFalse();
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public class StorageFormatNormalizerTests
     {
         var a = "<p>&amp; &lt; &gt;</p>";
         var b = "<p>&amp; &lt; &gt;</p>";
-        StorageFormatNormalizer.ContentEquals(a, b).Should().BeTrue();
+        StorageFormatNormalizer.ContentEquals(a, b).ShouldBeTrue();
     }
 
     // ── ContentEquals: real content differences ───────────────────────
@@ -156,7 +156,7 @@ public class StorageFormatNormalizerTests
     [Fact]
     public void ContentEquals_ShouldReturnFalse_WhenContentActuallyDiffers()
     {
-        StorageFormatNormalizer.ContentEquals("<p>local</p>", "<p>remote</p>").Should().BeFalse();
+        StorageFormatNormalizer.ContentEquals("<p>local</p>", "<p>remote</p>").ShouldBeFalse();
     }
 
     [Fact]
@@ -164,7 +164,7 @@ public class StorageFormatNormalizerTests
     {
         var a = "<p><strong>Hello</strong></p>";
         var b = "<p><em>Hello</em></p>";
-        StorageFormatNormalizer.ContentEquals(a, b).Should().BeFalse();
+        StorageFormatNormalizer.ContentEquals(a, b).ShouldBeFalse();
     }
 
     // ── ContentEquals: combined formatting differences (real-world) ───
@@ -186,7 +186,7 @@ public class StorageFormatNormalizerTests
             "  </p>\r\n" +
             "  <h1>Title</h1>";
 
-        StorageFormatNormalizer.ContentEquals(remote, local).Should().BeTrue();
+        StorageFormatNormalizer.ContentEquals(remote, local).ShouldBeTrue();
     }
 
     [Fact]
@@ -194,7 +194,7 @@ public class StorageFormatNormalizerTests
     {
         var remote = "<ac:link><ri:page ri:content-title=\"My Page\" /></ac:link>";
         var local = "<ac:link\r\n      ><ri:page\r\n        ri:content-title=\"My Page\"\r\n    /></ac:link>";
-        StorageFormatNormalizer.ContentEquals(remote, local).Should().BeTrue();
+        StorageFormatNormalizer.ContentEquals(remote, local).ShouldBeTrue();
     }
 
     // ── ContentEquals: fallback to line-ending comparison ─────────────
@@ -203,7 +203,7 @@ public class StorageFormatNormalizerTests
     public void ContentEquals_ShouldFallbackGracefully_WhenXmlIsInvalid()
     {
         var invalid = "<p>Unclosed paragraph";
-        StorageFormatNormalizer.ContentEquals(invalid, invalid).Should().BeTrue();
+        StorageFormatNormalizer.ContentEquals(invalid, invalid).ShouldBeTrue();
     }
 
     [Fact]
@@ -211,7 +211,7 @@ public class StorageFormatNormalizerTests
     {
         var lf = "<p>Unclosed\n<b>also unclosed";
         var crlf = "<p>Unclosed\r\n<b>also unclosed";
-        StorageFormatNormalizer.ContentEquals(lf, crlf).Should().BeTrue();
+        StorageFormatNormalizer.ContentEquals(lf, crlf).ShouldBeTrue();
     }
 
     // ── NormalizeForComparison: detailed canonicalization checks ──────
@@ -221,7 +221,7 @@ public class StorageFormatNormalizerTests
     {
         var input = "<p>\n  <strong>Hello</strong>\n</p>";
         var result = StorageFormatNormalizer.NormalizeForComparison(input);
-        result.Should().Contain("<p><strong>Hello</strong></p>");
+        result.ShouldContain("<p><strong>Hello</strong></p>");
     }
 
     [Fact]
@@ -229,7 +229,7 @@ public class StorageFormatNormalizerTests
     {
         var input = "<ac:structured-macro ac:name=\"toc\" ac:macro-id=\"x\" />";
         var result = StorageFormatNormalizer.NormalizeForComparison(input);
-        result.Should().Contain("ac:macro-id=\"x\" ac:name=\"toc\"");
+        result.ShouldContain("ac:macro-id=\"x\" ac:name=\"toc\"");
     }
 
     [Fact]
@@ -237,7 +237,7 @@ public class StorageFormatNormalizerTests
     {
         var input = "<p>Hello World</p>";
         var result = StorageFormatNormalizer.NormalizeForComparison(input);
-        result.Should().Contain("<p>Hello World</p>");
+        result.ShouldContain("<p>Hello World</p>");
     }
 
     [Fact]
@@ -245,6 +245,6 @@ public class StorageFormatNormalizerTests
     {
         var input = "<p>Not closed\r\n<b>also broken";
         var result = StorageFormatNormalizer.NormalizeForComparison(input);
-        result.Should().Be("<p>Not closed\n<b>also broken");
+        result.ShouldBe("<p>Not closed\n<b>also broken");
     }
 }

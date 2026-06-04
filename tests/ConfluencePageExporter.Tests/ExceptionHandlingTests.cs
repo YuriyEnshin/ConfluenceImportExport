@@ -1,5 +1,5 @@
 using ConfluencePageExporter;
-using FluentAssertions;
+using Shouldly;
 
 namespace ConfluencePageExporter.Tests;
 
@@ -12,7 +12,7 @@ public class ExceptionHandlingTests
 
         var result = ExceptionHandling.GetUserFriendlyErrorMessage(ex);
 
-        result.Should().Be("Source directory does not exist: /invalid/path");
+        result.ShouldBe("Source directory does not exist: /invalid/path");
     }
 
     [Fact]
@@ -22,7 +22,7 @@ public class ExceptionHandlingTests
 
         var result = ExceptionHandling.GetUserFriendlyErrorMessage(ex);
 
-        result.Should().Be("No index.html found in source directory: /path");
+        result.ShouldBe("No index.html found in source directory: /path");
     }
 
     [Fact]
@@ -32,7 +32,7 @@ public class ExceptionHandlingTests
 
         var result = ExceptionHandling.GetUserFriendlyErrorMessage(ex);
 
-        result.Should().Be("Page with ID '123' not found in Confluence");
+        result.ShouldBe("Page with ID '123' not found in Confluence");
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class ExceptionHandlingTests
 
         var result = ExceptionHandling.GetUserFriendlyErrorMessage(ex);
 
-        result.Should().Contain("Invalid value");
+        result.ShouldContain("Invalid value");
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public class ExceptionHandlingTests
 
         var result = ExceptionHandling.GetUserFriendlyErrorMessage(ex);
 
-        result.Should().Be("Connection failed (Connection refused)");
+        result.ShouldBe("Connection failed (Connection refused)");
     }
 
     [Fact]
@@ -62,6 +62,6 @@ public class ExceptionHandlingTests
 
         var result = ExceptionHandling.GetUserFriendlyErrorMessage(ex);
 
-        result.Should().Be("Custom error");
+        result.ShouldBe("Custom error");
     }
 }
