@@ -6,6 +6,21 @@ All notable changes to the Confluence Page Exporter tool are documented in this 
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.12.1] — 2026-06-07
+
+### Fixed
+
+- False "local edits" in compare and repeated re-upload of the same pages.
+  Confluence canonicalises storage format on save: it assigns `ac:macro-id` to
+  macros that lack one and drops empty `<ac:parameter ac:name="" />` elements, so
+  content read back from the server no longer matched the local copy even without
+  real edits — `compare` flagged pages as changed locally and
+  `upload merge`/`update` created redundant versions. The normalizer now strips
+  these artifacts for comparison (epoch 2), so such pages are no longer treated as
+  changed. Additionally, the "local unchanged since sync" hash is now honoured when
+  the marker and server versions match (previously always treated as a local edit)
+  and in the upload no-op, as a safety net for other server-side transformations.
+
 ## [2.12.0] — 2026-06-07
 
 ### Added

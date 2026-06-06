@@ -107,13 +107,40 @@ public sealed class XmlContentNormalizer : IContentNormalizer
         }
     }
 
+    private static readonly XNamespace Ac = "http://atlassian.com/confluence";
+
     private static void NormalizeNode(XElement element)
     {
+        StripVolatileConfluenceArtifacts(element);
         RemoveInsignificantWhitespace(element);
         SortAttributes(element);
 
         foreach (var child in element.Elements())
             NormalizeNode(child);
+    }
+
+    /// <summary>
+    /// Removes Confluence storage-format artifacts that the server adds or drops
+    /// on save and that therefore differ between a local copy and the round-tripped
+    /// server content without being semantic:
+    /// <list type="bullet">
+    /// <item><c>ac:macro-id</c> — a server-assigned GUID added to macros that lack
+    /// one (and otherwise stable across saves); not content.</item>
+    /// <item>empty-named <c>&lt;ac:parameter ac:name=""/&gt;</c> — silently discarded
+    /// by the server on save.</item>
+    /// </list>
+    /// Comparing with these stripped makes ContentEquals agree with Confluence's own
+    /// canonicalisation instead of reporting a permanent phantom diff.
+    /// </summary>
+    private static void StripVolatileConfluenceArtifacts(XElement element)
+    {
+        element.Attribute(Ac + "macro-id")?.Remove();
+
+        var emptyParameters = element.Elements(Ac + "parameter")
+            .Where(p => string.IsNullOrWhiteSpace((string?)p.Attribute(Ac + "name")) && string.IsNullOrEmpty(p.Value))
+            .ToList();
+        foreach (var p in emptyParameters)
+            p.Remove();
     }
 
     private static void RemoveInsignificantWhitespace(XElement element)

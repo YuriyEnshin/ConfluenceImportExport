@@ -147,6 +147,23 @@ public class ChangeSourceAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzeContentChange_ShouldReturnServer_WhenVersionsMatch_ButHashSaysLocalUnchanged()
+    {
+        var analyzer = CreateAnalyzer();
+
+        // Versions equal, but the hash proves local is unchanged since sync. The
+        // local↔server diff is server-side canonicalisation (assigned macro-id,
+        // dropped empty parameters), NOT a local edit → not "Local".
+        var result = analyzer.AnalyzeContentChange(
+            DateTime.UtcNow, DateTime.UtcNow,
+            localMarkerVersion: 5, serverVersion: 5,
+            localContentChanged: false);
+
+        result.Origin.ShouldBe(ChangeOrigin.Server);
+        result.Confidence.ShouldBe(ChangeConfidence.Medium);
+    }
+
+    [Fact]
     public void AnalyzeContentChange_ShouldReturnServer_High_WhenHashSaysLocalUnchanged()
     {
         var analyzer = CreateAnalyzer();
