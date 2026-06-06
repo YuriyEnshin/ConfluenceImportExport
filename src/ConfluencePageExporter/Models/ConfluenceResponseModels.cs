@@ -83,9 +83,15 @@ public record PageMarkerInfo(string PageId, int? Version);
 
 /// <summary>
 /// Parsed contents of a page marker's body: the original (unsanitised) page
-/// title and the space key the page belongs to. Either may be null — legacy
-/// markers store only a plain-text title (or nothing), and space is absent
-/// until a sync captures it. Distinct from <see cref="PageMarkerInfo"/>, which
-/// carries the id/version parsed from the marker's file name.
+/// title, the space key the page belongs to, and — when captured — the content
+/// hash of the last-synced body plus the normalization epoch under which that
+/// hash was computed. Any field may be null: legacy markers store only a
+/// plain-text title (or nothing); space and hash are absent until a sync
+/// captures them. Distinct from <see cref="PageMarkerInfo"/>, which carries the
+/// id/version parsed from the marker's file name.
 /// </summary>
-public record PageMarkerContent(string? Title, string? SpaceKey);
+public record PageMarkerContent(
+    string? Title,
+    string? SpaceKey,
+    string? ContentHash = null,
+    int? NormalizationEpoch = null);

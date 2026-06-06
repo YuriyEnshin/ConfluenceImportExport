@@ -10,6 +10,7 @@ public class CompareService
     private readonly IConfluenceApiClient _apiClient;
     private readonly ChangeSourceAnalyzer _changeSourceAnalyzer;
     private readonly IContentNormalizer _normalizer;
+    private readonly IContentHasher _hasher;
     private readonly ILogger<CompareService> _logger;
     private readonly int _maxParallelism;
 
@@ -18,11 +19,14 @@ public class CompareService
         ChangeSourceAnalyzer changeSourceAnalyzer,
         IContentNormalizer normalizer,
         ILogger<CompareService> logger,
-        int maxParallelism = 8)
+        int maxParallelism = 8,
+        IContentHasher? hasher = null)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
         _changeSourceAnalyzer = changeSourceAnalyzer ?? throw new ArgumentNullException(nameof(changeSourceAnalyzer));
         _normalizer = normalizer ?? throw new ArgumentNullException(nameof(normalizer));
+        // Default the hasher from the same normalizer so existing constructors keep working.
+        _hasher = hasher ?? new ContentHasher(_normalizer);
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _maxParallelism = maxParallelism < 1 ? 1 : maxParallelism;
     }
@@ -158,10 +162,13 @@ public class CompareService
                 }
 
                 var syncTime = LocalStorageHelper.GetMarkerFileTimeUtc(localDir);
+                var markerContent = LocalStorageHelper.ReadMarkerContent(localDir);
+                // Reuse the already-read localContent — no extra file read.
+                var localContentChanged = _hasher.EvaluateLocalChange(markerContent, localContent, contentFileDate, syncTime);
 
                 var changeSource = _changeSourceAnalyzer.AnalyzeContentChange(
                     remote.LastModifiedUtc, contentFileDate,
-                    localById?.LocalVersionNumber, remote.VersionNumber, syncTime);
+                    localById?.LocalVersionNumber, remote.VersionNumber, syncTime, localContentChanged);
 
                 if (changeSource.Origin == ChangeOrigin.Conflict)
                 {

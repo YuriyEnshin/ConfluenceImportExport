@@ -114,18 +114,52 @@ public class ChangeSourceAnalyzerTests
     }
 
     [Fact]
-    public void AnalyzeContentChange_ShouldDetectConflict_WhenBothSidesChanged()
+    public void AnalyzeContentChange_ShouldDetectConflict_ViaMtimeFallback_WhenNoHash()
     {
         var analyzer = CreateAnalyzer();
         var syncTime = DateTime.UtcNow.AddHours(-2);
         var localFileTime = DateTime.UtcNow;
 
+        // No hash signal (localContentChanged: null) → mtime fallback decides.
+        // mtime moves on touch/copy without a real edit, so confidence is Medium.
         var result = analyzer.AnalyzeContentChange(
             DateTime.UtcNow, localFileTime,
             localMarkerVersion: 3, serverVersion: 5,
             syncTimeUtc: syncTime);
 
         result.Origin.ShouldBe(ChangeOrigin.Conflict);
+        result.Confidence.ShouldBe(ChangeConfidence.Medium);
+    }
+
+    [Fact]
+    public void AnalyzeContentChange_ShouldDetectConflict_High_WhenHashSaysLocalChanged()
+    {
+        var analyzer = CreateAnalyzer();
+
+        var result = analyzer.AnalyzeContentChange(
+            DateTime.UtcNow, DateTime.UtcNow,
+            localMarkerVersion: 3, serverVersion: 5,
+            syncTimeUtc: DateTime.UtcNow.AddHours(-2),
+            localContentChanged: true);
+
+        result.Origin.ShouldBe(ChangeOrigin.Conflict);
+        result.Confidence.ShouldBe(ChangeConfidence.High);
+    }
+
+    [Fact]
+    public void AnalyzeContentChange_ShouldReturnServer_High_WhenHashSaysLocalUnchanged()
+    {
+        var analyzer = CreateAnalyzer();
+
+        // Server moved ahead and the local file was touched after sync (mtime would
+        // cry "conflict"), but the hash proves local content is unchanged → Server.
+        var result = analyzer.AnalyzeContentChange(
+            DateTime.UtcNow, DateTime.UtcNow,
+            localMarkerVersion: 3, serverVersion: 5,
+            syncTimeUtc: DateTime.UtcNow.AddHours(-2),
+            localContentChanged: false);
+
+        result.Origin.ShouldBe(ChangeOrigin.Server);
         result.Confidence.ShouldBe(ChangeConfidence.High);
     }
 

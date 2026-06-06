@@ -11,6 +11,14 @@ namespace ConfluencePageExporter.Services;
 /// normalizing whitespace, sorting attributes, and serializing back.
 /// Falls back to line-ending-only normalization on parse errors.
 /// </summary>
+/// <remarks>
+/// ⚠️ CONTENT-HASH CONTRACT: this normalizer's output is hashed and persisted in
+/// page markers (.id*) for double-edit conflict detection. If you change its
+/// behaviour (whitespace / attribute / entity handling), you MUST bump
+/// <see cref="NormalizationContract.CurrentEpoch"/> and refresh its golden value,
+/// or stored hashes silently mismatch. The golden-vector test fails until you do.
+/// See .cursor/rules/confluence-import-export.mdc §11.
+/// </remarks>
 public sealed class XmlContentNormalizer : IContentNormalizer
 {
     public bool ContentEquals(string? left, string? right)

@@ -18,6 +18,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Release archives now bundle both README versions — `README.md`
   (Russian) and `README.en.md` (English).
+- More accurate double-edit conflict detection. At sync time a SHA-256 hash of
+  the normalized content is stored in the `.id` marker (fields `h`/`ne`), so the
+  next sync tells a real local edit apart from an mtime-only touch that leaves
+  the content unchanged (editor re-save, pretty-print, copy, `touch`, VCS
+  checkout) — these are no longer flagged as false conflicts. The hash is the
+  primary signal; modification-time (mtime) comparison remains as a fallback
+  (legacy markers, abnormal normalization). The marker format is extended
+  backward-compatibly: old `.id` files keep reading unchanged, and the hash is
+  added on the next sync.
 
 ## [2.11.0] — 2026-06-03
 

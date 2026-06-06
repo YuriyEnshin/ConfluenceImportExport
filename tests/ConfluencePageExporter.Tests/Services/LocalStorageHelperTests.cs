@@ -615,6 +615,86 @@ public class LocalStorageHelperTests
         content.SpaceKey.ShouldBe("TEAM");
     }
 
+    // ── marker body: content hash + normalization epoch ───────────────────
+
+    [Fact]
+    public async Task WritePageIdMarkerAsync_ShouldRoundTripHashAndEpoch()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+
+        await LocalStorageHelper.WritePageIdMarkerAsync(
+            pageDir, "555", 7, "Title", "DEV", "sha256:abc123", 1);
+
+        var body = await File.ReadAllTextAsync(Path.Combine(pageDir, ".id555_7"), TestContext.Current.CancellationToken);
+        body.ShouldContain("\"h\":\"sha256:abc123\"");
+        body.ShouldContain("\"ne\":1");
+
+        var content = LocalStorageHelper.ReadMarkerContent(pageDir);
+        content.ContentHash.ShouldBe("sha256:abc123");
+        content.NormalizationEpoch.ShouldBe(1);
+        content.SpaceKey.ShouldBe("DEV");
+    }
+
+    [Fact]
+    public async Task WritePageIdMarkerAsync_ShouldWriteJsonWithHash_EvenWithoutSpace()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+
+        await LocalStorageHelper.WritePageIdMarkerAsync(
+            pageDir, "555", 7, "Title", spaceKey: null, contentHash: "sha256:deadbeef", normalizationEpoch: 1);
+
+        var content = LocalStorageHelper.ReadMarkerContent(pageDir);
+        content.ContentHash.ShouldBe("sha256:deadbeef");
+        content.NormalizationEpoch.ShouldBe(1);
+        content.SpaceKey.ShouldBeNull();
+        content.Title.ShouldBe("Title");
+    }
+
+    [Fact]
+    public async Task WritePageIdMarkerAsync_ShouldOmitEpochAndHash_WhenNoHash()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+
+        // Epoch without a hash is meaningless and must not be persisted.
+        await LocalStorageHelper.WritePageIdMarkerAsync(
+            pageDir, "555", 7, "Title", "DEV", contentHash: null, normalizationEpoch: 1);
+
+        var body = await File.ReadAllTextAsync(Path.Combine(pageDir, ".id555_7"), TestContext.Current.CancellationToken);
+        body.ShouldNotContain("\"ne\"");
+        body.ShouldNotContain("\"h\"");
+        LocalStorageHelper.ReadMarkerContent(pageDir).NormalizationEpoch.ShouldBeNull();
+    }
+
+    [Fact]
+    public void ReadMarkerContent_ShouldParseHashAndEpoch()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        File.WriteAllText(Path.Combine(pageDir, ".id123_5"),
+            """{"title":"My Page","space":"DOCS","h":"sha256:ff00","ne":1}""");
+
+        var content = LocalStorageHelper.ReadMarkerContent(pageDir);
+
+        content.ContentHash.ShouldBe("sha256:ff00");
+        content.NormalizationEpoch.ShouldBe(1);
+    }
+
+    [Fact]
+    public void ReadMarkerContent_ShouldReturnNullHash_ForLegacyPlainTitleMarker()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        File.WriteAllText(Path.Combine(pageDir, ".id123_5"), "Legacy Title");
+
+        var content = LocalStorageHelper.ReadMarkerContent(pageDir);
+        content.ContentHash.ShouldBeNull();
+        content.NormalizationEpoch.ShouldBeNull();
+        content.Title.ShouldBe("Legacy Title");
+    }
+
     [Fact]
     public void ReadSpaceKey_ShouldReturnNull_ForLegacyPlainTitleMarker()
     {

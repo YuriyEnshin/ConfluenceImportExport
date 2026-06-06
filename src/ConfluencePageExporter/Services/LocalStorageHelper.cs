@@ -26,6 +26,8 @@ public static class LocalStorageHelper
     {
         [JsonPropertyName("title")] public string? Title { get; set; }
         [JsonPropertyName("space")] public string? Space { get; set; }
+        [JsonPropertyName("h")] public string? Hash { get; set; }
+        [JsonPropertyName("ne")] public int? Ne { get; set; }
     }
 
     public static string SanitizeFileName(string title)
@@ -79,7 +81,8 @@ public static class LocalStorageHelper
 
     public static async Task WritePageIdMarkerAsync(
         string pageDir, string pageId, int? version = null, string? originalTitle = null,
-        string? spaceKey = null, CancellationToken ct = default)
+        string? spaceKey = null, string? contentHash = null, int? normalizationEpoch = null,
+        CancellationToken ct = default)
     {
         if (!Directory.Exists(pageDir))
             throw new DirectoryNotFoundException($"Page directory does not exist: {pageDir}");
@@ -91,25 +94,29 @@ public static class LocalStorageHelper
 
         var markerName = version.HasValue ? $".id{pageId}_{version.Value}" : $".id{pageId}";
         var markerPath = Path.Combine(pageDir, markerName);
-        await File.WriteAllTextAsync(markerPath, SerializeMarkerBody(originalTitle, spaceKey), ct);
+        await File.WriteAllTextAsync(markerPath, SerializeMarkerBody(originalTitle, spaceKey, contentHash, normalizationEpoch), ct);
     }
 
     /// <summary>
-    /// Builds the marker file body. When a space key is known the body is a
-    /// compact JSON object (<c>{"title":…,"space":…}</c>); otherwise the legacy
-    /// plain-text title is written verbatim so older tooling keeps reading it
-    /// unchanged. This keeps upgrade churn at zero until a sync captures space.
+    /// Builds the marker file body. When a space key or a content hash is known
+    /// the body is a compact JSON object (<c>{"title":…,"space":…,"h":…,"ne":…}</c>);
+    /// otherwise the legacy plain-text title is written verbatim so older tooling
+    /// keeps reading it unchanged. This keeps upgrade churn at zero until a sync
+    /// captures space or hash. The normalization epoch is only emitted alongside
+    /// a hash (it is meaningless on its own).
     /// </summary>
-    private static string SerializeMarkerBody(string? title, string? spaceKey)
+    private static string SerializeMarkerBody(string? title, string? spaceKey, string? contentHash, int? normalizationEpoch)
     {
-        if (string.IsNullOrEmpty(spaceKey))
+        if (string.IsNullOrEmpty(spaceKey) && string.IsNullOrEmpty(contentHash))
             return title ?? string.Empty;
 
         return JsonSerializer.Serialize(
             new MarkerBody
             {
                 Title = string.IsNullOrEmpty(title) ? null : title,
-                Space = spaceKey,
+                Space = string.IsNullOrEmpty(spaceKey) ? null : spaceKey,
+                Hash = string.IsNullOrEmpty(contentHash) ? null : contentHash,
+                Ne = string.IsNullOrEmpty(contentHash) ? null : normalizationEpoch,
             },
             MarkerJsonOptions);
     }
@@ -133,10 +140,12 @@ public static class LocalStorageHelper
             try
             {
                 var body = JsonSerializer.Deserialize<MarkerBody>(trimmed, MarkerJsonOptions);
-                if (body != null && (body.Title != null || body.Space != null))
+                if (body != null && (body.Title != null || body.Space != null || body.Hash != null))
                     return new PageMarkerContent(
                         string.IsNullOrWhiteSpace(body.Title) ? null : body.Title,
-                        string.IsNullOrWhiteSpace(body.Space) ? null : body.Space);
+                        string.IsNullOrWhiteSpace(body.Space) ? null : body.Space,
+                        string.IsNullOrWhiteSpace(body.Hash) ? null : body.Hash,
+                        body.Ne);
             }
             catch (JsonException)
             {

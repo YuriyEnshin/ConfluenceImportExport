@@ -9,6 +9,7 @@ public class DownloadService
 {
     private readonly IConfluenceApiClient _apiClient;
     private readonly IContentNormalizer _normalizer;
+    private readonly IContentHasher _hasher;
     private readonly ILogger<DownloadService> _logger;
     private readonly bool _dryRun;
     private readonly int _maxParallelism;
@@ -19,10 +20,14 @@ public class DownloadService
         IContentNormalizer normalizer,
         ILogger<DownloadService> logger,
         bool dryRun = false,
-        int maxParallelism = 8)
+        int maxParallelism = 8,
+        IContentHasher? hasher = null)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
         _normalizer = normalizer ?? throw new ArgumentNullException(nameof(normalizer));
+        // Default the hasher from the same normalizer so existing constructors
+        // (prod handlers and tests) keep working without a new dependency.
+        _hasher = hasher ?? new ContentHasher(_normalizer);
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _dryRun = dryRun;
         _maxParallelism = maxParallelism < 1 ? 1 : maxParallelism;
@@ -84,7 +89,7 @@ public class DownloadService
             Directory.CreateDirectory(pageDir);
 
         await SavePageContentForUpdate(page, pageDir, ct);
-        await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, ct);
+        await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, page.Body.Storage.Value, ct);
 
         if (page.ChildTypes?.HasAttachments ?? true)
         {
@@ -118,30 +123,33 @@ public class DownloadService
         if (localContent == null)
         {
             await WritePageContent(page.Title, pageDir, serverContent, ct);
-            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, ct);
+            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, page.Body.Storage.Value, ct);
         }
         else if (_normalizer.ContentEquals(localContent, serverContent))
         {
             _logger.LogDebug("Page '{Title}' content is unchanged, skipping", page.Title);
-            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, ct);
+            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, page.Body.Storage.Value, ct);
         }
         else
         {
             var markerInfo = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
+            var markerContent = LocalStorageHelper.ReadMarkerContent(pageDir);
             var syncTime = LocalStorageHelper.GetMarkerFileTimeUtc(pageDir);
             var indexPath = Path.Combine(pageDir, "index.html");
             DateTime? localFileTime = File.Exists(indexPath) ? File.GetLastWriteTimeUtc(indexPath) : null;
+            // Reuse the already-read localContent (line above) — no extra file read.
+            var localContentChanged = _hasher.EvaluateLocalChange(markerContent, localContent, localFileTime, syncTime);
 
             var sourceInfo = analyzer.AnalyzeContentChange(
                 page.Version?.When?.ToUniversalTime(), localFileTime,
-                markerInfo?.Version, page.Version?.Number, syncTime);
+                markerInfo?.Version, page.Version?.Number, syncTime, localContentChanged);
 
             switch (sourceInfo.Origin)
             {
                 case ChangeOrigin.Server:
                     _logger.LogInformation("Page '{Title}' changed on server, downloading", page.Title);
                     await WritePageContent(page.Title, pageDir, serverContent, ct);
-                    await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, ct);
+                    await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, page.Body.Storage.Value, ct);
                     break;
 
                 case ChangeOrigin.Local:
@@ -284,7 +292,7 @@ public class DownloadService
         }
     }
 
-    private async Task SavePageIdMarker(string pageId, int? version, string pageDir, string? originalTitle = null, string? spaceKey = null, CancellationToken ct = default)
+    private async Task SavePageIdMarker(string pageId, int? version, string pageDir, string? originalTitle = null, string? spaceKey = null, string? syncedContent = null, CancellationToken ct = default)
     {
         if (_dryRun)
         {
@@ -292,21 +300,32 @@ public class DownloadService
             return;
         }
 
+        // Hash of the body that is now the synced baseline (server content, or the
+        // local content when it already matched). Null when the caller has no body
+        // to stamp or the hashing regime is untrusted — then the stored hash (if
+        // any) is preserved rather than dropped.
+        var contentHash = _hasher.ComputeHash(syncedContent);
+
         var existingInfo = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
         var existing = LocalStorageHelper.ReadMarkerContent(pageDir);
-        // Skip the rewrite only when id, version, title AND space all already
-        // match — so a legacy (space-less) marker is upgraded once the space
-        // is known, rather than left stale.
+        // Skip the rewrite only when id, version, title, space AND the content
+        // hash all already match — so a legacy (space-less / hash-less) marker is
+        // upgraded once the space or hash is known, rather than left stale.
         if (existingInfo != null
             && string.Equals(existingInfo.PageId, pageId, StringComparison.OrdinalIgnoreCase)
             && existingInfo.Version == version
             && existing.Title != null
-            && string.Equals(existing.SpaceKey, spaceKey, StringComparison.OrdinalIgnoreCase))
+            && string.Equals(existing.SpaceKey, spaceKey, StringComparison.OrdinalIgnoreCase)
+            && (contentHash == null || string.Equals(existing.ContentHash, contentHash, StringComparison.Ordinal)))
         {
             return;
         }
 
-        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version, originalTitle, spaceKey, ct);
+        await LocalStorageHelper.WritePageIdMarkerAsync(
+            pageDir, pageId, version, originalTitle, spaceKey,
+            contentHash ?? existing.ContentHash,
+            contentHash != null ? _hasher.Epoch : existing.NormalizationEpoch,
+            ct);
     }
 
     private async Task SaveAttachments(List<AttachmentData> attachments, string pageDir, CancellationToken ct)
