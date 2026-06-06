@@ -9,6 +9,7 @@ public class UploadService
 {
     private readonly IConfluenceApiClient _apiClient;
     private readonly IContentNormalizer _normalizer;
+    private readonly IContentHasher _hasher;
     private readonly ILogger<UploadService> _logger;
     private readonly bool _dryRun;
     private readonly int _maxParallelism;
@@ -18,10 +19,14 @@ public class UploadService
         IContentNormalizer normalizer,
         ILogger<UploadService> logger,
         bool dryRun = false,
-        int maxParallelism = 8)
+        int maxParallelism = 8,
+        IContentHasher? hasher = null)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
         _normalizer = normalizer ?? throw new ArgumentNullException(nameof(normalizer));
+        // Default the hasher from the same normalizer so existing constructors
+        // (prod handlers and tests) keep working without a new dependency.
+        _hasher = hasher ?? new ContentHasher(_normalizer);
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _dryRun = dryRun;
         _maxParallelism = maxParallelism < 1 ? 1 : maxParallelism;
@@ -508,13 +513,16 @@ public class UploadService
         }
 
         var markerInfo = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
+        var markerContent = LocalStorageHelper.ReadMarkerContent(pageDir);
         var syncTime = LocalStorageHelper.GetMarkerFileTimeUtc(pageDir);
         var indexPath = Path.Combine(pageDir, "index.html");
         DateTime? localFileTime = File.Exists(indexPath) ? File.GetLastWriteTimeUtc(indexPath) : null;
+        // Reuse the already-read localContent — no extra file read.
+        var localContentChanged = _hasher.EvaluateLocalChange(markerContent, localContent, localFileTime, syncTime);
 
         var sourceInfo = analyzer.AnalyzeContentChange(
             serverPage.Version?.When?.ToUniversalTime(), localFileTime,
-            markerInfo?.Version, serverPage.Version?.Number, syncTime);
+            markerInfo?.Version, serverPage.Version?.Number, syncTime, localContentChanged);
 
         switch (sourceInfo.Origin)
         {
@@ -893,20 +901,33 @@ public class UploadService
     {
         if (_dryRun) return;
 
+        // After a successful upload the local index.html IS the synced baseline
+        // (upload never mutates local files) — hash it to stamp the marker. Null
+        // when there is no body or the regime is untrusted; then the stored hash
+        // (if any) is preserved rather than dropped.
+        var syncedContent = await LocalStorageHelper.ReadLocalPageContentOrNull(pageDir, ct);
+        var contentHash = _hasher.ComputeHash(syncedContent);
+
         var existingInfo = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
         var existing = LocalStorageHelper.ReadMarkerContent(pageDir);
-        // Skip the rewrite only when id, version, title AND space already match,
-        // so a legacy (space-less) marker is upgraded once the space is known.
+        // Skip the rewrite only when id, version, title, space AND the content
+        // hash all already match, so a legacy (space-less / hash-less) marker is
+        // upgraded once the space or hash is known.
         if (existingInfo != null
             && string.Equals(existingInfo.PageId, pageId, StringComparison.OrdinalIgnoreCase)
             && existingInfo.Version == version
             && existing.Title != null
-            && string.Equals(existing.SpaceKey, spaceKey, StringComparison.OrdinalIgnoreCase))
+            && string.Equals(existing.SpaceKey, spaceKey, StringComparison.OrdinalIgnoreCase)
+            && (contentHash == null || string.Equals(existing.ContentHash, contentHash, StringComparison.Ordinal)))
         {
             return;
         }
 
-        await LocalStorageHelper.WritePageIdMarkerAsync(pageDir, pageId, version, originalTitle, spaceKey, ct);
+        await LocalStorageHelper.WritePageIdMarkerAsync(
+            pageDir, pageId, version, originalTitle, spaceKey,
+            contentHash ?? existing.ContentHash,
+            contentHash != null ? _hasher.Epoch : existing.NormalizationEpoch,
+            ct);
         _logger.LogInformation("Saved page ID marker '.id{PageId}_{Version}' in '{PageDir}'", pageId, version, pageDir);
     }
 }

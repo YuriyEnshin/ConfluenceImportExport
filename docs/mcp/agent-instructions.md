@@ -16,7 +16,7 @@ These same instructions are also published as `docs/mcp/agent-instructions.md` i
 
 Each page is a directory containing:
 - `index.html` — the page's body in **Confluence storage format** (XHTML with custom tags like `ac:structured-macro`, `ri:user`, `ac:image`, etc.). Treat it as semantic markup, not free-form HTML.
-- `.idPAGEID_VER` — a marker file storing the page's Confluence ID and last-synced version (in its name), plus a small JSON body `{"title":…,"space":…}` recording the page's original title and the space it belongs to. Useful for 3-way merges (see below).
+- `.idPAGEID_VER` — a marker file storing the page's Confluence ID and last-synced version (in its name), plus a small JSON body `{"title":…,"space":…,"h":…,"ne":…}` recording the page's original title, the space it belongs to, and a content hash of the last-synced body (`h`) with the normalization epoch it was computed under (`ne`). The hash lets the tool tell a real local edit apart from an mtime-only touch when detecting conflicts; all fields are optional and legacy markers (plain title, or `{"title":…,"space":…}`) keep working. Useful for 3-way merges (see below). Do not hand-edit `h`/`ne`.
 - Attachments live as ordinary files in the same directory.
 - Child pages live as subdirectories.
 

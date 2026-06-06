@@ -104,7 +104,8 @@ public class ChangeSourceAnalyzer
         DateTime? localFileModifiedUtc,
         int? localMarkerVersion = null,
         int? serverVersion = null,
-        DateTime? syncTimeUtc = null)
+        DateTime? syncTimeUtc = null,
+        bool? localContentChanged = null)
     {
         if (localMarkerVersion.HasValue && serverVersion.HasValue)
         {
@@ -118,11 +119,36 @@ public class ChangeSourceAnalyzer
 
             if (localMarkerVersion.Value < serverVersion.Value)
             {
-                if (syncTimeUtc.HasValue && localFileModifiedUtc.HasValue && localFileModifiedUtc.Value > syncTimeUtc.Value)
+                // Authoritative local-change signal from the content hash (when
+                // available): it tells a real local edit apart from an mtime-only
+                // touch that the date heuristic below would misread as a conflict.
+                if (localContentChanged == true)
                 {
                     return new ChangeSourceInfo(
                         ChangeOrigin.Conflict,
                         ChangeConfidence.High,
+                        $"Серверная версия ({serverVersion}) новее маркера ({localMarkerVersion}), " +
+                        $"локальный контент изменён после синхронизации (по хэшу) " +
+                        $"— конфликт: изменения с обеих сторон");
+                }
+
+                if (localContentChanged == false)
+                {
+                    return new ChangeSourceInfo(
+                        ChangeOrigin.Server,
+                        ChangeConfidence.High,
+                        $"Серверная версия ({serverVersion}) новее маркера ({localMarkerVersion}), " +
+                        $"локальный контент идентичен последней синхронизации (по хэшу) — контент изменён на сервере");
+                }
+
+                // No usable hash → fall back to file mtime vs sync time. This is a
+                // weaker signal (mtime moves on touch/copy/checkout without a real
+                // edit), hence Medium confidence for the conflict verdict.
+                if (syncTimeUtc.HasValue && localFileModifiedUtc.HasValue && localFileModifiedUtc.Value > syncTimeUtc.Value)
+                {
+                    return new ChangeSourceInfo(
+                        ChangeOrigin.Conflict,
+                        ChangeConfidence.Medium,
                         $"Серверная версия ({serverVersion}) новее маркера ({localMarkerVersion}), " +
                         $"но локальный файл изменён ({FormatDate(localFileModifiedUtc)}) после синхронизации ({FormatDate(syncTimeUtc)}) " +
                         $"— конфликт: изменения с обеих сторон");

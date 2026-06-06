@@ -4,11 +4,22 @@ using System.Text.RegularExpressions;
 namespace ConfluencePageExporter.Services;
 
 /// <summary>
-/// Regex-based content normalizer that avoids System.Xml entirely.
-/// Originally introduced to work around AccessViolationException on macOS ARM64
-/// in single-file compressed apps (dotnet/runtime#123324).
-/// Less accurate than XML-based normalization but has no native dependencies.
+/// Regex-based content normalizer that avoids System.Xml entirely. Kept as a
+/// one-line-swappable backup for <see cref="XmlContentNormalizer"/> (the default).
+/// During the macOS ARM64 crash investigation — root cause was a compressed
+/// single-file runtime bug (dotnet/runtime#123324), fixed by disabling
+/// single-file compression, NOT by this class — System.Xml was briefly suspected
+/// of thread-unsafety, so a System.Xml-free path was kept around to swap in and
+/// compare. Less accurate than XML-based normalization but has no native
+/// dependencies.
 /// </summary>
+/// <remarks>
+/// ⚠️ CONTENT-HASH CONTRACT: see <see cref="XmlContentNormalizer"/> and
+/// <see cref="NormalizationContract"/>. This normalizer produces DIFFERENT
+/// canonical output from the XML one; swapping it in makes the golden-vector
+/// self-check fail, which by design disables hashing and falls back to mtime
+/// until the epoch/golden are updated for it.
+/// </remarks>
 public sealed partial class RegexContentNormalizer : IContentNormalizer
 {
     public bool ContentEquals(string? left, string? right)
