@@ -111,6 +111,20 @@ public class ChangeSourceAnalyzer
         {
             if (localMarkerVersion.Value == serverVersion.Value)
             {
+                // The hash proves local content is unchanged since the last sync,
+                // yet it differs from the server (at the same version): the diff is
+                // server-side canonicalisation (assigned ac:macro-id, dropped empty
+                // parameters, …), NOT a local edit. Don't misattribute it to "Local".
+                if (localContentChanged == false)
+                {
+                    return new ChangeSourceInfo(
+                        ChangeOrigin.Server,
+                        ChangeConfidence.Medium,
+                        $"Версия маркера ({localMarkerVersion}) совпадает с серверной, " +
+                        $"но локальный контент не менялся с синхронизации (по хэшу) " +
+                        $"— расхождение на стороне сервера (каноникализация storage format)");
+                }
+
                 return new ChangeSourceInfo(
                     ChangeOrigin.Local,
                     ChangeConfidence.High,

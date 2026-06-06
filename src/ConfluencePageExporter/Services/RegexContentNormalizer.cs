@@ -49,6 +49,7 @@ public sealed partial class RegexContentNormalizer : IContentNormalizer
         try
         {
             var result = ReplaceHtmlNamedEntities(content);
+            result = StripVolatileConfluenceArtifacts(result);
             result = StripInterTagWhitespace(result);
             result = NormalizeTagAttributes(result);
             return result;
@@ -57,6 +58,27 @@ public sealed partial class RegexContentNormalizer : IContentNormalizer
         {
             return null;
         }
+    }
+
+    // ── Volatile Confluence artifacts (see XmlContentNormalizer for rationale) ──
+
+    [GeneratedRegex(@"\s+ac:macro-id=""[^""]*""")]
+    private static partial Regex MacroIdPattern();
+
+    [GeneratedRegex(@"<ac:parameter\s+ac:name=""\s*""\s*/>")]
+    private static partial Regex EmptyParameterPattern();
+
+    /// <summary>
+    /// Drops <c>ac:macro-id</c> attributes and empty-named self-closing
+    /// <c>&lt;ac:parameter ac:name=""/&gt;</c> elements — the server-side
+    /// additions/removals that would otherwise make a local copy differ from the
+    /// round-tripped server content. Mirrors XmlContentNormalizer.
+    /// </summary>
+    private static string StripVolatileConfluenceArtifacts(string content)
+    {
+        content = MacroIdPattern().Replace(content, "");
+        content = EmptyParameterPattern().Replace(content, "");
+        return content;
     }
 
     // ── HTML Entity Replacement ─────────────────────────────────────────

@@ -227,9 +227,11 @@ public class StorageFormatNormalizerTests
     [Fact]
     public void NormalizeForComparison_ShouldSortAttributes()
     {
-        var input = "<ac:structured-macro ac:name=\"toc\" ac:macro-id=\"x\" />";
+        // ac:macro-id is now stripped as a volatile artifact, so sorting is
+        // verified with two retained attributes (name < schema-version, Ordinal).
+        var input = "<ac:structured-macro ac:schema-version=\"1\" ac:name=\"toc\" />";
         var result = StorageFormatNormalizer.NormalizeForComparison(input);
-        result.ShouldContain("ac:macro-id=\"x\" ac:name=\"toc\"");
+        result.ShouldContain("ac:name=\"toc\" ac:schema-version=\"1\"");
     }
 
     [Fact]

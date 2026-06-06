@@ -478,7 +478,19 @@ public class UploadService
             title = serverPage.Title;
         }
 
-        bool contentChanged = !_normalizer.ContentEquals(localContent, serverPage.Body.Storage.Value);
+        // Hash-based "did local content change since the last sync?" — independent
+        // of Confluence's server-side canonicalisation (assigned ac:macro-id,
+        // dropped empty parameters, …). When it proves the local copy is unchanged,
+        // treat content as unchanged even if ContentEquals still sees a server-side
+        // diff, so we don't re-upload and spam server versions.
+        var markerContent = LocalStorageHelper.ReadMarkerContent(pageDir);
+        var syncTime = LocalStorageHelper.GetMarkerFileTimeUtc(pageDir);
+        var indexPath = Path.Combine(pageDir, "index.html");
+        DateTime? localFileTime = File.Exists(indexPath) ? File.GetLastWriteTimeUtc(indexPath) : null;
+        var localContentChanged = _hasher.EvaluateLocalChange(markerContent, localContent, localFileTime, syncTime);
+
+        bool contentChanged = !_normalizer.ContentEquals(localContent, serverPage.Body.Storage.Value)
+            && localContentChanged != false;
         bool titleChanged = !string.Equals(title, serverPage.Title, StringComparison.Ordinal);
         bool parentChanged = moveToParentId != null;
 
@@ -512,13 +524,9 @@ public class UploadService
             return;
         }
 
+        // markerContent / syncTime / localFileTime / localContentChanged were
+        // computed above (for the no-op short-circuit); reuse them here.
         var markerInfo = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
-        var markerContent = LocalStorageHelper.ReadMarkerContent(pageDir);
-        var syncTime = LocalStorageHelper.GetMarkerFileTimeUtc(pageDir);
-        var indexPath = Path.Combine(pageDir, "index.html");
-        DateTime? localFileTime = File.Exists(indexPath) ? File.GetLastWriteTimeUtc(indexPath) : null;
-        // Reuse the already-read localContent — no extra file read.
-        var localContentChanged = _hasher.EvaluateLocalChange(markerContent, localContent, localFileTime, syncTime);
 
         var sourceInfo = analyzer.AnalyzeContentChange(
             serverPage.Version?.When?.ToUniversalTime(), localFileTime,
@@ -746,8 +754,18 @@ public class UploadService
 
         var serverVersion = serverPage.Version?.Number;
 
+        // Hash-based "did local content change since the last sync?" lets a force
+        // update skip the push when the only diff is Confluence's server-side
+        // canonicalisation, preventing pointless version churn.
+        var markerContent = LocalStorageHelper.ReadMarkerContent(pageDir);
+        var syncTime = LocalStorageHelper.GetMarkerFileTimeUtc(pageDir);
+        var indexPath = Path.Combine(pageDir, "index.html");
+        DateTime? localFileTime = File.Exists(indexPath) ? File.GetLastWriteTimeUtc(indexPath) : null;
+        var localContentChanged = _hasher.EvaluateLocalChange(markerContent, localContent, localFileTime, syncTime);
+
         bool titleChanged = !string.Equals(title, serverPage.Title, StringComparison.Ordinal);
-        bool contentChanged = !_normalizer.ContentEquals(localContent, serverPage.Body.Storage.Value);
+        bool contentChanged = !_normalizer.ContentEquals(localContent, serverPage.Body.Storage.Value)
+            && localContentChanged != false;
         bool parentChanged = moveToParentId != null;
 
         if (!titleChanged && !contentChanged && !parentChanged)
