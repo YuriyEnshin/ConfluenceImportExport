@@ -1,4 +1,4 @@
-# Confluence Page Exporter v2.11.0
+# Confluence Page Sync v2.11.0
 
 **Русский** | [English](README.en.md)
 
