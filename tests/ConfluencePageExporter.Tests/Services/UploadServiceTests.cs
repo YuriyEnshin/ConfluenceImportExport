@@ -141,7 +141,7 @@ public class UploadServiceTests
         await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
         api.VerifyAll();
-        LocalStorageHelper.ReadPageIdFromMarker(sourceDir).ShouldBe("300");
+        PageMarker.Load(sourceDir).ShouldNotBeNull().PageId.ShouldBe("300");
     }
 
     [Fact]
@@ -190,7 +190,7 @@ public class UploadServiceTests
 
         api.Verify(x => x.CreatePageAsync("SPACE", "111", "ChildNew", "<p>child</p>"), Times.Once);
         var childDir = Path.Combine(rootDir, "ChildNew");
-        LocalStorageHelper.ReadPageIdFromMarker(childDir).ShouldBe("500");
+        PageMarker.Load(childDir).ShouldNotBeNull().PageId.ShouldBe("500");
     }
 
     [Fact]
@@ -210,7 +210,7 @@ public class UploadServiceTests
         await service.UploadCreateAsync("SPACE", sourceDir, null, "ParentTitle", recursive: false);
 
         api.VerifyAll();
-        LocalStorageHelper.ReadPageIdFromMarker(sourceDir).ShouldBe("C100");
+        PageMarker.Load(sourceDir).ShouldNotBeNull().PageId.ShouldBe("C100");
     }
 
     [Fact]
@@ -227,7 +227,7 @@ public class UploadServiceTests
         await service.UploadCreateAsync("SPACE", sourceDir, null, null, recursive: false);
 
         api.Verify(x => x.CreatePageAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
-        LocalStorageHelper.ReadPageIdFromMarker(sourceDir).ShouldBeNull();
+        PageMarker.Load(sourceDir).ShouldBeNull();
     }
 
     [Fact]
@@ -483,10 +483,10 @@ public class UploadServiceTests
 
         await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
 
-        var markerInfo = LocalStorageHelper.ReadPageMarkerInfo(sourceDir);
-        markerInfo.ShouldNotBeNull();
-        markerInfo!.PageId.ShouldBe("100");
-        markerInfo.Version.ShouldBe(6);
+        var marker = PageMarker.Load(sourceDir);
+        marker.ShouldNotBeNull();
+        marker!.PageId.ShouldBe("100");
+        marker.Version.ShouldBe(6);
     }
 
     [Fact]
@@ -789,7 +789,7 @@ public class UploadServiceTests
 
         await service.UploadUpdateAsync("CFG", sourceDir, null, null, recursive: false);
 
-        LocalStorageHelper.ReadSpaceKey(sourceDir).ShouldBe("DOCS");
+        PageMarker.Load(sourceDir).ShouldNotBeNull().SpaceKey.ShouldBe("DOCS");
     }
 
     // ── multi-tree mode + explicit-space conflict ──────────────────────────
@@ -818,8 +818,8 @@ public class UploadServiceTests
 
         api.Verify(x => x.UpdatePageAsync("100", "Tree1", "<p>t1</p>", null), Times.Once);
         api.Verify(x => x.UpdatePageAsync("200", "Tree2", "<p>t2</p>", null), Times.Once);
-        LocalStorageHelper.ReadSpaceKey(t1).ShouldBe("DEV");
-        LocalStorageHelper.ReadSpaceKey(t2).ShouldBe("DOCS");
+        PageMarker.Load(t1).ShouldNotBeNull().SpaceKey.ShouldBe("DEV");
+        PageMarker.Load(t2).ShouldNotBeNull().SpaceKey.ShouldBe("DOCS");
     }
 
     [Fact]

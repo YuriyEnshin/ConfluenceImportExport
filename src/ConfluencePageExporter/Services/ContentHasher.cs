@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using ConfluencePageExporter.Models;
 
 namespace ConfluencePageExporter.Services;
 
@@ -45,12 +44,12 @@ public sealed class ContentHasher : IContentHasher
     }
 
     public bool? EvaluateLocalChange(
-        PageMarkerContent marker,
+        PageMarker? marker,
         string? localContentMaybe,
         DateTime? indexMtimeUtc,
         DateTime? syncTimeUtc)
     {
-        if (!_regimeTrusted || string.IsNullOrEmpty(marker.ContentHash))
+        if (!_regimeTrusted || string.IsNullOrEmpty(marker?.ContentHash))
             return null;
 
         // mtime fast-path: the file was not touched after the last sync, so the
@@ -61,7 +60,7 @@ public sealed class ContentHasher : IContentHasher
         if (localContentMaybe is null)
             return null;
 
-        return HasChanged(marker.ContentHash, marker.NormalizationEpoch, localContentMaybe);
+        return HasChanged(marker!.ContentHash, marker.NormalizationEpoch, localContentMaybe);
     }
 
     private bool? HasChanged(string? storedHash, int? storedEpoch, string rawCurrent)

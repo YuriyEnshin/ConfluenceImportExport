@@ -153,22 +153,11 @@ public class CompareService
 
             if (!_normalizer.ContentEquals(localContent, remote.Content))
             {
-                var contentFileDate = localById?.ContentLastModifiedUtc;
-                if (contentFileDate == null)
-                {
-                    var indexPath = Path.Combine(localDir, "index.html");
-                    if (File.Exists(indexPath))
-                        contentFileDate = File.GetLastWriteTimeUtc(indexPath);
-                }
-
-                var syncTime = LocalStorageHelper.GetMarkerFileTimeUtc(localDir);
-                var markerContent = LocalStorageHelper.ReadMarkerContent(localDir);
-                // Reuse the already-read localContent — no extra file read.
-                var localContentChanged = _hasher.EvaluateLocalChange(markerContent, localContent, contentFileDate, syncTime);
+                var syncState = LocalSyncState.Read(localDir, localContent, _hasher);
 
                 var changeSource = _changeSourceAnalyzer.AnalyzeContentChange(
-                    remote.LastModifiedUtc, contentFileDate,
-                    localById?.LocalVersionNumber, remote.VersionNumber, syncTime, localContentChanged);
+                    remote.LastModifiedUtc, syncState.LocalFileTimeUtc,
+                    syncState.MarkerVersion, remote.VersionNumber, syncState.SyncTimeUtc, syncState.LocalContentChanged);
 
                 if (changeSource.Origin == ChangeOrigin.Conflict)
                 {
@@ -286,15 +275,14 @@ public class CompareService
             if (!markerName.StartsWith(".id", StringComparison.OrdinalIgnoreCase) || markerName.Length <= 3)
                 continue;
 
-            var markerInfo = LocalStorageHelper.ParseMarkerFileName(markerName);
-            var pageId = markerInfo.PageId;
+            var pageId = PageMarker.ParseFileName(markerName).PageId;
             var pageDir = Path.GetDirectoryName(markerFile);
             if (string.IsNullOrEmpty(pageDir))
                 continue;
 
             var normalizedDir = Path.GetFullPath(pageDir);
             var relativePath = LocalStorageHelper.NormalizeRelativePath(Path.GetRelativePath(outputDir, normalizedDir));
-            var title = LocalStorageHelper.ReadOriginalTitle(normalizedDir) ?? Path.GetFileName(normalizedDir);
+            var title = PageMarker.Load(normalizedDir)?.Title ?? Path.GetFileName(normalizedDir);
 
             if (pagesById.ContainsKey(pageId))
             {
@@ -303,10 +291,8 @@ public class CompareService
             }
 
             var dirDate = Directory.GetLastWriteTimeUtc(normalizedDir);
-            var indexPath = Path.Combine(normalizedDir, "index.html");
-            DateTime? contentDate = File.Exists(indexPath) ? File.GetLastWriteTimeUtc(indexPath) : null;
 
-            pagesById[pageId] = new LocalPageSnapshot(pageId, title, normalizedDir, relativePath, dirDate, contentDate, markerInfo.Version);
+            pagesById[pageId] = new LocalPageSnapshot(pageId, title, normalizedDir, relativePath, dirDate);
         }
 
         foreach (var localDir in LocalStorageHelper.EnumeratePageDirectories(localRootDir))
@@ -314,7 +300,7 @@ public class CompareService
             var normalizedDir = Path.GetFullPath(localDir);
             var relativePath = LocalStorageHelper.NormalizeRelativePath(Path.GetRelativePath(outputDir, normalizedDir));
             var title = Path.GetFileName(normalizedDir);
-            var localPageId = LocalStorageHelper.ReadPageIdFromMarker(normalizedDir);
+            var localPageId = PageMarker.Load(normalizedDir)?.PageId;
 
             if (pagesByPath.ContainsKey(relativePath))
             {
@@ -354,7 +340,7 @@ public class CompareService
         if (string.IsNullOrEmpty(localParentDir))
             return;
 
-        var localParentPageId = LocalStorageHelper.ReadPageIdFromMarker(localParentDir);
+        var localParentPageId = PageMarker.Load(localParentDir)?.PageId;
         if (localParentPageId == null)
             return;
 

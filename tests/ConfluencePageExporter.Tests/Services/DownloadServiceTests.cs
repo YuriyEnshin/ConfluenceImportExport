@@ -56,7 +56,7 @@ public class DownloadServiceTests
 
         var pageDir = Path.Combine(outputDir, "Root");
         File.Exists(Path.Combine(pageDir, "index.html")).ShouldBeTrue();
-        LocalStorageHelper.ReadPageIdFromMarker(pageDir).ShouldBe("1");
+        PageMarker.Load(pageDir).ShouldNotBeNull().PageId.ShouldBe("1");
         File.Exists(Path.Combine(pageDir, "file.txt")).ShouldBeTrue();
         api.Verify(x => x.GetChildrenPagesAsync(It.IsAny<string>()), Times.Never);
         report.HasIssues.ShouldBeFalse();
@@ -126,7 +126,7 @@ public class DownloadServiceTests
         Directory.Exists(oldDir).ShouldBeFalse();
         var newDir = Path.Combine(outputDir, "NewTitle");
         Directory.Exists(newDir).ShouldBeTrue();
-        LocalStorageHelper.ReadPageIdFromMarker(newDir).ShouldBe("1");
+        PageMarker.Load(newDir).ShouldNotBeNull().PageId.ShouldBe("1");
     }
 
     [Fact]
@@ -415,7 +415,7 @@ public class DownloadServiceTests
         {
             var childDir = Path.Combine(outputDir, "Root", ch.Title);
             File.Exists(Path.Combine(childDir, "index.html")).ShouldBeTrue();
-            LocalStorageHelper.ReadPageIdFromMarker(childDir).ShouldBe(ch.Id);
+            PageMarker.Load(childDir).ShouldNotBeNull().PageId.ShouldBe(ch.Id);
         }
 
         foreach (var ch in children)
@@ -536,7 +536,7 @@ public class DownloadServiceTests
         // the server value is the authority and is what gets persisted.
         await service.DownloadUpdateAsync("CFG", "100", null, temp.RootPath, recursive: false);
 
-        LocalStorageHelper.ReadSpaceKey(Path.Combine(temp.RootPath, "Root")).ShouldBe("DOCS");
+        PageMarker.Load(Path.Combine(temp.RootPath, "Root")).ShouldNotBeNull().SpaceKey.ShouldBe("DOCS");
     }
 
     [Fact]
@@ -556,6 +556,6 @@ public class DownloadServiceTests
 
         await service.DownloadUpdateAsync("CFG", "100", null, temp.RootPath, recursive: true);
 
-        LocalStorageHelper.ReadSpaceKey(Path.Combine(temp.RootPath, "Root", "Child")).ShouldBe("DOCS");
+        PageMarker.Load(Path.Combine(temp.RootPath, "Root", "Child")).ShouldNotBeNull().SpaceKey.ShouldBe("DOCS");
     }
 }

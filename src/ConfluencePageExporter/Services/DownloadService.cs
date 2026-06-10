@@ -132,17 +132,11 @@ public class DownloadService
         }
         else
         {
-            var markerInfo = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
-            var markerContent = LocalStorageHelper.ReadMarkerContent(pageDir);
-            var syncTime = LocalStorageHelper.GetMarkerFileTimeUtc(pageDir);
-            var indexPath = Path.Combine(pageDir, "index.html");
-            DateTime? localFileTime = File.Exists(indexPath) ? File.GetLastWriteTimeUtc(indexPath) : null;
-            // Reuse the already-read localContent (line above) — no extra file read.
-            var localContentChanged = _hasher.EvaluateLocalChange(markerContent, localContent, localFileTime, syncTime);
+            var syncState = LocalSyncState.Read(pageDir, localContent, _hasher);
 
             var sourceInfo = analyzer.AnalyzeContentChange(
-                page.Version?.When?.ToUniversalTime(), localFileTime,
-                markerInfo?.Version, page.Version?.Number, syncTime, localContentChanged);
+                page.Version?.When?.ToUniversalTime(), syncState.LocalFileTimeUtc,
+                syncState.MarkerVersion, page.Version?.Number, syncState.SyncTimeUtc, syncState.LocalContentChanged);
 
             switch (sourceInfo.Origin)
             {
@@ -266,7 +260,7 @@ public class DownloadService
             {
                 if (Directory.Exists(expectedDir))
                 {
-                    var markerAtExpected = LocalStorageHelper.ReadPageIdFromMarker(expectedDir);
+                    var markerAtExpected = PageMarker.Load(expectedDir)?.PageId;
                     if (string.Equals(markerAtExpected, page.Id, StringComparison.OrdinalIgnoreCase))
                     {
                         Directory.Delete(normalizedExistingDir, true);
@@ -300,32 +294,10 @@ public class DownloadService
             return;
         }
 
-        // Hash of the body that is now the synced baseline (server content, or the
-        // local content when it already matched). Null when the caller has no body
-        // to stamp or the hashing regime is untrusted — then the stored hash (if
-        // any) is preserved rather than dropped.
-        var contentHash = _hasher.ComputeHash(syncedContent);
-
-        var existingInfo = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
-        var existing = LocalStorageHelper.ReadMarkerContent(pageDir);
-        // Skip the rewrite only when id, version, title, space AND the content
-        // hash all already match — so a legacy (space-less / hash-less) marker is
-        // upgraded once the space or hash is known, rather than left stale.
-        if (existingInfo != null
-            && string.Equals(existingInfo.PageId, pageId, StringComparison.OrdinalIgnoreCase)
-            && existingInfo.Version == version
-            && existing.Title != null
-            && string.Equals(existing.SpaceKey, spaceKey, StringComparison.OrdinalIgnoreCase)
-            && (contentHash == null || string.Equals(existing.ContentHash, contentHash, StringComparison.Ordinal)))
-        {
-            return;
-        }
-
-        await LocalStorageHelper.WritePageIdMarkerAsync(
-            pageDir, pageId, version, originalTitle, spaceKey,
-            contentHash ?? existing.ContentHash,
-            contentHash != null ? _hasher.Epoch : existing.NormalizationEpoch,
-            ct);
+        // syncedContent is the body that is now the synced baseline (server
+        // content, or the local content when it already matched); the shared
+        // skip/upgrade policy lives in PageMarker.UpdateAsync.
+        await PageMarker.UpdateAsync(pageDir, pageId, version, originalTitle, spaceKey, syncedContent, _hasher, ct);
     }
 
     private async Task SaveAttachments(List<AttachmentData> attachments, string pageDir, CancellationToken ct)

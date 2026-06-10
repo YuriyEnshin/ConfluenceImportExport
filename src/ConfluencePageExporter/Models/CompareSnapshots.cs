@@ -17,9 +17,7 @@ public sealed record LocalPageSnapshot(
     string Title,
     string DirectoryPath,
     string RelativePath,
-    DateTime? DirectoryLastModifiedUtc,
-    DateTime? ContentLastModifiedUtc,
-    int? LocalVersionNumber);
+    DateTime? DirectoryLastModifiedUtc);
 
 public sealed record LocalPathSnapshot(
     string RelativePath,

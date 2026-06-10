@@ -79,19 +79,9 @@ public class PageVersionSummary
 
 public record PageUpdateResult(string Id, int VersionNumber);
 
-public record PageMarkerInfo(string PageId, int? Version);
-
 /// <summary>
-/// Parsed contents of a page marker's body: the original (unsanitised) page
-/// title, the space key the page belongs to, and — when captured — the content
-/// hash of the last-synced body plus the normalization epoch under which that
-/// hash was computed. Any field may be null: legacy markers store only a
-/// plain-text title (or nothing); space and hash are absent until a sync
-/// captures them. Distinct from <see cref="PageMarkerInfo"/>, which carries the
-/// id/version parsed from the marker's file name.
+/// Id/version parsed from a marker's file name (<c>.idPAGEID</c> or
+/// <c>.idPAGEID_VER</c>). The full marker — body fields included — is
+/// represented by <c>Services.PageMarker</c>.
 /// </summary>
-public record PageMarkerContent(
-    string? Title,
-    string? SpaceKey,
-    string? ContentHash = null,
-    int? NormalizationEpoch = null);
+public record PageMarkerInfo(string PageId, int? Version);
