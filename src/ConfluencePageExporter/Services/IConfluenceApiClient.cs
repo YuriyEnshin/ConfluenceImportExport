@@ -8,9 +8,21 @@ namespace ConfluencePageExporter.Services;
 public interface IConfluenceApiClient
 {
     Task<PageData> GetPageByIdAsync(string pageId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the page, or <c>null</c> strictly when it does not exist (404).
+    /// Any other API failure throws <see cref="ConfluenceApiException"/>.
+    /// </summary>
     Task<PageData?> TryGetPageByIdAsync(string pageId, CancellationToken ct = default);
     Task<List<PageData>> GetChildrenPagesAsync(string parentId, CancellationToken ct = default);
     Task<List<AttachmentData>> GetAttachmentsAsync(string pageId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the found page's id, or <c>null</c> strictly when no page with
+    /// this title exists. Any API failure throws <see cref="ConfluenceApiException"/>
+    /// rather than returning <c>null</c> — callers treat <c>null</c> as "safe to
+    /// create", so a masked error would risk creating a duplicate page.
+    /// </summary>
     Task<string?> FindPageByTitleAsync(string spaceKey, string? parentId, string title, CancellationToken ct = default);
     /// <summary>
     /// Creates a page. Returns the created page's id/version, or throws

@@ -8,9 +8,13 @@ using ConfluencePageExporter.Models;
 namespace ConfluencePageExporter.Services;
 
 /// <summary>
-/// HttpClient-based implementation of IConfluenceApiClient
-/// This is a fallback implementation that uses direct HTTP calls.
-/// Can be replaced with ConfluenceApiV2Client-based implementation when package is available.
+/// HttpClient-based implementation of <see cref="IConfluenceApiClient"/> over the
+/// Confluence REST API (v1, Server/Data Center compatible).
+/// Error contract: a non-success HTTP status surfaces as a typed
+/// <see cref="ConfluenceApiException"/> (409 → <see cref="ConfluenceConflictException"/>);
+/// lookup methods return <c>null</c> strictly for "not found". Best-effort methods
+/// (attachments listing, version history) degrade gracefully on server errors but
+/// always propagate cancellation.
 /// </summary>
 public class HttpClientConfluenceApiClient : IConfluenceApiClient
 {
@@ -29,21 +33,22 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
     {
         var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors,version,childTypes.all,space";
         using var response = await _httpClient.GetAsync(url, ct);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, $"Failed to fetch page {pageId}", ct);
         var content = await response.Content.ReadAsStringAsync(ct);
         return JsonConvert.DeserializeObject<PageData>(content)
-            ?? throw new Exception($"Could not deserialize page with ID {pageId}");
+            ?? throw new InvalidOperationException($"Could not deserialize page with ID {pageId}");
     }
 
     public async Task<PageData?> TryGetPageByIdAsync(string pageId, CancellationToken ct = default)
     {
         var url = $"{_baseUrl}/rest/api/content/{pageId}?expand=body.storage,ancestors,version,childTypes.all,space";
         using var response = await _httpClient.GetAsync(url, ct);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        if (response.StatusCode == HttpStatusCode.NotFound)
             return null;
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, $"Failed to fetch page {pageId}", ct);
         var content = await response.Content.ReadAsStringAsync(ct);
-        return JsonConvert.DeserializeObject<PageData>(content);
+        return JsonConvert.DeserializeObject<PageData>(content)
+            ?? throw new InvalidOperationException($"Could not deserialize page with ID {pageId}");
     }
 
     public async Task<List<PageData>> GetChildrenPagesAsync(string parentId, CancellationToken ct = default)
@@ -56,10 +61,10 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         {
             var url = $"{_baseUrl}/rest/api/content/{parentId}/child/page?limit={limit}&start={start}&expand=body.storage,version,childTypes.all";
             using var response = await _httpClient.GetAsync(url, ct);
-            response.EnsureSuccessStatusCode();
+            await EnsureSuccessAsync(response, $"Failed to fetch children of page {parentId}", ct);
             var content = await response.Content.ReadAsStringAsync(ct);
             var result = JsonConvert.DeserializeObject<ConfluenceResponse<PageData>>(content)
-                ?? throw new Exception("Could not deserialize children list");
+                ?? throw new InvalidOperationException("Could not deserialize children list");
 
             pages.AddRange(result.Results);
 
@@ -93,7 +98,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
 
             var content = await response.Content.ReadAsStringAsync(ct);
             var result = JsonConvert.DeserializeObject<ConfluenceResponse<AttachmentData>>(content)
-                ?? throw new Exception("Could not deserialize attachments list");
+                ?? throw new InvalidOperationException("Could not deserialize attachments list");
 
             attachments.AddRange(result.Results);
 
@@ -109,51 +114,43 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         return attachments;
     }
 
+    /// <summary>
+    /// Returns the found page's id, or <c>null</c> strictly when no page with
+    /// this title exists. Any API failure (auth, rate limit, 5xx after the
+    /// retry budget) throws instead of returning <c>null</c>: callers treat
+    /// <c>null</c> as "safe to create", so masking an error here used to risk
+    /// creating a duplicate page mid-walk.
+    /// </summary>
     public async Task<string?> FindPageByTitleAsync(string spaceKey, string? parentId, string title, CancellationToken ct = default)
     {
-        try
+        var cqlQuery = $"space=\"{EscapeCql(spaceKey)}\" AND title=\"{EscapeCql(title)}\"";
+        if (!string.IsNullOrEmpty(parentId))
         {
-            var cqlQuery = $"space=\"{EscapeCql(spaceKey)}\" AND title=\"{EscapeCql(title)}\"";
-            if (!string.IsNullOrEmpty(parentId))
-            {
-                cqlQuery += $" AND parent={parentId}";
-            }
-
-            var url = $"{_baseUrl}/rest/api/content/search?cql={Uri.EscapeDataString(cqlQuery)}&limit=10";
-            _logger.LogDebug("Searching for page with CQL query: {CqlQuery}", cqlQuery);
-            _logger.LogDebug("URL: {Url}", url);
-
-            using var response = await _httpClient.GetAsync(url, ct);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning("Failed to search for existing page with title '{Title}'. Status code: {StatusCode}", title, response.StatusCode);
-                var errorContent = await response.Content.ReadAsStringAsync(ct);
-                _logger.LogDebug("Error response content: {ErrorContent}", errorContent);
-                return null;
-            }
-
-            var content = await response.Content.ReadAsStringAsync(ct);
-            _logger.LogDebug("Search response content: {Content}", content);
-
-            var result = JsonConvert.DeserializeObject<ConfluenceResponse<PageData>>(content)
-                ?? throw new Exception("Could not deserialize search results");
-
-            if (result.Results.Count > 0)
-            {
-                var foundPage = result.Results[0];
-                _logger.LogDebug("Found page with title '{FoundTitle}' and ID {FoundId}", foundPage.Title, foundPage.Id);
-                return foundPage.Id;
-            }
-
-            _logger.LogDebug("No page found with title '{Title}'", title);
-            return null;
+            cqlQuery += $" AND parent={parentId}";
         }
-        catch (Exception ex)
+
+        var url = $"{_baseUrl}/rest/api/content/search?cql={Uri.EscapeDataString(cqlQuery)}&limit=10";
+        _logger.LogDebug("Searching for page with CQL query: {CqlQuery}", cqlQuery);
+        _logger.LogDebug("URL: {Url}", url);
+
+        using var response = await _httpClient.GetAsync(url, ct);
+        await EnsureSuccessAsync(response, $"Failed to search for page '{title}' in space '{spaceKey}'", ct);
+
+        var content = await response.Content.ReadAsStringAsync(ct);
+        _logger.LogDebug("Search response content: {Content}", content);
+
+        var result = JsonConvert.DeserializeObject<ConfluenceResponse<PageData>>(content)
+            ?? throw new InvalidOperationException($"Could not deserialize search results for title '{title}'");
+
+        if (result.Results.Count > 0)
         {
-            _logger.LogError(ex, "Error searching for page with title {Title}", title);
-            return null;
+            var foundPage = result.Results[0];
+            _logger.LogDebug("Found page with title '{FoundTitle}' and ID {FoundId}", foundPage.Title, foundPage.Id);
+            return foundPage.Id;
         }
+
+        _logger.LogDebug("No page found with title '{Title}'", title);
+        return null;
     }
 
     public async Task<PageUpdateResult> CreatePageAsync(string spaceKey, string? parentId, string title, string content, CancellationToken ct = default)
@@ -219,7 +216,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
     {
         var getPageUrl = $"{_baseUrl}/rest/api/content/{pageId}?expand=version";
         using var getResponse = await _httpClient.GetAsync(getPageUrl, ct);
-        getResponse.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(getResponse, $"Failed to fetch current version of page {pageId}", ct);
         var getPageContent = await getResponse.Content.ReadAsStringAsync(ct);
         var currentPage = JsonConvert.DeserializeObject<PageResponse>(getPageContent)
             ?? throw new InvalidOperationException("Could not deserialize current page");
@@ -305,6 +302,22 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
     }
 
     /// <summary>
+    /// Read-path counterpart of <see cref="ApiException"/>: replaces
+    /// <c>EnsureSuccessStatusCode</c> so read failures carry the status code and
+    /// a response-body snippet with the same fidelity as write failures, and so
+    /// callers can react to <see cref="ConfluenceApiException.IsAuthFailure"/>
+    /// uniformly (e.g. multi-tree upload aborts the batch on 401/403).
+    /// </summary>
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response, string context, CancellationToken ct)
+    {
+        if (response.IsSuccessStatusCode)
+            return;
+
+        var errorContent = await response.Content.ReadAsStringAsync(ct);
+        throw ApiException(response.StatusCode, errorContent, context);
+    }
+
+    /// <summary>
     /// Escapes a value for safe interpolation into a double-quoted CQL string
     /// literal. CQL uses backslash escaping inside quotes, so a space key or
     /// title containing <c>"</c> or <c>\</c> (both legal in page titles) would
@@ -337,6 +350,12 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
             }
 
             return true;
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation is not a per-attachment failure — propagate it
+            // instead of reporting a tolerated "false" below.
+            throw;
         }
         catch (Exception ex)
         {
@@ -374,6 +393,10 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
 
             return true;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating attachment '{FileName}' (ID: {AttachmentId}) on page {PageId}", fileName, attachmentId, pageId);
@@ -401,6 +424,10 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
             _logger.LogInformation("Deleted attachment {AttachmentId} from page {PageId}", attachmentId, pageId);
             return true;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error deleting attachment {AttachmentId} from page {PageId}", attachmentId, pageId);
@@ -412,7 +439,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
     {
         var fullUrl = downloadUrl.StartsWith("http") ? downloadUrl : $"{_baseUrl}{downloadUrl}";
         using var response = await _httpClient.GetAsync(fullUrl, ct);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, $"Failed to download attachment from '{downloadUrl}'", ct);
         return await response.Content.ReadAsByteArrayAsync(ct);
     }
 
@@ -435,6 +462,12 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
             var content = await response.Content.ReadAsStringAsync(ct);
             var result = JsonConvert.DeserializeObject<ConfluenceResponse<PageVersionSummary>>(content);
             return result?.Results ?? [];
+        }
+        catch (OperationCanceledException)
+        {
+            // Version history is best-effort, but cancellation is not a
+            // tolerable failure — propagate instead of degrading to [].
+            throw;
         }
         catch (Exception ex)
         {
@@ -462,6 +495,10 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
             var content = await response.Content.ReadAsStringAsync(ct);
             return JsonConvert.DeserializeObject<PageData>(content);
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error fetching page {PageId} at version {Version}", pageId, versionNumber);
@@ -479,7 +516,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         // an actionable user-visible error rather than tolerable noise.
         var url = $"{_baseUrl}/rest/api/content/{pageId}?status=historical&version={versionNumber}&expand=body.storage,version,space";
         using var response = await _httpClient.GetAsync(url, ct);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, $"Failed to fetch page {pageId} at version {versionNumber}", ct);
         var content = await response.Content.ReadAsStringAsync(ct);
         return JsonConvert.DeserializeObject<PageData>(content)
             ?? throw new InvalidOperationException($"Could not deserialize page {pageId} at version {versionNumber}.");
@@ -494,7 +531,7 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         // operator already configures via Global:BaseUrl).
         var url = $"{_baseUrl}/rest/api/user/current";
         using var response = await _httpClient.GetAsync(url, ct);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, "Failed to fetch the current Confluence user", ct);
         var content = await response.Content.ReadAsStringAsync(ct);
         return JsonConvert.DeserializeObject<ConfluenceUser>(content)
             ?? throw new InvalidOperationException("Confluence returned an empty user payload.");
