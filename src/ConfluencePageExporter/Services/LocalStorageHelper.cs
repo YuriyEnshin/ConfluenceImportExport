@@ -1,34 +1,17 @@
 using System.Text;
-using System.Text.Encodings.Web;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
-using ConfluencePageExporter.Models;
 
 namespace ConfluencePageExporter.Services;
 
+/// <summary>
+/// Pure helpers over the local page-tree layout: name sanitisation, content
+/// and attachment IO, directory enumeration and the page-id → directory index.
+/// The <c>.id</c> marker itself (format, read, write policy) is owned by
+/// <see cref="PageMarker"/>.
+/// </summary>
 public static class LocalStorageHelper
 {
     private static readonly HashSet<char> InvalidFileNameChars = new(Path.GetInvalidFileNameChars());
-
-    /// <summary>
-    /// Serialisation options for the marker body JSON. Null title/space are
-    /// omitted; the relaxed encoder keeps non-ASCII (e.g. Cyrillic) titles
-    /// human-readable on disk instead of \uXXXX-escaping them.
-    /// </summary>
-    private static readonly JsonSerializerOptions MarkerJsonOptions = new()
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
-
-    private sealed class MarkerBody
-    {
-        [JsonPropertyName("title")] public string? Title { get; set; }
-        [JsonPropertyName("space")] public string? Space { get; set; }
-        [JsonPropertyName("h")] public string? Hash { get; set; }
-        [JsonPropertyName("ne")] public int? Ne { get; set; }
-    }
 
     public static string SanitizeFileName(string title)
     {
@@ -39,152 +22,6 @@ public static class LocalStorageHelper
         return string.IsNullOrEmpty(sanitized) ? "_" : sanitized;
     }
 
-    public static PageMarkerInfo ParseMarkerFileName(string fileName)
-    {
-        var markerValue = fileName[3..];
-        var underscoreIdx = markerValue.LastIndexOf('_');
-        if (underscoreIdx > 0 && int.TryParse(markerValue[(underscoreIdx + 1)..], out var version))
-            return new PageMarkerInfo(markerValue[..underscoreIdx], version);
-        return new PageMarkerInfo(markerValue, null);
-    }
-
-    public static string? ReadPageIdFromMarker(string pageDir)
-    {
-        return ReadPageMarkerInfo(pageDir)?.PageId;
-    }
-
-    public static PageMarkerInfo? ReadPageMarkerInfo(string pageDir)
-    {
-        if (!Directory.Exists(pageDir)) return null;
-
-        foreach (var file in Directory.GetFiles(pageDir, ".id*"))
-        {
-            var fileName = Path.GetFileName(file);
-            if (fileName.StartsWith(".id") && fileName.Length > 3)
-                return ParseMarkerFileName(fileName);
-        }
-        return null;
-    }
-
-    public static DateTime? GetMarkerFileTimeUtc(string pageDir)
-    {
-        if (!Directory.Exists(pageDir)) return null;
-
-        foreach (var file in Directory.GetFiles(pageDir, ".id*"))
-        {
-            var fileName = Path.GetFileName(file);
-            if (fileName.StartsWith(".id") && fileName.Length > 3)
-                return File.GetLastWriteTimeUtc(file);
-        }
-        return null;
-    }
-
-    public static async Task WritePageIdMarkerAsync(
-        string pageDir, string pageId, int? version = null, string? originalTitle = null,
-        string? spaceKey = null, string? contentHash = null, int? normalizationEpoch = null,
-        CancellationToken ct = default)
-    {
-        if (!Directory.Exists(pageDir))
-            throw new DirectoryNotFoundException($"Page directory does not exist: {pageDir}");
-
-        foreach (var file in Directory.GetFiles(pageDir, ".id*"))
-        {
-            File.Delete(file);
-        }
-
-        var markerName = version.HasValue ? $".id{pageId}_{version.Value}" : $".id{pageId}";
-        var markerPath = Path.Combine(pageDir, markerName);
-        await File.WriteAllTextAsync(markerPath, SerializeMarkerBody(originalTitle, spaceKey, contentHash, normalizationEpoch), ct);
-    }
-
-    /// <summary>
-    /// Builds the marker file body. When a space key or a content hash is known
-    /// the body is a compact JSON object (<c>{"title":…,"space":…,"h":…,"ne":…}</c>);
-    /// otherwise the legacy plain-text title is written verbatim so older tooling
-    /// keeps reading it unchanged. This keeps upgrade churn at zero until a sync
-    /// captures space or hash. The normalization epoch is only emitted alongside
-    /// a hash (it is meaningless on its own).
-    /// </summary>
-    private static string SerializeMarkerBody(string? title, string? spaceKey, string? contentHash, int? normalizationEpoch)
-    {
-        if (string.IsNullOrEmpty(spaceKey) && string.IsNullOrEmpty(contentHash))
-            return title ?? string.Empty;
-
-        return JsonSerializer.Serialize(
-            new MarkerBody
-            {
-                Title = string.IsNullOrEmpty(title) ? null : title,
-                Space = string.IsNullOrEmpty(spaceKey) ? null : spaceKey,
-                Hash = string.IsNullOrEmpty(contentHash) ? null : contentHash,
-                Ne = string.IsNullOrEmpty(contentHash) ? null : normalizationEpoch,
-            },
-            MarkerJsonOptions);
-    }
-
-    /// <summary>
-    /// Parses a marker body written by <see cref="SerializeMarkerBody"/> or by
-    /// any earlier version. New format: a JSON object with optional
-    /// <c>title</c>/<c>space</c>. Legacy format: the raw text is the title and
-    /// the space is unknown. A body that starts with '{' but does not parse to
-    /// our shape is treated as a legacy title (defensive — a real Confluence
-    /// title is extremely unlikely to be a JSON object with these keys).
-    /// </summary>
-    private static PageMarkerContent ParseMarkerBody(string raw)
-    {
-        var trimmed = raw.Trim();
-        if (trimmed.Length == 0)
-            return new PageMarkerContent(null, null);
-
-        if (trimmed[0] == '{')
-        {
-            try
-            {
-                var body = JsonSerializer.Deserialize<MarkerBody>(trimmed, MarkerJsonOptions);
-                if (body != null && (body.Title != null || body.Space != null || body.Hash != null))
-                    return new PageMarkerContent(
-                        string.IsNullOrWhiteSpace(body.Title) ? null : body.Title,
-                        string.IsNullOrWhiteSpace(body.Space) ? null : body.Space,
-                        string.IsNullOrWhiteSpace(body.Hash) ? null : body.Hash,
-                        body.Ne);
-            }
-            catch (JsonException)
-            {
-                // Not our JSON — fall through and treat it as a legacy plain title.
-            }
-        }
-
-        return new PageMarkerContent(trimmed, null);
-    }
-
-    /// <summary>
-    /// Reads and parses the marker body for a page directory: the original
-    /// title and the space key (either may be null). Returns an empty result
-    /// when the directory or marker is missing. Reads the file once — prefer
-    /// this over calling <see cref="ReadOriginalTitle"/> and
-    /// <see cref="ReadSpaceKey"/> separately.
-    /// </summary>
-    public static PageMarkerContent ReadMarkerContent(string pageDir)
-    {
-        if (!Directory.Exists(pageDir)) return new PageMarkerContent(null, null);
-
-        foreach (var file in Directory.GetFiles(pageDir, ".id*"))
-        {
-            var fileName = Path.GetFileName(file);
-            if (fileName.StartsWith(".id") && fileName.Length > 3)
-                return ParseMarkerBody(File.ReadAllText(file));
-        }
-        return new PageMarkerContent(null, null);
-    }
-
-    public static string? ReadOriginalTitle(string pageDir) => ReadMarkerContent(pageDir).Title;
-
-    /// <summary>
-    /// Space key recorded in the marker body, or null for legacy markers that
-    /// predate space capture. This is a cached hint — the server (via the page
-    /// id) remains the authority for an existing page's real space.
-    /// </summary>
-    public static string? ReadSpaceKey(string pageDir) => ReadMarkerContent(pageDir).SpaceKey;
-
     /// <summary>
     /// Returns the effective page title for upload/comparison.
     /// If the original title is stored in the .id marker and the folder name matches
@@ -193,7 +30,7 @@ public static class LocalStorageHelper
     /// </summary>
     public static string GetPageTitle(string pageDir)
     {
-        var storedTitle = ReadOriginalTitle(pageDir);
+        var storedTitle = PageMarker.Load(pageDir)?.Title;
         var folderName = GetPageTitleFromDirectory(pageDir);
 
         if (storedTitle == null)
@@ -334,7 +171,7 @@ public static class LocalStorageHelper
             if (!markerName.StartsWith(".id", StringComparison.OrdinalIgnoreCase) || markerName.Length <= 3)
                 continue;
 
-            var pageId = ParseMarkerFileName(markerName).PageId;
+            var pageId = PageMarker.ParseFileName(markerName).PageId;
             var pageDir = Path.GetDirectoryName(markerFile);
             if (string.IsNullOrEmpty(pageDir))
                 continue;

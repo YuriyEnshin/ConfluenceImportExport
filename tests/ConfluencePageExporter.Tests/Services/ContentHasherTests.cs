@@ -1,4 +1,3 @@
-using ConfluencePageExporter.Models;
 using ConfluencePageExporter.Services;
 using Shouldly;
 
@@ -61,13 +60,23 @@ public class ContentHasherTests
     }
 
     // ── EvaluateLocalChange ───────────────────────────────────────────
-    private static PageMarkerContent MarkerHashing(ContentHasher h, string content) =>
-        new("t", "S", h.ComputeHash(content), NormalizationContract.CurrentEpoch);
+    private static PageMarker Marker(string? hash, int? epoch) =>
+        new("1", 1, "t", "S", hash, epoch, FileTimeUtc: null);
+
+    private static PageMarker MarkerHashing(ContentHasher h, string content) =>
+        Marker(h.ComputeHash(content), NormalizationContract.CurrentEpoch);
+
+    [Fact]
+    public void EvaluateLocalChange_Null_WhenNoMarker()
+    {
+        Xml().EvaluateLocalChange(null, "<p>x</p>", DateTime.UtcNow, DateTime.UtcNow.AddHours(-1))
+            .ShouldBeNull();
+    }
 
     [Fact]
     public void EvaluateLocalChange_Null_WhenNoStoredHash()
     {
-        var marker = new PageMarkerContent("t", "S");
+        var marker = Marker(hash: null, epoch: null);
         Xml().EvaluateLocalChange(marker, "<p>x</p>", DateTime.UtcNow, DateTime.UtcNow.AddHours(-1))
             .ShouldBeNull();
     }
@@ -107,7 +116,7 @@ public class ContentHasherTests
     public void EvaluateLocalChange_Null_WhenEpochMismatch()
     {
         var h = Xml();
-        var marker = new PageMarkerContent("t", "S", h.ComputeHash("<p>x</p>"), NormalizationEpoch: 999);
+        var marker = Marker(h.ComputeHash("<p>x</p>"), epoch: 999);
         h.EvaluateLocalChange(marker, "<p>EDITED</p>", DateTime.UtcNow, DateTime.UtcNow.AddHours(-1))
             .ShouldBeNull();
     }
@@ -121,7 +130,7 @@ public class ContentHasherTests
         h.Epoch.ShouldBeNull();
         h.ComputeHash("<p>x</p>").ShouldBeNull();
 
-        var marker = new PageMarkerContent("t", "S", "sha256:deadbeef", NormalizationContract.CurrentEpoch);
+        var marker = Marker("sha256:deadbeef", NormalizationContract.CurrentEpoch);
         h.EvaluateLocalChange(marker, "<p>x</p>", DateTime.UtcNow, DateTime.UtcNow.AddHours(-1))
             .ShouldBeNull();
     }

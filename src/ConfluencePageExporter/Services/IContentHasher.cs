@@ -1,5 +1,3 @@
-using ConfluencePageExporter.Models;
-
 namespace ConfluencePageExporter.Services;
 
 /// <summary>
@@ -34,13 +32,13 @@ public interface IContentHasher
     /// Decides whether local content changed since the last sync, combining an
     /// mtime fast-path (untouched file ⇒ unchanged, no hashing) with the stored
     /// marker hash. Returns <c>true</c> = changed, <c>false</c> = unchanged,
-    /// <c>null</c> = undeterminable (caller should fall back to mtime: regime
-    /// untrusted, no stored hash, or stored epoch mismatch).
+    /// <c>null</c> = undeterminable (caller should fall back to mtime: no
+    /// marker, regime untrusted, no stored hash, or stored epoch mismatch).
     /// <paramref name="localContentMaybe"/>, when provided, is reused to avoid
     /// re-reading <c>index.html</c>.
     /// </summary>
     bool? EvaluateLocalChange(
-        PageMarkerContent marker,
+        PageMarker? marker,
         string? localContentMaybe,
         DateTime? indexMtimeUtc,
         DateTime? syncTimeUtc);

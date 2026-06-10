@@ -297,7 +297,7 @@ public class UploadService
         if (string.IsNullOrEmpty(parentDir))
             return null;
 
-        var localParentPageId = LocalStorageHelper.ReadPageIdFromMarker(parentDir);
+        var localParentPageId = PageMarker.Load(parentDir)?.PageId;
         if (localParentPageId == null)
             return null;
 
@@ -345,7 +345,7 @@ public class UploadService
             return (foundId, true);
         }
 
-        var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(sourceDir);
+        var markerPageId = PageMarker.Load(sourceDir)?.PageId;
         if (markerPageId != null)
         {
             var page = await _apiClient.TryGetPageByIdAsync(markerPageId, ct);
@@ -367,7 +367,7 @@ public class UploadService
     private async Task ProcessChildForUpdate(string spaceKey, string childDir, string parentPageId, SyncReport report, CancellationToken ct)
     {
         var folderName = LocalStorageHelper.GetPageTitle(childDir);
-        var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(childDir);
+        var markerPageId = PageMarker.Load(childDir)?.PageId;
         string? resolvedPageId = null;
         string? moveToParentId = null;
         bool shouldCreate = false;
@@ -472,25 +472,23 @@ public class UploadService
 
         var serverPage = await _apiClient.GetPageByIdAsync(pageId, ct);
 
-        if (LocalStorageHelper.ReadOriginalTitle(pageDir) == null
+        // Single read of the local sync state: the marker (original title,
+        // version, sync time) plus the hash-based "did local content change
+        // since the last sync?" verdict — the latter is independent of
+        // Confluence's server-side canonicalisation (assigned ac:macro-id,
+        // dropped empty parameters, …). When it proves the local copy is
+        // unchanged, treat content as unchanged even if ContentEquals still
+        // sees a server-side diff, so we don't re-upload and spam server versions.
+        var syncState = LocalSyncState.Read(pageDir, localContent, _hasher);
+
+        if (syncState.Marker?.Title == null
             && string.Equals(LocalStorageHelper.SanitizeFileName(serverPage.Title), title, StringComparison.OrdinalIgnoreCase))
         {
             title = serverPage.Title;
         }
 
-        // Hash-based "did local content change since the last sync?" — independent
-        // of Confluence's server-side canonicalisation (assigned ac:macro-id,
-        // dropped empty parameters, …). When it proves the local copy is unchanged,
-        // treat content as unchanged even if ContentEquals still sees a server-side
-        // diff, so we don't re-upload and spam server versions.
-        var markerContent = LocalStorageHelper.ReadMarkerContent(pageDir);
-        var syncTime = LocalStorageHelper.GetMarkerFileTimeUtc(pageDir);
-        var indexPath = Path.Combine(pageDir, "index.html");
-        DateTime? localFileTime = File.Exists(indexPath) ? File.GetLastWriteTimeUtc(indexPath) : null;
-        var localContentChanged = _hasher.EvaluateLocalChange(markerContent, localContent, localFileTime, syncTime);
-
         bool contentChanged = !_normalizer.ContentEquals(localContent, serverPage.Body.Storage.Value)
-            && localContentChanged != false;
+            && syncState.LocalContentChanged != false;
         bool titleChanged = !string.Equals(title, serverPage.Title, StringComparison.Ordinal);
         bool parentChanged = moveToParentId != null;
 
@@ -524,13 +522,9 @@ public class UploadService
             return;
         }
 
-        // markerContent / syncTime / localFileTime / localContentChanged were
-        // computed above (for the no-op short-circuit); reuse them here.
-        var markerInfo = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
-
         var sourceInfo = analyzer.AnalyzeContentChange(
-            serverPage.Version?.When?.ToUniversalTime(), localFileTime,
-            markerInfo?.Version, serverPage.Version?.Number, syncTime, localContentChanged);
+            serverPage.Version?.When?.ToUniversalTime(), syncState.LocalFileTimeUtc,
+            syncState.MarkerVersion, serverPage.Version?.Number, syncState.SyncTimeUtc, syncState.LocalContentChanged);
 
         switch (sourceInfo.Origin)
         {
@@ -594,7 +588,7 @@ public class UploadService
         ChangeSourceAnalyzer analyzer, SyncReport report, CancellationToken ct)
     {
         var folderName = LocalStorageHelper.GetPageTitle(childDir);
-        var markerPageId = LocalStorageHelper.ReadPageIdFromMarker(childDir);
+        var markerPageId = PageMarker.Load(childDir)?.PageId;
         string? resolvedPageId = null;
         string? moveToParentId = null;
 
@@ -746,7 +740,12 @@ public class UploadService
 
         var serverPage = await _apiClient.GetPageByIdAsync(pageId, ct);
 
-        if (LocalStorageHelper.ReadOriginalTitle(pageDir) == null
+        // Hash-based "did local content change since the last sync?" lets a force
+        // update skip the push when the only diff is Confluence's server-side
+        // canonicalisation, preventing pointless version churn.
+        var syncState = LocalSyncState.Read(pageDir, localContent, _hasher);
+
+        if (syncState.Marker?.Title == null
             && string.Equals(LocalStorageHelper.SanitizeFileName(serverPage.Title), title, StringComparison.OrdinalIgnoreCase))
         {
             title = serverPage.Title;
@@ -754,18 +753,9 @@ public class UploadService
 
         var serverVersion = serverPage.Version?.Number;
 
-        // Hash-based "did local content change since the last sync?" lets a force
-        // update skip the push when the only diff is Confluence's server-side
-        // canonicalisation, preventing pointless version churn.
-        var markerContent = LocalStorageHelper.ReadMarkerContent(pageDir);
-        var syncTime = LocalStorageHelper.GetMarkerFileTimeUtc(pageDir);
-        var indexPath = Path.Combine(pageDir, "index.html");
-        DateTime? localFileTime = File.Exists(indexPath) ? File.GetLastWriteTimeUtc(indexPath) : null;
-        var localContentChanged = _hasher.EvaluateLocalChange(markerContent, localContent, localFileTime, syncTime);
-
         bool titleChanged = !string.Equals(title, serverPage.Title, StringComparison.Ordinal);
         bool contentChanged = !_normalizer.ContentEquals(localContent, serverPage.Body.Storage.Value)
-            && localContentChanged != false;
+            && syncState.LocalContentChanged != false;
         bool parentChanged = moveToParentId != null;
 
         if (!titleChanged && !contentChanged && !parentChanged)
@@ -920,32 +910,10 @@ public class UploadService
         if (_dryRun) return;
 
         // After a successful upload the local index.html IS the synced baseline
-        // (upload never mutates local files) — hash it to stamp the marker. Null
-        // when there is no body or the regime is untrusted; then the stored hash
-        // (if any) is preserved rather than dropped.
+        // (upload never mutates local files) — hash it to stamp the marker.
         var syncedContent = await LocalStorageHelper.ReadLocalPageContentOrNull(pageDir, ct);
-        var contentHash = _hasher.ComputeHash(syncedContent);
-
-        var existingInfo = LocalStorageHelper.ReadPageMarkerInfo(pageDir);
-        var existing = LocalStorageHelper.ReadMarkerContent(pageDir);
-        // Skip the rewrite only when id, version, title, space AND the content
-        // hash all already match, so a legacy (space-less / hash-less) marker is
-        // upgraded once the space or hash is known.
-        if (existingInfo != null
-            && string.Equals(existingInfo.PageId, pageId, StringComparison.OrdinalIgnoreCase)
-            && existingInfo.Version == version
-            && existing.Title != null
-            && string.Equals(existing.SpaceKey, spaceKey, StringComparison.OrdinalIgnoreCase)
-            && (contentHash == null || string.Equals(existing.ContentHash, contentHash, StringComparison.Ordinal)))
-        {
-            return;
-        }
-
-        await LocalStorageHelper.WritePageIdMarkerAsync(
-            pageDir, pageId, version, originalTitle, spaceKey,
-            contentHash ?? existing.ContentHash,
-            contentHash != null ? _hasher.Epoch : existing.NormalizationEpoch,
-            ct);
-        _logger.LogInformation("Saved page ID marker '.id{PageId}_{Version}' in '{PageDir}'", pageId, version, pageDir);
+        var written = await PageMarker.UpdateAsync(pageDir, pageId, version, originalTitle, spaceKey, syncedContent, _hasher, ct);
+        if (written)
+            _logger.LogInformation("Saved page ID marker '.id{PageId}_{Version}' in '{PageDir}'", pageId, version, pageDir);
     }
 }
