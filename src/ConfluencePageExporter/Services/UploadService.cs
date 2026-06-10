@@ -82,10 +82,8 @@ public class UploadService
 
         if (recursive)
         {
-            await Parallel.ForEachAsync(
-                LocalStorageHelper.GetPageSubdirectories(sourceDir),
-                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
-                async (childDir, _) => await ProcessChildForUpdate(treeSpace, childDir, rootPageId, report, ct));
+            await ProcessChildrenAsync(sourceDir, ct,
+                childDir => ProcessChildForUpdate(treeSpace, childDir, rootPageId, report, ct));
         }
     }
 
@@ -138,10 +136,8 @@ public class UploadService
 
         if (recursive)
         {
-            await Parallel.ForEachAsync(
-                LocalStorageHelper.GetPageSubdirectories(sourceDir),
-                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
-                async (childDir, _) => await ProcessChildForMerge(treeSpace, childDir, rootPageId, analyzer, report, ct));
+            await ProcessChildrenAsync(sourceDir, ct,
+                childDir => ProcessChildForMerge(treeSpace, childDir, rootPageId, analyzer, report, ct));
         }
     }
 
@@ -180,10 +176,8 @@ public class UploadService
 
             if (recursive)
             {
-                await Parallel.ForEachAsync(
-                    LocalStorageHelper.GetPageSubdirectories(sourceDir),
-                    new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
-                    async (childDir, _) => await ProcessChildForCreate(treeSpace, childDir, createResult.Id, ct));
+                await ProcessChildrenAsync(sourceDir, ct,
+                    childDir => ProcessChildForCreate(treeSpace, childDir, createResult.Id, ct));
             }
         }
         finally
@@ -364,13 +358,28 @@ public class UploadService
             "Specify --page-id or --page-title, or use 'upload create' for new pages.");
     }
 
-    private async Task ProcessChildForUpdate(string spaceKey, string childDir, string parentPageId, SyncReport report, CancellationToken ct)
+    // ── child resolution (shared by the update/merge walkers) ─────────
+
+    /// <summary>
+    /// Result of resolving a local child directory to a server page:
+    /// <c>PageId</c> null ⇒ no matching page exists (create it);
+    /// <c>MoveToParentId</c> non-null ⇒ the page exists under another parent
+    /// and must be moved here; <c>Skip</c> ⇒ cross-space mismatch — the
+    /// directory and its subtree are already reported and must not be touched.
+    /// </summary>
+    private sealed record ChildPageResolution(string? PageId, string? MoveToParentId, bool Skip);
+
+    /// <summary>
+    /// Shared resolution step of the update/merge walkers: map a child folder
+    /// to its Confluence page via the .id marker (with cross-space guard and
+    /// move detection), falling back to a title search under the parent, then
+    /// space-wide (a page found elsewhere in the space is moved under the parent).
+    /// </summary>
+    private async Task<ChildPageResolution> ResolveChildPageAsync(
+        string spaceKey, string childDir, string parentPageId, SyncReport report, CancellationToken ct)
     {
         var folderName = LocalStorageHelper.GetPageTitle(childDir);
         var markerPageId = PageMarker.Load(childDir)?.PageId;
-        string? resolvedPageId = null;
-        string? moveToParentId = null;
-        bool shouldCreate = false;
 
         if (markerPageId != null)
         {
@@ -385,67 +394,55 @@ public class UploadService
                     report.AddSkipped(page.Id, page.Title,
                         $"Межпространственное расхождение: страница в '{page.SpaceKey}', а дерево привязано к '{spaceKey}'. "
                         + "Обновление/перемещение и обработка поддерева пропущены. Верните папку в правильное дерево или синхронизируйте заново.");
-                    return;
+                    return new ChildPageResolution(null, null, Skip: true);
                 }
-                resolvedPageId = page.Id;
-                if (page.ParentId != parentPageId)
+
+                string? moveToParentId = null;
+                if (!string.Equals(page.ParentId, parentPageId, StringComparison.OrdinalIgnoreCase))
                 {
                     _logger.LogInformation(
                         "Page '{Title}' (ID: {PageId}) will be moved from parent {OldParent} to {NewParent}",
                         page.Title, page.Id, page.ParentId, parentPageId);
                     moveToParentId = parentPageId;
                 }
+                return new ChildPageResolution(page.Id, moveToParentId, Skip: false);
             }
         }
 
-        if (resolvedPageId == null)
+        var foundUnderParent = await _apiClient.FindPageByTitleAsync(spaceKey, parentPageId, folderName, ct);
+        if (foundUnderParent != null)
+            return new ChildPageResolution(foundUnderParent, null, Skip: false);
+
+        var foundGlobally = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName, ct);
+        if (foundGlobally != null)
         {
-            var foundUnderParent = await _apiClient.FindPageByTitleAsync(spaceKey, parentPageId, folderName, ct);
-            if (foundUnderParent != null)
-            {
-                resolvedPageId = foundUnderParent;
-            }
-            else
-            {
-                var foundGlobally = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName, ct);
-                if (foundGlobally != null)
-                {
-                    _logger.LogInformation(
-                        "Page '{Title}' (ID: {PageId}) found in space but under a different parent, will be moved to parent {NewParent}",
-                        folderName, foundGlobally, parentPageId);
-                    resolvedPageId = foundGlobally;
-                    moveToParentId = parentPageId;
-                }
-                else
-                {
-                    shouldCreate = true;
-                }
-            }
+            _logger.LogInformation(
+                "Page '{Title}' (ID: {PageId}) found in space but under a different parent, will be moved to parent {NewParent}",
+                folderName, foundGlobally, parentPageId);
+            return new ChildPageResolution(foundGlobally, parentPageId, Skip: false);
         }
 
-        if (shouldCreate)
-        {
-            var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId, ct);
-            if (createResult == null) return;
-            resolvedPageId = createResult.Id;
-            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle, spaceKey, ct);
+        return new ChildPageResolution(null, null, Skip: false);
+    }
 
-            await Parallel.ForEachAsync(
-                LocalStorageHelper.GetPageSubdirectories(childDir),
-                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
-                async (grandchildDir, _) => await ProcessChildForCreate(spaceKey, grandchildDir, resolvedPageId, ct));
-        }
-        else
-        {
-            var (updateResult, effectiveTitle) = await UpdatePageContentAndAttachments(spaceKey, resolvedPageId!, childDir, report, moveToParentId, ct);
-            if (updateResult != null)
-                await UpdatePageIdMarker(childDir, updateResult.Id, updateResult.VersionNumber, effectiveTitle, spaceKey, ct);
+    private async Task ProcessChildForUpdate(string spaceKey, string childDir, string parentPageId, SyncReport report, CancellationToken ct)
+    {
+        var resolution = await ResolveChildPageAsync(spaceKey, childDir, parentPageId, report, ct);
+        if (resolution.Skip)
+            return;
 
-            await Parallel.ForEachAsync(
-                LocalStorageHelper.GetPageSubdirectories(childDir),
-                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
-                async (grandchildDir, _) => await ProcessChildForUpdate(spaceKey, grandchildDir, resolvedPageId!, report, ct));
+        if (resolution.PageId == null)
+        {
+            await ProcessChildForCreate(spaceKey, childDir, parentPageId, ct);
+            return;
         }
+
+        var (updateResult, effectiveTitle) = await UpdatePageContentAndAttachments(spaceKey, resolution.PageId, childDir, report, resolution.MoveToParentId, ct);
+        if (updateResult != null)
+            await UpdatePageIdMarker(childDir, updateResult.Id, updateResult.VersionNumber, effectiveTitle, spaceKey, ct);
+
+        await ProcessChildrenAsync(childDir, ct,
+            grandchildDir => ProcessChildForUpdate(spaceKey, grandchildDir, resolution.PageId, report, ct));
     }
 
     // ── merge internals ───────────────────────────────────────────────
@@ -587,79 +584,20 @@ public class UploadService
         string spaceKey, string childDir, string parentPageId,
         ChangeSourceAnalyzer analyzer, SyncReport report, CancellationToken ct)
     {
-        var folderName = LocalStorageHelper.GetPageTitle(childDir);
-        var markerPageId = PageMarker.Load(childDir)?.PageId;
-        string? resolvedPageId = null;
-        string? moveToParentId = null;
+        var resolution = await ResolveChildPageAsync(spaceKey, childDir, parentPageId, report, ct);
+        if (resolution.Skip)
+            return;
 
-        if (markerPageId != null)
+        if (resolution.PageId == null)
         {
-            var page = await _apiClient.TryGetPageByIdAsync(markerPageId, ct);
-            if (page != null)
-            {
-                if (IsCrossSpace(page.SpaceKey, spaceKey))
-                {
-                    _logger.LogWarning(
-                        "Cross-space: page '{Title}' (ID: {PageId}) is in '{PageSpace}', tree is '{TreeSpace}'; skipping it and its subtree",
-                        page.Title, page.Id, page.SpaceKey, spaceKey);
-                    report.AddSkipped(page.Id, page.Title,
-                        $"Межпространственное расхождение: страница в '{page.SpaceKey}', а дерево привязано к '{spaceKey}'. "
-                        + "Обновление/перемещение и обработка поддерева пропущены. Верните папку в правильное дерево или синхронизируйте заново.");
-                    return;
-                }
-                resolvedPageId = page.Id;
-                if (!string.Equals(page.ParentId, parentPageId, StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogInformation(
-                        "Page '{Title}' (ID: {PageId}) will be moved from parent {OldParent} to {NewParent}",
-                        page.Title, page.Id, page.ParentId, parentPageId);
-                    moveToParentId = parentPageId;
-                }
-            }
+            await ProcessChildForCreate(spaceKey, childDir, parentPageId, ct);
+            return;
         }
 
-        if (resolvedPageId == null)
-        {
-            var foundUnderParent = await _apiClient.FindPageByTitleAsync(spaceKey, parentPageId, folderName, ct);
-            if (foundUnderParent != null)
-            {
-                resolvedPageId = foundUnderParent;
-            }
-            else
-            {
-                var foundGlobally = await _apiClient.FindPageByTitleAsync(spaceKey, null, folderName, ct);
-                if (foundGlobally != null)
-                {
-                    _logger.LogInformation(
-                        "Page '{Title}' (ID: {PageId}) found in space but under a different parent, will be moved to parent {NewParent}",
-                        folderName, foundGlobally, parentPageId);
-                    resolvedPageId = foundGlobally;
-                    moveToParentId = parentPageId;
-                }
-            }
-        }
+        await MergeUploadPageAsync(spaceKey, resolution.PageId, childDir, resolution.MoveToParentId, analyzer, report, ct);
 
-        if (resolvedPageId == null)
-        {
-            var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId, ct);
-            if (createResult == null) return;
-            resolvedPageId = createResult.Id;
-            await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle, spaceKey, ct);
-
-            await Parallel.ForEachAsync(
-                LocalStorageHelper.GetPageSubdirectories(childDir),
-                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
-                async (grandchildDir, _) => await ProcessChildForCreate(spaceKey, grandchildDir, resolvedPageId, ct));
-        }
-        else
-        {
-            await MergeUploadPageAsync(spaceKey, resolvedPageId, childDir, moveToParentId, analyzer, report, ct);
-
-            await Parallel.ForEachAsync(
-                LocalStorageHelper.GetPageSubdirectories(childDir),
-                new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
-                async (grandchildDir, _) => await ProcessChildForMerge(spaceKey, grandchildDir, resolvedPageId, analyzer, report, ct));
-        }
+        await ProcessChildrenAsync(childDir, ct,
+            grandchildDir => ProcessChildForMerge(spaceKey, grandchildDir, resolution.PageId, analyzer, report, ct));
     }
 
     // ── create internals ──────────────────────────────────────────────
@@ -670,10 +608,8 @@ public class UploadService
         if (createResult == null) return;
         await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle, spaceKey, ct);
 
-        await Parallel.ForEachAsync(
-            LocalStorageHelper.GetPageSubdirectories(childDir),
-            new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
-            async (grandchildDir, _) => await ProcessChildForCreate(spaceKey, grandchildDir, createResult.Id, ct));
+        await ProcessChildrenAsync(childDir, ct,
+            grandchildDir => ProcessChildForCreate(spaceKey, grandchildDir, createResult.Id, ct));
     }
 
     private async Task<(PageUpdateResult? Result, string? Title)> CreatePageFromDirectory(string spaceKey, string pageDir, string? parentId, CancellationToken ct)
@@ -869,6 +805,16 @@ public class UploadService
     private static byte[] ComputeHash(byte[] data) => SHA256.HashData(data);
 
     // ── shared: utilities ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Runs <paramref name="processChild"/> over every child folder of a page
+    /// directory, bounded by the configured max parallelism.
+    /// </summary>
+    private Task ProcessChildrenAsync(string pageDir, CancellationToken ct, Func<string, Task> processChild) =>
+        Parallel.ForEachAsync(
+            LocalStorageHelper.GetPageSubdirectories(pageDir),
+            new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
+            async (childDir, _) => await processChild(childDir));
 
     /// <summary>
     /// Translates a write-path <see cref="ConfluenceApiException"/> into a
