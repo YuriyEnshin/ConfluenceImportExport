@@ -53,7 +53,7 @@ public sealed class XmlContentNormalizer : IContentNormalizer
             if (entityName is "amp" or "lt" or "gt" or "quot" or "apos")
                 return match.Value;
 
-            if (StorageFormatNormalizer.HtmlEntities.TryGetCodePoint(entityName, out var codePoint))
+            if (HtmlEntities.TryGetCodePoint(entityName, out var codePoint))
                 return char.ConvertFromUtf32(codePoint);
 
             return match.Value;

@@ -104,7 +104,7 @@ public sealed partial class RegexContentNormalizer : IContentNormalizer
             if (entityName is "amp" or "lt" or "gt" or "quot" or "apos")
                 continue;
 
-            if (StorageFormatNormalizer.HtmlEntities.TryGetCodePoint(entityName, out var codePoint))
+            if (HtmlEntities.TryGetCodePoint(entityName, out var codePoint))
                 replacements[entity] = char.ConvertFromUtf32(codePoint);
         }
 

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using ConfluencePageExporter.Models;
+using ConfluencePageExporter.Options;
 
 namespace ConfluencePageExporter.Services;
 
@@ -19,7 +20,7 @@ public class CompareService
         ChangeSourceAnalyzer changeSourceAnalyzer,
         IContentNormalizer normalizer,
         ILogger<CompareService> logger,
-        int maxParallelism = 8,
+        int maxParallelism = GlobalOptions.DefaultMaxParallelism,
         IContentHasher? hasher = null)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
@@ -65,7 +66,7 @@ public class CompareService
         CancellationToken ct)
     {
         var report = new CompareReport { DetectSourceEnabled = detectSource };
-        var resolvedRootPageId = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, pageId, pageTitle, ct);
+        var resolvedRootPageId = await _apiClient.ResolvePageIdAsync(spaceKey, pageId, pageTitle, ct);
         if (resolvedRootPageId == null)
             throw new InvalidOperationException("Could not resolve root page for comparison.");
 
@@ -121,12 +122,12 @@ public class CompareService
                     ConfluencePath = remote.RelativePath
                 };
 
-                var localName = GetLastSegment(localById.RelativePath);
-                var remoteName = GetLastSegment(remote.RelativePath);
+                var localName = LocalStorageHelper.GetLastPathSegment(localById.RelativePath);
+                var remoteName = LocalStorageHelper.GetLastPathSegment(remote.RelativePath);
                 bool isRenamed = !string.Equals(localName, remoteName, StringComparison.OrdinalIgnoreCase);
 
-                var localParent = GetParentPath(localById.RelativePath);
-                var remoteParent = GetParentPath(remote.RelativePath);
+                var localParent = LocalStorageHelper.GetParentPath(localById.RelativePath);
+                var remoteParent = LocalStorageHelper.GetParentPath(remote.RelativePath);
                 bool isMoved = !string.Equals(localParent, remoteParent, StringComparison.OrdinalIgnoreCase);
 
                 if (isRenamed)
@@ -375,17 +376,4 @@ public class CompareService
         });
     }
 
-    private static string GetLastSegment(string path)
-    {
-        var trimmed = path.TrimEnd('/');
-        var lastSlash = trimmed.LastIndexOf('/');
-        return lastSlash >= 0 ? trimmed[(lastSlash + 1)..] : trimmed;
-    }
-
-    private static string GetParentPath(string path)
-    {
-        var trimmed = path.TrimEnd('/');
-        var lastSlash = trimmed.LastIndexOf('/');
-        return lastSlash >= 0 ? trimmed[..lastSlash] : "";
-    }
 }

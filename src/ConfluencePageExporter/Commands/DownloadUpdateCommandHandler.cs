@@ -12,6 +12,7 @@ public sealed class DownloadUpdateCommandHandler : ICommandHandler
     private readonly IOptions<DownloadUpdateOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
     private readonly IContentNormalizer _normalizer;
+    private readonly IContentHasher _hasher;
     private readonly ILoggerFactory _loggerFactory;
     private readonly IConsoleWriter _writer;
 
@@ -20,6 +21,7 @@ public sealed class DownloadUpdateCommandHandler : ICommandHandler
         IOptions<DownloadUpdateOptions> opts,
         IConfluenceApiClient apiClient,
         IContentNormalizer normalizer,
+        IContentHasher hasher,
         ILoggerFactory loggerFactory,
         IConsoleWriter writer)
     {
@@ -27,6 +29,7 @@ public sealed class DownloadUpdateCommandHandler : ICommandHandler
         _opts = opts;
         _apiClient = apiClient;
         _normalizer = normalizer;
+        _hasher = hasher;
         _loggerFactory = loggerFactory;
         _writer = writer;
     }
@@ -52,7 +55,7 @@ public sealed class DownloadUpdateCommandHandler : ICommandHandler
         var recursive = o.Recursive ?? g.Recursive ?? false;
         var dryRun = g.DryRun ?? false;
         var showReport = g.Report ?? false;
-        var maxParallelism = g.MaxParallelism ?? 8;
+        var maxParallelism = g.MaxParallelism ?? GlobalOptions.DefaultMaxParallelism;
 
         var pageIdentifier = !string.IsNullOrEmpty(pageId) ? $"ID '{pageId}'" : $"title '{pageTitle}'";
         _writer.WriteLine($"Download update: page {pageIdentifier} from space '{spaceKey}'{(recursive ? " (recursive)" : "")}...");
@@ -64,7 +67,8 @@ public sealed class DownloadUpdateCommandHandler : ICommandHandler
             _normalizer,
             _loggerFactory.CreateLogger<DownloadService>(),
             dryRun,
-            maxParallelism);
+            maxParallelism,
+            hasher: _hasher);
 
         var report = await service.DownloadUpdateAsync(spaceKey, pageId, pageTitle, outputDir, recursive, ct);
 

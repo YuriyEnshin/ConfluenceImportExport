@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using ConfluencePageExporter.Models;
 
@@ -7,8 +8,10 @@ public class ChangeSourceAnalyzer
 {
     private readonly IConfluenceApiClient _apiClient;
     private readonly ILogger<ChangeSourceAnalyzer> _logger;
-    private readonly Dictionary<string, List<PageVersionSummary>> _versionListCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, PageData?> _historicalPageCache = new(StringComparer.OrdinalIgnoreCase);
+    // Concurrent: an analyzer instance is handed to parallel tree walkers
+    // (upload/download merge). A double fetch on a cache-miss race is benign.
+    private readonly ConcurrentDictionary<string, List<PageVersionSummary>> _versionListCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, PageData?> _historicalPageCache = new(StringComparer.OrdinalIgnoreCase);
 
     public ChangeSourceAnalyzer(IConfluenceApiClient apiClient, ILogger<ChangeSourceAnalyzer> logger)
     {
@@ -77,12 +80,12 @@ public class ChangeSourceAnalyzer
                 var historicalParentTitle = historicalPage.Ancestors.Count > 0
                     ? LocalStorageHelper.SanitizeFileName(historicalPage.Ancestors[^1].Title)
                     : null;
-                var localParentName = GetLastSegment(localParentPath);
+                var localParentName = LocalStorageHelper.GetLastPathSegment(localParentPath);
 
                 if (historicalParentTitle != null
                     && string.Equals(historicalParentTitle, localParentName, StringComparison.OrdinalIgnoreCase))
                 {
-                    var serverParentName = GetLastSegment(serverParentPath);
+                    var serverParentName = LocalStorageHelper.GetLastPathSegment(serverParentPath);
                     return new ChangeSourceInfo(
                         ChangeOrigin.Server,
                         ChangeConfidence.High,
@@ -249,13 +252,6 @@ public class ChangeSourceAnalyzer
         var page = await _apiClient.GetPageAtVersionAsync(pageId, versionNumber, ct);
         _historicalPageCache[cacheKey] = page;
         return page;
-    }
-
-    private static string GetLastSegment(string path)
-    {
-        var trimmed = path.TrimEnd('/');
-        var lastSlash = trimmed.LastIndexOf('/');
-        return lastSlash >= 0 ? trimmed[(lastSlash + 1)..] : trimmed;
     }
 
     private static string FormatDate(DateTime? date) =>

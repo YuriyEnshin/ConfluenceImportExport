@@ -294,38 +294,6 @@ public class LocalStorageHelperTests
     }
 
     [Fact]
-    public async Task ResolvePageIdAsync_ShouldReturnPageId_WhenExplicitIdProvided()
-    {
-        var mock = new Mock<IConfluenceApiClient>(MockBehavior.Strict);
-
-        var result = await LocalStorageHelper.ResolvePageIdAsync(mock.Object, "SPACE", "123", "Title");
-
-        result.ShouldBe("123");
-    }
-
-    [Fact]
-    public async Task ResolvePageIdAsync_ShouldResolveByTitle_WhenOnlyTitleProvided()
-    {
-        var mock = new Mock<IConfluenceApiClient>(MockBehavior.Strict);
-        mock.Setup(x => x.FindPageByTitleAsync("SPACE", null, "Title")).ReturnsAsync("777");
-
-        var result = await LocalStorageHelper.ResolvePageIdAsync(mock.Object, "SPACE", null, "Title");
-
-        result.ShouldBe("777");
-        mock.VerifyAll();
-    }
-
-    [Fact]
-    public async Task ResolvePageIdAsync_ShouldReturnNull_WhenNoIdAndNoTitle()
-    {
-        var mock = new Mock<IConfluenceApiClient>(MockBehavior.Strict);
-
-        var result = await LocalStorageHelper.ResolvePageIdAsync(mock.Object, "SPACE", null, null);
-
-        result.ShouldBeNull();
-    }
-
-    [Fact]
     public void GetPageTitle_ShouldReturnOriginalTitle_WhenFolderMatchesSanitized()
     {
         // Setup presumes " gets sanitized into _, which only happens on Windows.

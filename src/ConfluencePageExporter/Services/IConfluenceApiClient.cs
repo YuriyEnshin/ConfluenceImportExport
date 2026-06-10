@@ -36,8 +36,14 @@ public interface IConfluenceApiClient
     /// throws <see cref="ConfluenceApiException"/> on failure —
     /// <see cref="ConfluenceConflictException"/> specifically for 409 version
     /// conflicts, which callers surface as a conflict rather than aborting.
+    /// <paramref name="knownVersion"/> is the version the caller just observed
+    /// (during its own change analysis): when provided, the update is sent as
+    /// knownVersion+1 without re-fetching, so a concurrent server edit between
+    /// the caller's read and this write surfaces as a 409 conflict instead of
+    /// being silently overwritten by a re-fetched (newer) version number.
+    /// When null, the current version is fetched first (legacy behaviour).
     /// </summary>
-    Task<PageUpdateResult> UpdatePageAsync(string pageId, string title, string content, string? parentId, CancellationToken ct = default);
+    Task<PageUpdateResult> UpdatePageAsync(string pageId, string title, string content, string? parentId, int? knownVersion = null, CancellationToken ct = default);
     Task<bool> UploadAttachmentAsync(string pageId, string filePath, string fileName, CancellationToken ct = default);
     Task<bool> UpdateAttachmentDataAsync(string pageId, string attachmentId, string filePath, string fileName, CancellationToken ct = default);
     Task<bool> DeleteAttachmentAsync(string pageId, string attachmentId, CancellationToken ct = default);

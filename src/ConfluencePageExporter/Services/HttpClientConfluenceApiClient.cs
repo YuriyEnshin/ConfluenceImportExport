@@ -212,17 +212,26 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         return new PageUpdateResult(result.Id, result.Version?.Number ?? 1);
     }
 
-    public async Task<PageUpdateResult> UpdatePageAsync(string pageId, string title, string content, string? parentId, CancellationToken ct = default)
+    public async Task<PageUpdateResult> UpdatePageAsync(string pageId, string title, string content, string? parentId, int? knownVersion = null, CancellationToken ct = default)
     {
-        var getPageUrl = $"{_baseUrl}/rest/api/content/{pageId}?expand=version";
-        using var getResponse = await _httpClient.GetAsync(getPageUrl, ct);
-        await EnsureSuccessAsync(getResponse, $"Failed to fetch current version of page {pageId}", ct);
-        var getPageContent = await getResponse.Content.ReadAsStringAsync(ct);
-        var currentPage = JsonConvert.DeserializeObject<PageResponse>(getPageContent)
-            ?? throw new InvalidOperationException("Could not deserialize current page");
-
-        var version = currentPage.Version?.Number ?? 1;
-        version++;
+        // The version the PUT is based on: the caller-observed one when given
+        // (honest optimistic concurrency — a concurrent edit yields 409), else
+        // fetched here as a fallback for callers that haven't read the page.
+        int version;
+        if (knownVersion is int known)
+        {
+            version = known + 1;
+        }
+        else
+        {
+            var getPageUrl = $"{_baseUrl}/rest/api/content/{pageId}?expand=version";
+            using var getResponse = await _httpClient.GetAsync(getPageUrl, ct);
+            await EnsureSuccessAsync(getResponse, $"Failed to fetch current version of page {pageId}", ct);
+            var getPageContent = await getResponse.Content.ReadAsStringAsync(ct);
+            var currentPage = JsonConvert.DeserializeObject<PageResponse>(getPageContent)
+                ?? throw new InvalidOperationException("Could not deserialize current page");
+            version = (currentPage.Version?.Number ?? 1) + 1;
+        }
 
         object pageData;
 

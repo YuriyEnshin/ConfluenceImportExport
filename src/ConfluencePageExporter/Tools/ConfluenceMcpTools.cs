@@ -30,6 +30,7 @@ public sealed class ConfluenceMcpTools
         IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IPathSandbox sandbox,
+        IContentHasher hasher,
         IOptions<GlobalOptions> globalOpts,
         CancellationToken cancellationToken = default,
         [Description("Confluence page ID (mutually exclusive with pageTitle)")] string? pageId = null,
@@ -46,12 +47,12 @@ public sealed class ConfluenceMcpTools
             ArgValidation.RequireExactlyOne(("pageId", pageId), ("pageTitle", pageTitle));
             var resolvedOut = sandbox.Resolve(outputDir);
             var resolvedSpace = ResolveSpaceKey(spaceKey, globalOpts.Value);
-            var maxParallelism = globalOpts.Value.MaxParallelism ?? 8;
+            var maxParallelism = globalOpts.Value.MaxParallelism ?? GlobalOptions.DefaultMaxParallelism;
 
             writer.WriteLine($"Download update: page {Describe(pageId, pageTitle)} from space '{resolvedSpace}'{(recursive ? " (recursive)" : "")}...");
             if (dryRun) writer.WriteLine("DRY RUN MODE: No files will be written to disk.");
 
-            var service = new DownloadService(api, normalizer, loggerFactory.CreateLogger<DownloadService>(), dryRun, maxParallelism);
+            var service = new DownloadService(api, normalizer, loggerFactory.CreateLogger<DownloadService>(), dryRun, maxParallelism, hasher);
             var syncReport = await service.DownloadUpdateAsync(resolvedSpace, pageId, pageTitle, resolvedOut, recursive, cancellationToken);
 
             writer.WriteLine($"Download update completed. Files saved to: {resolvedOut}");
@@ -75,6 +76,7 @@ public sealed class ConfluenceMcpTools
         IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IPathSandbox sandbox,
+        IContentHasher hasher,
         IOptions<GlobalOptions> globalOpts,
         CancellationToken cancellationToken = default,
         [Description("Confluence page ID (mutually exclusive with pageTitle)")] string? pageId = null,
@@ -91,13 +93,13 @@ public sealed class ConfluenceMcpTools
             ArgValidation.RequireExactlyOne(("pageId", pageId), ("pageTitle", pageTitle));
             var resolvedOut = sandbox.Resolve(outputDir);
             var resolvedSpace = ResolveSpaceKey(spaceKey, globalOpts.Value);
-            var maxParallelism = globalOpts.Value.MaxParallelism ?? 8;
+            var maxParallelism = globalOpts.Value.MaxParallelism ?? GlobalOptions.DefaultMaxParallelism;
 
             writer.WriteLine($"Download merge: page {Describe(pageId, pageTitle)} from space '{resolvedSpace}'{(recursive ? " (recursive)" : "")}...");
             if (dryRun) writer.WriteLine("DRY RUN MODE: No files will be written to disk.");
 
             var analyzer = new ChangeSourceAnalyzer(api, loggerFactory.CreateLogger<ChangeSourceAnalyzer>());
-            var service = new DownloadService(api, normalizer, loggerFactory.CreateLogger<DownloadService>(), dryRun, maxParallelism);
+            var service = new DownloadService(api, normalizer, loggerFactory.CreateLogger<DownloadService>(), dryRun, maxParallelism, hasher);
             var syncReport = await service.DownloadMergeAsync(resolvedSpace, pageId, pageTitle, resolvedOut, recursive, analyzer, cancellationToken);
 
             writer.WriteLine($"Download merge completed. Files saved to: {resolvedOut}");
@@ -121,6 +123,7 @@ public sealed class ConfluenceMcpTools
         IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IPathSandbox sandbox,
+        IContentHasher hasher,
         IOptions<GlobalOptions> globalOpts,
         ConfluenceMcpOptions mcpOpts,
         [Description("Local page folder to upload; relative paths resolve against the server's --root-dir")] string sourceDir,
@@ -142,12 +145,12 @@ public sealed class ConfluenceMcpTools
             ArgValidation.RequireAtMostOne(("pageId", pageId), ("pageTitle", pageTitle));
             var resolvedSrc = sandbox.Resolve(sourceDir);
             var resolvedSpace = ResolveSpaceKey(spaceKey, globalOpts.Value);
-            var maxParallelism = globalOpts.Value.MaxParallelism ?? 8;
+            var maxParallelism = globalOpts.Value.MaxParallelism ?? GlobalOptions.DefaultMaxParallelism;
 
             if (dryRun) writer.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
             writer.WriteLine($"Upload update: pages in space '{resolvedSpace}' from '{resolvedSrc}'{(recursive ? " (recursive)" : "")}{(multiTree ? " (multi-tree)" : "")}...");
 
-            var service = new UploadService(api, normalizer, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism);
+            var service = new UploadService(api, normalizer, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism, hasher);
             var syncReport = await service.UploadUpdateAsync(resolvedSpace, resolvedSrc, pageId, pageTitle, recursive, explicitSpaceKey: spaceKey, multiTree: multiTree, ct: cancellationToken);
 
             writer.WriteLine("Upload update completed.");
@@ -171,6 +174,7 @@ public sealed class ConfluenceMcpTools
         IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IPathSandbox sandbox,
+        IContentHasher hasher,
         IOptions<GlobalOptions> globalOpts,
         ConfluenceMcpOptions mcpOpts,
         [Description("Local page folder to upload; relative paths resolve against the server's --root-dir")] string sourceDir,
@@ -190,7 +194,7 @@ public sealed class ConfluenceMcpTools
             ArgValidation.RequireAtMostOne(("parentId", parentId), ("parentTitle", parentTitle));
             var resolvedSrc = sandbox.Resolve(sourceDir);
             var resolvedSpace = ResolveSpaceKey(spaceKey, globalOpts.Value);
-            var maxParallelism = globalOpts.Value.MaxParallelism ?? 8;
+            var maxParallelism = globalOpts.Value.MaxParallelism ?? GlobalOptions.DefaultMaxParallelism;
 
             if (dryRun) writer.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
             var parentDesc = !string.IsNullOrEmpty(parentId) ? $"under parent ID '{parentId}'"
@@ -198,7 +202,7 @@ public sealed class ConfluenceMcpTools
                            : "at space root";
             writer.WriteLine($"Creating pages in space '{resolvedSpace}' {parentDesc} from '{resolvedSrc}'{(recursive ? " (recursive)" : "")}...");
 
-            var service = new UploadService(api, normalizer, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism);
+            var service = new UploadService(api, normalizer, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism, hasher);
             await service.UploadCreateAsync(resolvedSpace, resolvedSrc, parentId, parentTitle, recursive, explicitSpaceKey: spaceKey, ct: cancellationToken);
 
             writer.WriteLine("Upload create completed.");
@@ -222,6 +226,7 @@ public sealed class ConfluenceMcpTools
         IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IPathSandbox sandbox,
+        IContentHasher hasher,
         IOptions<GlobalOptions> globalOpts,
         ConfluenceMcpOptions mcpOpts,
         [Description("Local page folder to upload; relative paths resolve against the server's --root-dir")] string sourceDir,
@@ -243,13 +248,13 @@ public sealed class ConfluenceMcpTools
             ArgValidation.RequireAtMostOne(("pageId", pageId), ("pageTitle", pageTitle));
             var resolvedSrc = sandbox.Resolve(sourceDir);
             var resolvedSpace = ResolveSpaceKey(spaceKey, globalOpts.Value);
-            var maxParallelism = globalOpts.Value.MaxParallelism ?? 8;
+            var maxParallelism = globalOpts.Value.MaxParallelism ?? GlobalOptions.DefaultMaxParallelism;
 
             if (dryRun) writer.WriteLine("DRY RUN MODE: No changes will be made to Confluence.");
             writer.WriteLine($"Upload merge: pages in space '{resolvedSpace}' from '{resolvedSrc}'{(recursive ? " (recursive)" : "")}{(multiTree ? " (multi-tree)" : "")}...");
 
             var analyzer = new ChangeSourceAnalyzer(api, loggerFactory.CreateLogger<ChangeSourceAnalyzer>());
-            var service = new UploadService(api, normalizer, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism);
+            var service = new UploadService(api, normalizer, loggerFactory.CreateLogger<UploadService>(), dryRun, maxParallelism, hasher);
             var syncReport = await service.UploadMergeAsync(resolvedSpace, resolvedSrc, pageId, pageTitle, recursive, analyzer, explicitSpaceKey: spaceKey, multiTree: multiTree, ct: cancellationToken);
 
             writer.WriteLine("Upload merge completed.");
@@ -273,6 +278,7 @@ public sealed class ConfluenceMcpTools
         IContentNormalizer normalizer,
         ILoggerFactory loggerFactory,
         IPathSandbox sandbox,
+        IContentHasher hasher,
         IOptions<GlobalOptions> globalOpts,
         CancellationToken cancellationToken = default,
         [Description("Confluence page ID (mutually exclusive with pageTitle)")] string? pageId = null,
@@ -289,12 +295,12 @@ public sealed class ConfluenceMcpTools
             ArgValidation.RequireExactlyOne(("pageId", pageId), ("pageTitle", pageTitle));
             var resolvedOut = sandbox.Resolve(outputDir);
             var resolvedSpace = ResolveSpaceKey(spaceKey, globalOpts.Value);
-            var maxParallelism = globalOpts.Value.MaxParallelism ?? 8;
+            var maxParallelism = globalOpts.Value.MaxParallelism ?? GlobalOptions.DefaultMaxParallelism;
 
             writer.WriteLine($"Comparing page {Describe(pageId, pageTitle)} in space '{resolvedSpace}' with local folder '{resolvedOut}'{(recursive ? " (recursive)" : "")}{(detectSource ? " (detect-source)" : "")}...");
 
             var analyzer = new ChangeSourceAnalyzer(api, loggerFactory.CreateLogger<ChangeSourceAnalyzer>());
-            var service = new CompareService(api, analyzer, normalizer, loggerFactory.CreateLogger<CompareService>(), maxParallelism);
+            var service = new CompareService(api, analyzer, normalizer, loggerFactory.CreateLogger<CompareService>(), maxParallelism, hasher);
             var compareReport = await service.CompareAsync(resolvedSpace, pageId, pageTitle, resolvedOut, recursive, matchByTitle, detectSource, cancellationToken);
 
             return McpToolResult.Success(

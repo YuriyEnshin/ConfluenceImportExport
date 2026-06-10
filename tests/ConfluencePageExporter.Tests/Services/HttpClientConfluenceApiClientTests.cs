@@ -237,6 +237,46 @@ public class HttpClientConfluenceApiClientTests
     }
 
     [Fact]
+    public async Task UpdatePageAsync_ShouldSkipVersionFetch_WhenKnownVersionProvided()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponder(request =>
+        {
+            // No preliminary GET: the PUT is based directly on the caller's version.
+            request.Method.ShouldBe(HttpMethod.Put);
+            var body = request.Content!.ReadAsStringAsync().Result;
+            body.ShouldContain(@"""number"":6");
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"900","title":"New","version":{"number":6}}""")
+            };
+        });
+        var client = CreateClient(handler);
+
+        var result = await client.UpdatePageAsync("900", "New", "<p>new</p>", null, knownVersion: 5);
+
+        result.VersionNumber.ShouldBe(6);
+        handler.Requests.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task UpdatePageAsync_ShouldThrowConflict_On409_WithKnownVersion()
+    {
+        // A concurrent edit moved the page past the caller-observed version —
+        // Confluence rejects the stale-based PUT and the 409 surfaces as a
+        // conflict instead of the edit being silently overwritten.
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.Conflict, """{"message":"version conflict"}""");
+        var client = CreateClient(handler);
+
+        var act = async () => await client.UpdatePageAsync("900", "New", "<p>new</p>", null, knownVersion: 3);
+
+        await Should.ThrowAsync<ConfluenceConflictException>(act);
+        handler.Requests.ShouldHaveSingleItem();
+    }
+
+    [Fact]
     public async Task DownloadAttachmentAsync_ShouldUseBaseUrl_ForRelativeDownloadUrl()
     {
         var handler = new StubHttpMessageHandler();
