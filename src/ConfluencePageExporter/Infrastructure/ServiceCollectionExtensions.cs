@@ -22,6 +22,9 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddConfluenceExporterCore(this IServiceCollection services)
     {
         services.AddSingleton<IContentNormalizer, XmlContentNormalizer>();
+        // One shared hasher: its golden-vector self-check (NormalizationContract)
+        // runs once per process instead of once per service instance.
+        services.AddSingleton<IContentHasher, ContentHasher>();
 
         // Delegating handlers are resolved from DI; the factory assigns their
         // InnerHandler when it builds the pipeline.

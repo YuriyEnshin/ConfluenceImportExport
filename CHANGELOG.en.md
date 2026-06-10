@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- A concurrent server-side edit made between change analysis and the write can
+  no longer be silently overwritten during `upload`: the write is now based on
+  the version the tool observed during analysis, so a stale write is rejected
+  by the server as a conflict (409) and recorded in the report. Bonus: a page
+  update now costs one HTTP request less.
 - A Confluence API failure during page-by-title search (401/403, 5xx, or a
   network error after the retry budget) is no longer interpreted as "page not
   found". Previously such a failure during a recursive upload could lead to an

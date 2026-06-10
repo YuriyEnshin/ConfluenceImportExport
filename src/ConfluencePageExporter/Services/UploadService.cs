@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using ConfluencePageExporter.Models;
+using ConfluencePageExporter.Options;
 
 namespace ConfluencePageExporter.Services;
 
@@ -19,7 +20,7 @@ public class UploadService
         IContentNormalizer normalizer,
         ILogger<UploadService> logger,
         bool dryRun = false,
-        int maxParallelism = 8,
+        int maxParallelism = GlobalOptions.DefaultMaxParallelism,
         IContentHasher? hasher = null)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
@@ -154,7 +155,7 @@ public class UploadService
             var treeSpace = spaceKey;
             if (!string.IsNullOrEmpty(parentId) || !string.IsNullOrEmpty(parentTitle))
             {
-                resolvedParentId = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, parentId, parentTitle, ct);
+                resolvedParentId = await _apiClient.ResolvePageIdAsync(spaceKey, parentId, parentTitle, ct);
                 if (resolvedParentId == null)
                     throw new InvalidOperationException(
                         $"Parent page not found. ID: '{parentId}', Title: '{parentTitle}'");
@@ -508,7 +509,7 @@ public class UploadService
                 title, serverPage.ParentId, moveToParentId);
             try
             {
-                var moveResult = await _apiClient.UpdatePageAsync(pageId, serverPage.Title, serverPage.Body.Storage.Value, moveToParentId, ct);
+                var moveResult = await _apiClient.UpdatePageAsync(pageId, serverPage.Title, serverPage.Body.Storage.Value, moveToParentId, serverPage.Version?.Number, ct);
                 await UpdatePageIdMarker(pageDir, moveResult.Id, moveResult.VersionNumber, serverPage.Title, spaceKey, ct);
                 await UploadPageAttachments(pageId, pageDir, ct);
             }
@@ -533,7 +534,7 @@ public class UploadService
                     title, moveToParentId);
                 try
                 {
-                    var result = await _apiClient.UpdatePageAsync(pageId, title, localContent, moveToParentId, ct);
+                    var result = await _apiClient.UpdatePageAsync(pageId, title, localContent, moveToParentId, serverPage.Version?.Number, ct);
                     await UpdatePageIdMarker(pageDir, result.Id, result.VersionNumber, title, spaceKey, ct);
                     await UploadPageAttachments(pageId, pageDir, ct);
                 }
@@ -708,7 +709,7 @@ public class UploadService
         PageUpdateResult result;
         try
         {
-            result = await _apiClient.UpdatePageAsync(pageId, title, localContent, moveToParentId, ct);
+            result = await _apiClient.UpdatePageAsync(pageId, title, localContent, moveToParentId, serverVersion, ct);
         }
         catch (ConfluenceApiException ex)
         {

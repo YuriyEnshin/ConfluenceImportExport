@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using ConfluencePageExporter.Models;
+using ConfluencePageExporter.Options;
 
 namespace ConfluencePageExporter.Services;
 
@@ -20,7 +21,7 @@ public class DownloadService
         IContentNormalizer normalizer,
         ILogger<DownloadService> logger,
         bool dryRun = false,
-        int maxParallelism = 8,
+        int maxParallelism = GlobalOptions.DefaultMaxParallelism,
         IContentHasher? hasher = null)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
@@ -74,7 +75,7 @@ public class DownloadService
 
     private async Task<string> ResolvePageId(string spaceKey, string? pageId, string? pageTitle, CancellationToken ct)
     {
-        var resolved = await LocalStorageHelper.ResolvePageIdAsync(_apiClient, spaceKey, pageId, pageTitle, ct);
+        var resolved = await _apiClient.ResolvePageIdAsync(spaceKey, pageId, pageTitle, ct);
         return resolved ?? throw new InvalidOperationException(
             $"Could not resolve page. ID: '{pageId}', Title: '{pageTitle}'");
     }

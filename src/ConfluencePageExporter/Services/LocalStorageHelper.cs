@@ -133,6 +133,22 @@ public static class LocalStorageHelper
             .Replace(Path.AltDirectorySeparatorChar, '/');
     }
 
+    /// <summary>Last segment of a '/'-separated relative path ("a/b/c" → "c").</summary>
+    public static string GetLastPathSegment(string path)
+    {
+        var trimmed = path.TrimEnd('/');
+        var lastSlash = trimmed.LastIndexOf('/');
+        return lastSlash >= 0 ? trimmed[(lastSlash + 1)..] : trimmed;
+    }
+
+    /// <summary>Parent of a '/'-separated relative path ("a/b/c" → "a/b"; "" when there is none).</summary>
+    public static string GetParentPath(string path)
+    {
+        var trimmed = path.TrimEnd('/');
+        var lastSlash = trimmed.LastIndexOf('/');
+        return lastSlash >= 0 ? trimmed[..lastSlash] : "";
+    }
+
     public static IEnumerable<string> EnumeratePageDirectories(string rootDir)
     {
         if (!Directory.Exists(rootDir))
@@ -220,19 +236,4 @@ public static class LocalStorageHelper
         }
     }
 
-    public static async Task<string?> ResolvePageIdAsync(
-        IConfluenceApiClient apiClient,
-        string spaceKey,
-        string? pageId,
-        string? pageTitle,
-        CancellationToken ct = default)
-    {
-        if (!string.IsNullOrEmpty(pageId))
-            return pageId;
-
-        if (!string.IsNullOrEmpty(pageTitle))
-            return await apiClient.FindPageByTitleAsync(spaceKey, null, pageTitle, ct);
-
-        return null;
-    }
 }

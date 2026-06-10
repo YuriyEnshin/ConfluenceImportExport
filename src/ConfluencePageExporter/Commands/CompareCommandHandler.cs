@@ -13,6 +13,7 @@ public sealed class CompareCommandHandler : ICommandHandler
     private readonly IOptions<CompareOptions> _opts;
     private readonly IConfluenceApiClient _apiClient;
     private readonly IContentNormalizer _normalizer;
+    private readonly IContentHasher _hasher;
     private readonly ILoggerFactory _loggerFactory;
     private readonly IConsoleWriter _writer;
 
@@ -21,6 +22,7 @@ public sealed class CompareCommandHandler : ICommandHandler
         IOptions<CompareOptions> opts,
         IConfluenceApiClient apiClient,
         IContentNormalizer normalizer,
+        IContentHasher hasher,
         ILoggerFactory loggerFactory,
         IConsoleWriter writer)
     {
@@ -28,6 +30,7 @@ public sealed class CompareCommandHandler : ICommandHandler
         _opts = opts;
         _apiClient = apiClient;
         _normalizer = normalizer;
+        _hasher = hasher;
         _loggerFactory = loggerFactory;
         _writer = writer;
     }
@@ -53,7 +56,7 @@ public sealed class CompareCommandHandler : ICommandHandler
         var recursive = o.Recursive ?? g.Recursive ?? false;
         var matchByTitle = o.MatchByTitle ?? false;
         var detectSource = o.DetectSource ?? false;
-        var maxParallelism = g.MaxParallelism ?? 8;
+        var maxParallelism = g.MaxParallelism ?? GlobalOptions.DefaultMaxParallelism;
 
         var pageIdentifier = !string.IsNullOrEmpty(pageId) ? $"ID '{pageId}'" : $"title '{pageTitle}'";
         _writer.WriteLine($"Comparing page {pageIdentifier} in space '{spaceKey}' with local folder '{outputDir}'{(recursive ? " (recursive)" : "")}{(detectSource ? " (detect-source)" : "")}...");
@@ -67,7 +70,8 @@ public sealed class CompareCommandHandler : ICommandHandler
             analyzer,
             _normalizer,
             _loggerFactory.CreateLogger<CompareService>(),
-            maxParallelism);
+            maxParallelism,
+            hasher: _hasher);
 
         var report = await service.CompareAsync(spaceKey, pageId, pageTitle, outputDir, recursive, matchByTitle, detectSource, ct);
         PrintReport(report, _writer);

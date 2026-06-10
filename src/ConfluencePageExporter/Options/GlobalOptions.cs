@@ -2,6 +2,12 @@ namespace ConfluencePageExporter.Options;
 
 public sealed class GlobalOptions
 {
+    /// <summary>
+    /// Default for <see cref="MaxParallelism"/>, shared by every layer (CLI
+    /// handlers, MCP tools, service constructors) so the fallback can't drift.
+    /// </summary>
+    public const int DefaultMaxParallelism = 8;
+
     public string? BaseUrl { get; set; }
     public string? Username { get; set; }
     public string? Token { get; set; }

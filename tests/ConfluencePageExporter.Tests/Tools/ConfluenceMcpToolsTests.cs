@@ -24,6 +24,8 @@ public class ConfluenceMcpToolsTests
     private static ConfluenceMcpOptions McpOpts(string rootDir, bool readOnly = false)
         => new() { RootDir = rootDir, ReadOnly = readOnly };
 
+    private static ContentHasher Hasher() => new(new XmlContentNormalizer());
+
     // ── DownloadUpdate ───────────────────────────────────────────────────
 
     [Fact]
@@ -38,7 +40,7 @@ public class ConfluenceMcpToolsTests
         api.Setup(x => x.GetAttachmentsAsync(It.IsAny<string>())).ReturnsAsync(new List<AttachmentData>());
 
         var result = await ConfluenceMcpTools.DownloadUpdate(
-            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Globals(),
+            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Hasher(), Globals(),
             pageId: "1", pageTitle: null, outputDir: "out");
 
         AssertSuccess(result);
@@ -52,7 +54,7 @@ public class ConfluenceMcpToolsTests
         var api = ApiClientMockFactory.CreateLoose();
 
         var result = await ConfluenceMcpTools.DownloadUpdate(
-            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Globals(),
+            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Hasher(), Globals(),
             pageId: "1", pageTitle: null, outputDir: "../../../evil");
 
         AssertError(result, "OUT_OF_SANDBOX");
@@ -66,7 +68,7 @@ public class ConfluenceMcpToolsTests
         var api = ApiClientMockFactory.CreateLoose();
 
         var result = await ConfluenceMcpTools.DownloadUpdate(
-            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Globals(),
+            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Hasher(), Globals(),
             pageId: "1", pageTitle: "Root", outputDir: "out");
 
         AssertError(result, "INVALID_ARGS");
@@ -80,7 +82,7 @@ public class ConfluenceMcpToolsTests
         var api = ApiClientMockFactory.CreateLoose();
 
         var result = await ConfluenceMcpTools.DownloadUpdate(
-            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Globals(spaceKey: null),
+            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Hasher(), Globals(spaceKey: null),
             pageId: "1", pageTitle: null, outputDir: "out");
 
         AssertError(result, "INVALID_ARGS");
@@ -96,7 +98,7 @@ public class ConfluenceMcpToolsTests
         var api = ApiClientMockFactory.CreateLoose();
 
         var result = await ConfluenceMcpTools.UploadUpdate(
-            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Globals(),
+            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Hasher(), Globals(),
             McpOpts(temp.RootPath, readOnly: true),
             sourceDir: "src", pageId: "1");
 
@@ -113,7 +115,7 @@ public class ConfluenceMcpToolsTests
         var api = ApiClientMockFactory.CreateLoose();
 
         var result = await ConfluenceMcpTools.UploadCreate(
-            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Globals(),
+            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Hasher(), Globals(),
             McpOpts(temp.RootPath, readOnly: true),
             sourceDir: "src");
 
@@ -128,7 +130,7 @@ public class ConfluenceMcpToolsTests
         var api = ApiClientMockFactory.CreateLoose();
 
         var result = await ConfluenceMcpTools.UploadMerge(
-            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Globals(),
+            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Hasher(), Globals(),
             McpOpts(temp.RootPath, readOnly: true),
             sourceDir: "src");
 
@@ -145,7 +147,7 @@ public class ConfluenceMcpToolsTests
         var api = ApiClientMockFactory.CreateLoose();
 
         var result = await ConfluenceMcpTools.Compare(
-            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Globals(),
+            api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLoggerFactory(), sandbox, Hasher(), Globals(),
             pageId: "1", pageTitle: null, outputDir: "../escape");
 
         AssertError(result, "OUT_OF_SANDBOX");
