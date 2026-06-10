@@ -21,6 +21,36 @@ public class HttpClientConfluenceApiClientTests
     }
 
     [Fact]
+    public async Task TryGetPageByIdAsync_ShouldThrowApiException_OnServerError()
+    {
+        // Only 404 means "not found"; any other failure must surface as a
+        // typed error instead of being indistinguishable from a missing page.
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.InternalServerError, """{"message":"boom"}""");
+        var client = CreateClient(handler);
+
+        var act = async () => await client.TryGetPageByIdAsync("123");
+
+        var ex = await Should.ThrowAsync<ConfluenceApiException>(act);
+        ex.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+    }
+
+    [Fact]
+    public async Task GetPageByIdAsync_ShouldThrowApiException_WithStatusAndBodySnippet()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.Forbidden, """{"message":"no access to page"}""");
+        var client = CreateClient(handler);
+
+        var act = async () => await client.GetPageByIdAsync("123");
+
+        var ex = await Should.ThrowAsync<ConfluenceApiException>(act);
+        ex.IsAuthFailure.ShouldBeTrue();
+        ex.Message.ShouldContain("403");
+        ex.Message.ShouldContain("no access to page");
+    }
+
+    [Fact]
     public async Task GetChildrenPagesAsync_ShouldHandlePagination()
     {
         var handler = new StubHttpMessageHandler();
@@ -67,15 +97,45 @@ public class HttpClientConfluenceApiClientTests
     }
 
     [Fact]
-    public async Task FindPageByTitleAsync_ShouldReturnNull_OnHttpError()
+    public async Task FindPageByTitleAsync_ShouldReturnNull_WhenNoResults()
     {
         var handler = new StubHttpMessageHandler();
-        handler.EnqueueResponse(HttpStatusCode.InternalServerError, """{"message":"error"}""");
+        handler.EnqueueResponse(HttpStatusCode.OK, """{"results":[]}""");
         var client = CreateClient(handler);
 
         var result = await client.FindPageByTitleAsync("DOCS", null, "Target");
 
         result.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task FindPageByTitleAsync_ShouldThrowApiException_OnHttpError()
+    {
+        // A failed search must NOT be reported as "page not found" (null):
+        // callers treat null as "safe to create", so a masked server error
+        // could lead to a duplicate page.
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.InternalServerError, """{"message":"error"}""");
+        var client = CreateClient(handler);
+
+        var act = async () => await client.FindPageByTitleAsync("DOCS", null, "Target");
+
+        var ex = await Should.ThrowAsync<ConfluenceApiException>(act);
+        ex.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+        ex.Message.ShouldContain("Target");
+    }
+
+    [Fact]
+    public async Task FindPageByTitleAsync_ShouldThrowAuthFailure_OnUnauthorized()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.Unauthorized, """{"message":"bad token"}""");
+        var client = CreateClient(handler);
+
+        var act = async () => await client.FindPageByTitleAsync("DOCS", null, "Target");
+
+        var ex = await Should.ThrowAsync<ConfluenceApiException>(act);
+        ex.IsAuthFailure.ShouldBeTrue();
     }
 
     [Fact]
@@ -287,6 +347,61 @@ public class HttpClientConfluenceApiClientTests
         var result = await client.GetPageAtVersionAsync("999", 1);
 
         result.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetPageVersionsAsync_ShouldThrowOperationCanceled_WhenTokenAlreadyCancelled()
+    {
+        // The method tolerates server errors (returns []) but must NOT
+        // swallow cancellation as if it were a tolerable failure.
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.OK, """{"results":[]}""");
+        var client = CreateClient(handler);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var act = async () => await client.GetPageVersionsAsync("100", 10, cts.Token);
+
+        await Should.ThrowAsync<OperationCanceledException>(act);
+    }
+
+    [Fact]
+    public async Task GetPageAtVersionAsync_ShouldThrowOperationCanceled_WhenTokenAlreadyCancelled()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.OK, """{"id":"100","title":"T"}""");
+        var client = CreateClient(handler);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var act = async () => await client.GetPageAtVersionAsync("100", 1, cts.Token);
+
+        await Should.ThrowAsync<OperationCanceledException>(act);
+    }
+
+    [Fact]
+    public async Task UploadAttachmentAsync_ShouldThrowOperationCanceled_WhenTokenAlreadyCancelled()
+    {
+        // Attachment writes tolerate failures by returning false; cancellation
+        // must propagate instead of being reported as a failed upload.
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.OK);
+        var client = CreateClient(handler);
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllBytesAsync(tempFile, [1, 2, 3]);
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            var act = async () => await client.UploadAttachmentAsync("100", tempFile, "file.bin", cts.Token);
+
+            await Should.ThrowAsync<OperationCanceledException>(act);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
     }
 
     [Fact]

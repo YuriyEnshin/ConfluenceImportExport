@@ -3,13 +3,11 @@ using System.Net;
 namespace ConfluencePageExporter.Services;
 
 /// <summary>
-/// Raised when a Confluence write operation (create/update) returns a
-/// non-success HTTP status. Carries the status code and a snippet of the
-/// response body so inbound adapters (CLI / MCP) can classify the failure
-/// into a stable error contract instead of seeing an undifferentiated
-/// <c>null</c>. Read operations continue to surface failures via
-/// <see cref="HttpRequestException"/> (EnsureSuccessStatusCode), which the
-/// same adapters already classify.
+/// Raised when a Confluence API call returns a non-success HTTP status —
+/// writes (create/update) and reads (fetch/search) alike. Carries the status
+/// code and a snippet of the response body so inbound adapters (CLI / MCP)
+/// can classify the failure into a stable error contract instead of seeing
+/// an undifferentiated <c>null</c> or a bare <see cref="HttpRequestException"/>.
 /// </summary>
 public class ConfluenceApiException : Exception
 {

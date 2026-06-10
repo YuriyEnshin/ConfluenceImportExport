@@ -6,6 +6,29 @@ All notable changes to the Confluence Page Exporter tool are documented in this 
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- A Confluence API failure during page-by-title search (401/403, 5xx, or a
+  network error after the retry budget) is no longer interpreted as "page not
+  found". Previously such a failure during a recursive upload could lead to an
+  attempt to create a duplicate page; now the operation fails with an explicit
+  error.
+- Cancellation (Ctrl+C, MCP request cancellation) is no longer swallowed in
+  version-history requests, historical page fetches, and attachment
+  upload/update/delete — execution stops immediately instead of being masked
+  as an "attachment failure" or an empty history.
+
+### Changed
+
+- Confluence API read errors (fetching a page, children, search, attachment
+  download) are now reported the same way as write errors: with the HTTP status
+  and a response-body snippet. In MCP mode such errors get precise codes
+  (`PAGE_NOT_FOUND`, `AUTH_FAILED`, `RATE_LIMITED`) instead of the generic
+  `NETWORK_ERROR`, and an authorization failure during a multi-tree upload
+  aborts the whole batch, as it does for writes.
+
 ## [2.12.1] — 2026-06-07
 
 ### Fixed
