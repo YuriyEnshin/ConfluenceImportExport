@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using ConfluencePageExporter.Services;
 using ConfluencePageExporter.Tests.Helpers;
 using Shouldly;
@@ -445,6 +446,123 @@ public class HttpClientConfluenceApiClientTests
     }
 
     [Fact]
+    public async Task UploadAttachmentAsync_ShouldSendMediaTypeFromExtension()
+    {
+        // Confluence infers an attachment's media type from the part's
+        // Content-Type; a recognised extension must yield the matching type.
+        var handler = new StubHttpMessageHandler();
+        string? captured = null;
+        handler.EnqueueResponder(req =>
+        {
+            captured = GetFilePartContentType(req);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+        });
+        var client = CreateClient(handler);
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllBytesAsync(tempFile, [1, 2, 3]);
+
+            var ok = await client.UploadAttachmentAsync("100", tempFile, "preview.png");
+
+            ok.ShouldBeTrue();
+            captured.ShouldBe("image/png");
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task UploadAttachmentAsync_ShouldFallBackToOctetStream_ForExtensionlessFile()
+    {
+        // An extensionless file (e.g. a draw.io source) has no extension to infer
+        // from — we must send an explicit octet-stream rather than no type.
+        var handler = new StubHttpMessageHandler();
+        string? captured = null;
+        handler.EnqueueResponder(req =>
+        {
+            captured = GetFilePartContentType(req);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+        });
+        var client = CreateClient(handler);
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllBytesAsync(tempFile, [1, 2, 3]);
+
+            var ok = await client.UploadAttachmentAsync("100", tempFile, "diagram");
+
+            ok.ShouldBeTrue();
+            captured.ShouldBe("application/octet-stream");
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateAttachmentDataAsync_ShouldPreserveProvidedMediaType_ForExtensionlessFile()
+    {
+        // The core fix: on update we stamp the stored server media type so
+        // Confluence keeps it instead of re-inferring from a missing extension
+        // and dropping the update (the draw.io source-twin bug).
+        var handler = new StubHttpMessageHandler();
+        string? captured = null;
+        handler.EnqueueResponder(req =>
+        {
+            captured = GetFilePartContentType(req);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+        });
+        var client = CreateClient(handler);
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllBytesAsync(tempFile, [1, 2, 3]);
+
+            var ok = await client.UpdateAttachmentDataAsync("100", "ATT-1", tempFile, "diagram", "application/vnd.jgraph.mxfile");
+
+            ok.ShouldBeTrue();
+            captured.ShouldBe("application/vnd.jgraph.mxfile");
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateAttachmentDataAsync_ShouldDeriveFromExtension_WhenNoMediaTypeProvided()
+    {
+        // Without a stored type, fall back to the extension map so a known kind
+        // still updates with the right media type.
+        var handler = new StubHttpMessageHandler();
+        string? captured = null;
+        handler.EnqueueResponder(req =>
+        {
+            captured = GetFilePartContentType(req);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+        });
+        var client = CreateClient(handler);
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllBytesAsync(tempFile, [1, 2, 3]);
+
+            var ok = await client.UpdateAttachmentDataAsync("100", "ATT-1", tempFile, "preview.png");
+
+            ok.ShouldBeTrue();
+            captured.ShouldBe("image/png");
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public async Task GetPageByIdAsync_ShouldExpandVersion()
     {
         var handler = new StubHttpMessageHandler();
@@ -527,6 +645,25 @@ public class HttpClientConfluenceApiClientTests
             "https://wiki.example.com",
             httpClient,
             LoggerTestHelper.CreateLogger<HttpClientConfluenceApiClient>());
+    }
+
+    /// <summary>
+    /// Returns the media type of the multipart "file" part on an attachment
+    /// upload/update request, or <c>null</c> if absent. Read inside the stub
+    /// responder while the in-memory request content is still alive.
+    /// </summary>
+    private static string? GetFilePartContentType(HttpRequestMessage request)
+    {
+        if (request.Content is not MultipartFormDataContent multipart)
+            return null;
+
+        foreach (var part in multipart)
+        {
+            if (part.Headers.ContentDisposition?.Name?.Trim('"') == "file")
+                return part.Headers.ContentType?.MediaType;
+        }
+
+        return null;
     }
 
     private static string BuildPageResultsJson(int startId, int count, bool hasNext)
