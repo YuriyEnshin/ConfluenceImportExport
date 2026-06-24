@@ -109,3 +109,5 @@ _ReSharper*/
 .cursor/
 .claude/
 CLAUDE.md
+AGENTS.md
+graphify-out/
