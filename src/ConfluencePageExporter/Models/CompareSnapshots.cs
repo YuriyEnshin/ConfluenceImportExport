@@ -6,7 +6,8 @@ public sealed record RemotePageSnapshot(
     string RelativePath,
     string Content,
     DateTime? LastModifiedUtc,
-    int? VersionNumber);
+    int? VersionNumber,
+    bool HasAttachments);
 
 public sealed record LocalComparisonSnapshot(
     Dictionary<string, LocalPageSnapshot> PagesById,

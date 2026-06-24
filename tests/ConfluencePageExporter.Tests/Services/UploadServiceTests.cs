@@ -293,6 +293,36 @@ public class UploadServiceTests
     }
 
     [Fact]
+    public async Task UploadUpdateAsync_ShouldSyncChangedAttachment_WhenPageBodyUnchanged()
+    {
+        // Regression: an attachment-only change (e.g. a re-saved draw.io diagram)
+        // must still be uploaded even though the page body/title/parent match the
+        // server — previously the "unchanged" early-return skipped attachments.
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(
+            temp.RootPath,
+            "Root",
+            "<p>content</p>",
+            textAttachments: [("diagram", "new diagram bytes")]);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>content</p>");
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        // fileSize differs from the local file, so the change is detected without a download.
+        api.Setup(x => x.GetAttachmentsAsync("100")).ReturnsAsync(
+            [ApiClientMockFactory.CreateAttachment("ATT-1", "diagram", fileSize: 3, mediaType: "application/vnd.jgraph.mxfile")]);
+        api.Setup(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.Is<string>(p => p.EndsWith("diagram")), "diagram", "application/vnd.jgraph.mxfile")).ReturnsAsync(true);
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadUpdateAsync("SPACE", sourceDir, "100", null, recursive: false);
+
+        api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<int?>()), Times.Never);
+        api.Verify(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.IsAny<string>(), "diagram", "application/vnd.jgraph.mxfile"), Times.Once);
+    }
+
+    [Fact]
     public async Task UploadUpdateAsync_ShouldSkipUnchangedAttachment()
     {
         var localContent = "same data";
@@ -572,6 +602,37 @@ public class UploadServiceTests
 
         api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<int?>()), Times.Never);
         report.SkippedPages.Count().ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task UploadMergeAsync_ShouldSyncChangedAttachment_WhenPageBodyUnchanged()
+    {
+        // Symmetric to the update-path regression: with the page body unchanged,
+        // merge must still push a changed attachment instead of returning early.
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(
+            temp.RootPath,
+            "Root",
+            "<p>same</p>",
+            pageId: "100",
+            textAttachments: [("diagram", "new diagram bytes")],
+            version: 2);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>same</p>", versionNumber: 2);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetAttachmentsAsync("100")).ReturnsAsync(
+            [ApiClientMockFactory.CreateAttachment("ATT-1", "diagram", fileSize: 3, mediaType: "application/vnd.jgraph.mxfile")]);
+        api.Setup(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.Is<string>(p => p.EndsWith("diagram")), "diagram", "application/vnd.jgraph.mxfile")).ReturnsAsync(true);
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<int?>()), Times.Never);
+        api.Verify(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.IsAny<string>(), "diagram", "application/vnd.jgraph.mxfile"), Times.Once);
     }
 
     [Fact]

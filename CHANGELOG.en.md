@@ -6,6 +6,22 @@ All notable changes to the Confluence Page Exporter tool are documented in this 
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+
+- `compare` now detects attachment changes (by file name and size, without
+  downloading) and prints an "Attachments changed" section: attachments whose
+  size differs, or that exist only locally or only on the server. A same-size
+  in-place edit is not detected — that is the cost of the download-free mode.
+
+### Fixed
+
+- `upload merge` and `upload update` no longer skip attachment changes when the
+  page body itself is unchanged. Previously, with the page unchanged, attachment
+  sync was not performed and an attachment-only edit (e.g. a draw.io diagram's
+  source) was silently never uploaded.
+
 ## [2.13.1] — 2026-06-24
 
 ### Fixed

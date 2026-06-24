@@ -181,6 +181,8 @@ public class CompareService
                     });
                 }
             }
+
+            await CompareAttachmentsAsync(remote, localDir, report, ct);
         }
 
         foreach (var local in localSnapshot.PagesById.Values.OrderBy(p => p.RelativePath, StringComparer.OrdinalIgnoreCase))
@@ -201,6 +203,62 @@ public class CompareService
         return report;
     }
 
+    /// <summary>
+    /// Cheap attachment comparison for one matched page: by file name presence
+    /// and byte size only (no content download). Flags attachments present on
+    /// just one side, or present on both with a differing size. A same-size
+    /// in-place edit is intentionally NOT detected — that is the cost of staying
+    /// download-free. Server attachment titles are sanitised the same way the
+    /// download path names local files, so special characters don't produce
+    /// false only-local/only-remote pairs. The server list is fetched only when
+    /// there is something to compare (local attachment files exist, or the
+    /// server reports the page has attachments).
+    /// </summary>
+    private async Task CompareAttachmentsAsync(
+        RemotePageSnapshot remote, string localDir, CompareReport report, CancellationToken ct)
+    {
+        var localFiles = LocalStorageHelper.GetAttachmentFiles(localDir).ToList();
+        if (localFiles.Count == 0 && !remote.HasAttachments)
+            return;
+
+        var serverAttachments = await _apiClient.GetAttachmentsAsync(remote.PageId, ct);
+
+        var localSizesByName = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in localFiles)
+            localSizesByName[Path.GetFileName(file)] = new FileInfo(file).Length;
+
+        var diffs = new List<CompareAttachmentDiff>();
+        var serverNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var attachment in serverAttachments)
+        {
+            var localName = LocalStorageHelper.SanitizeFileName(attachment.Title);
+            serverNames.Add(localName);
+
+            if (!localSizesByName.TryGetValue(localName, out var localSize))
+                diffs.Add(new CompareAttachmentDiff(attachment.Title, AttachmentDiffKind.OnlyRemote));
+            else if (attachment.Extensions?.FileSize is long serverSize && localSize != serverSize)
+                diffs.Add(new CompareAttachmentDiff(attachment.Title, AttachmentDiffKind.SizeDiffers));
+        }
+
+        foreach (var name in localSizesByName.Keys)
+        {
+            if (!serverNames.Contains(name))
+                diffs.Add(new CompareAttachmentDiff(name, AttachmentDiffKind.OnlyLocal));
+        }
+
+        if (diffs.Count == 0)
+            return;
+
+        report.AttachmentsChanged.Add(new CompareAttachmentsChangedPageInfo
+        {
+            PageId = remote.PageId,
+            Title = remote.Title,
+            Path = remote.RelativePath,
+            Differences = diffs
+        });
+    }
+
     private async Task CollectRemotePagesAsync(
         PageData page,
         string relativePath,
@@ -214,7 +272,8 @@ public class CompareService
             relativePath,
             page.Body.Storage.Value,
             page.Version?.When?.ToUniversalTime(),
-            page.Version?.Number);
+            page.Version?.Number,
+            page.ChildTypes?.HasAttachments ?? false);
 
         if (!recursive)
             return;
