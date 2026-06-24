@@ -752,7 +752,10 @@ public class UploadService
                         return;
                     }
 
-                    var updated = await _apiClient.UpdateAttachmentDataAsync(pageId, existing.Id, file, fileName, ct);
+                    // Preserve the attachment's stored media type so Confluence
+                    // does not re-infer it from the (possibly absent) filename
+                    // extension and drop the update — see UpdateAttachmentDataAsync.
+                    var updated = await _apiClient.UpdateAttachmentDataAsync(pageId, existing.Id, file, fileName, existing.EffectiveMediaType, ct);
                     if (updated)
                         _logger.LogInformation("Updated attachment '{FileName}' (new version) on page {PageId}", fileName, pageId);
                 }

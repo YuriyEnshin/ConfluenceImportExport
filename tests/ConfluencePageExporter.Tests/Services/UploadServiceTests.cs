@@ -246,16 +246,49 @@ public class UploadServiceTests
         api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
         api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>content</p>", null, It.IsAny<int?>())).ReturnsAsync(new PageUpdateResult("100", 2));
         api.Setup(x => x.GetAttachmentsAsync("100")).ReturnsAsync(
-            [ApiClientMockFactory.CreateAttachment("ATT-1", "file.txt", fileSize: oldRemoteContent.Length)]);
+            [ApiClientMockFactory.CreateAttachment("ATT-1", "file.txt", fileSize: oldRemoteContent.Length, mediaType: "text/plain")]);
         api.Setup(x => x.DownloadAttachmentAsync(It.IsAny<string>())).ReturnsAsync(oldRemoteContent);
-        api.Setup(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.Is<string>(p => p.EndsWith("file.txt")), "file.txt")).ReturnsAsync(true);
+        api.Setup(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.Is<string>(p => p.EndsWith("file.txt")), "file.txt", "text/plain")).ReturnsAsync(true);
 
         var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, "100", null, recursive: false);
 
-        api.Verify(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.IsAny<string>(), "file.txt"), Times.Once);
+        // The stored server media type is threaded through so Confluence keeps it
+        // instead of re-inferring from the extension (the extensionless-twin bug).
+        api.Verify(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.IsAny<string>(), "file.txt", "text/plain"), Times.Once);
         api.Verify(x => x.DeleteAttachmentAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        api.Verify(x => x.UploadAttachmentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UploadUpdateAsync_ShouldUpdateExtensionlessAttachment_PreservingStoredMediaType()
+    {
+        // Regression: a draw.io diagram's source twin has no file extension. The
+        // stored server media type must be sent on update, otherwise Confluence
+        // re-infers it from the (missing) extension and refuses the data update —
+        // leaving the source a version behind its updated .png preview.
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(
+            temp.RootPath,
+            "Root",
+            "<p>content</p>",
+            textAttachments: [("diagram", "new diagram bytes")]);
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>content</p>", null, It.IsAny<int?>())).ReturnsAsync(new PageUpdateResult("100", 2));
+        // fileSize differs from the local file, so the change is detected without a download.
+        api.Setup(x => x.GetAttachmentsAsync("100")).ReturnsAsync(
+            [ApiClientMockFactory.CreateAttachment("ATT-1", "diagram", fileSize: 3, mediaType: "application/vnd.jgraph.mxfile")]);
+        api.Setup(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.Is<string>(p => p.EndsWith("diagram")), "diagram", "application/vnd.jgraph.mxfile")).ReturnsAsync(true);
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadUpdateAsync("SPACE", sourceDir, "100", null, recursive: false);
+
+        api.Verify(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.IsAny<string>(), "diagram", "application/vnd.jgraph.mxfile"), Times.Once);
         api.Verify(x => x.UploadAttachmentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
@@ -284,7 +317,7 @@ public class UploadServiceTests
 
         await service.UploadUpdateAsync("SPACE", sourceDir, "100", null, recursive: false);
 
-        api.Verify(x => x.UpdateAttachmentDataAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        api.Verify(x => x.UpdateAttachmentDataAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         api.Verify(x => x.UploadAttachmentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         api.Verify(x => x.DeleteAttachmentAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
@@ -329,13 +362,13 @@ public class UploadServiceTests
         api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>content</p>", null, It.IsAny<int?>())).ReturnsAsync(new PageUpdateResult("100", 2));
         api.Setup(x => x.GetAttachmentsAsync("100")).ReturnsAsync(
             [ApiClientMockFactory.CreateAttachment("ATT-1", "file.txt", fileSize: 5)]);
-        api.Setup(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.Is<string>(p => p.EndsWith("file.txt")), "file.txt")).ReturnsAsync(true);
+        api.Setup(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.Is<string>(p => p.EndsWith("file.txt")), "file.txt", It.IsAny<string>())).ReturnsAsync(true);
 
         var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
 
         await service.UploadUpdateAsync("SPACE", sourceDir, "100", null, recursive: false);
 
-        api.Verify(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.IsAny<string>(), "file.txt"), Times.Once);
+        api.Verify(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.IsAny<string>(), "file.txt", It.IsAny<string>()), Times.Once);
         api.Verify(x => x.DownloadAttachmentAsync(It.IsAny<string>()), Times.Never);
     }
 

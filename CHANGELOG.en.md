@@ -6,6 +6,18 @@ All notable changes to the Confluence Page Exporter tool are documented in this 
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Updating an extensionless attachment (e.g. a diagrams.net/draw.io source — the
+  "twin" next to its `.png` preview) is no longer skipped on `upload`. The tool
+  now explicitly sends the attachment's server media type, so Confluence does not
+  re-infer it from the (missing) extension and reject the new version —
+  previously the `.png` preview updated while its extensionless source stayed a
+  version behind. New attachments get their type from the extension, falling back
+  to `application/octet-stream`.
+
 ## [2.13.0] — 2026-06-10
 
 ### Fixed

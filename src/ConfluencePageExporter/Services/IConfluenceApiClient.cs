@@ -45,7 +45,18 @@ public interface IConfluenceApiClient
     /// </summary>
     Task<PageUpdateResult> UpdatePageAsync(string pageId, string title, string content, string? parentId, int? knownVersion = null, CancellationToken ct = default);
     Task<bool> UploadAttachmentAsync(string pageId, string filePath, string fileName, CancellationToken ct = default);
-    Task<bool> UpdateAttachmentDataAsync(string pageId, string attachmentId, string filePath, string fileName, CancellationToken ct = default);
+
+    /// <summary>
+    /// Uploads new binary data for an existing attachment (a new version).
+    /// <paramref name="contentType"/> is the attachment's stored server media
+    /// type: it is sent as the multipart part's Content-Type so Confluence keeps
+    /// the type instead of re-inferring it from the filename extension. This is
+    /// essential for extensionless attachments (e.g. a draw.io diagram's source
+    /// twin) — Confluence refuses to change an attachment's media type on a data
+    /// update, so a mis-inferred type silently drops the update. When null the
+    /// type is derived from the extension, falling back to application/octet-stream.
+    /// </summary>
+    Task<bool> UpdateAttachmentDataAsync(string pageId, string attachmentId, string filePath, string fileName, string? contentType = null, CancellationToken ct = default);
     Task<bool> DeleteAttachmentAsync(string pageId, string attachmentId, CancellationToken ct = default);
     Task<byte[]> DownloadAttachmentAsync(string downloadUrl, CancellationToken ct = default);
     Task<List<PageVersionSummary>> GetPageVersionsAsync(string pageId, int limit = 10, CancellationToken ct = default);
