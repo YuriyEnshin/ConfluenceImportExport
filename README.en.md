@@ -1,4 +1,4 @@
-# Confluence Page Sync v2.14.0
+# Confluence Page Sync v2.15.0
 
 [Русский](README.md) | **English**
 
