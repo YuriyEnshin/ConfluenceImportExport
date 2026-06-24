@@ -6,6 +6,24 @@ All notable changes to the Confluence Page Exporter tool are documented in this 
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- An attachment whose server name contains characters that are invalid in a
+  local file name (e.g. `:`) is no longer duplicated on upload, nor renamed on
+  the server. The tool now records the full server attachment name in the `.id`
+  marker and matches/uploads by it — macro references (e.g. draw.io) stay valid.
+  Previously the file was stored locally under a sanitised name and upload, using
+  that name, failed to find the original and created a duplicate.
+
+### Changed
+
+- The page `.id` marker now also stores a per-attachment baseline (full server
+  name, version, hash, size). The format is backward compatible: old markers are
+  read as-is and the field is added on the next sync. This is groundwork for
+  upcoming two-sided attachment change detection.
+
 ## [2.14.0] — 2026-06-24
 
 ### Added

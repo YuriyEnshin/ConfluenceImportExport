@@ -58,7 +58,8 @@ public static class ApiClientMockFactory
         string title,
         string downloadUrl = "/download/mock",
         long? fileSize = null,
-        string? mediaType = null)
+        string? mediaType = null,
+        int? version = null)
     {
         return new AttachmentData
         {
@@ -67,6 +68,7 @@ public static class ApiClientMockFactory
             Extensions = (fileSize.HasValue || mediaType != null)
                 ? new AttachmentExtensions { FileSize = fileSize, MediaType = mediaType }
                 : null,
+            Version = version.HasValue ? new VersionInfo { Number = version.Value } : null,
             Links = new AttachmentLinks
             {
                 DownloadUrl = downloadUrl

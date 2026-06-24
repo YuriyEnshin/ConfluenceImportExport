@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.Extensions.Logging;
+using ConfluencePageExporter.Models;
 
 namespace ConfluencePageExporter.Services;
 
@@ -69,6 +70,45 @@ public static class LocalStorageHelper
                 return !name.Equals("index.html", StringComparison.OrdinalIgnoreCase)
                     && !name.StartsWith(".id");
             });
+    }
+
+    /// <summary>
+    /// Builds the post-sync <see cref="AttachmentBaseline"/> for a local
+    /// attachment file (the file must already reflect the synced state). The raw
+    /// SHA-256 is reused from <paramref name="prior"/> when the server version and
+    /// byte size are unchanged, so an unchanged attachment is not re-hashed on
+    /// every sync. Returns null when the file does not exist (e.g. a failed
+    /// download), so no baseline is stamped for it.
+    /// </summary>
+    public static async Task<AttachmentBaseline?> BuildAttachmentBaselineAsync(
+        string filePath,
+        string? serverName,
+        int? serverVersion,
+        IReadOnlyDictionary<string, AttachmentBaseline>? prior,
+        CancellationToken ct = default)
+    {
+        var info = new FileInfo(filePath);
+        if (!info.Exists)
+            return null;
+
+        var size = info.Length;
+        var localName = Path.GetFileName(filePath);
+
+        string? hash;
+        if (prior != null
+            && prior.TryGetValue(localName, out var p)
+            && p.Version == serverVersion
+            && p.Size == size
+            && !string.IsNullOrEmpty(p.Hash))
+        {
+            hash = p.Hash;
+        }
+        else
+        {
+            hash = await AttachmentHasher.ComputeFileHashAsync(filePath, ct);
+        }
+
+        return new AttachmentBaseline(serverName, serverVersion, hash, size);
     }
 
     public static IEnumerable<string> GetPageSubdirectories(string pageDir)

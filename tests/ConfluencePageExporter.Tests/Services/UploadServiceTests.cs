@@ -323,6 +323,42 @@ public class UploadServiceTests
     }
 
     [Fact]
+    public async Task UploadUpdateAsync_ShouldRoundTripServerName_ForSanitizedAttachment()
+    {
+        // Round-trip fix: a server attachment named "diagram:v2" (':' is invalid
+        // in a Windows filename) is stored locally as "diagram_v2". The marker
+        // remembers the real server name, so upload matches the EXISTING server
+        // attachment and keeps its name instead of creating a sanitised duplicate.
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(
+            temp.RootPath,
+            "Root",
+            "<p>content</p>",
+            textAttachments: [("diagram_v2", "new diagram bytes")]);
+
+        await PageMarker.WriteAsync(
+            sourceDir, "100", null, "Root", "SPACE", null, null,
+            new Dictionary<string, AttachmentBaseline> { ["diagram_v2"] = new AttachmentBaseline("diagram:v2", 5, "sha256:old", 3) });
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>content</p>");
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetAttachmentsAsync("100")).ReturnsAsync(
+            [ApiClientMockFactory.CreateAttachment("ATT-1", "diagram:v2", fileSize: 3)]);
+        api.Setup(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.IsAny<string>(), "diagram:v2", It.IsAny<string>())).ReturnsAsync(true);
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadUpdateAsync("SPACE", sourceDir, "100", null, recursive: false);
+
+        // Matched the existing server attachment by its real name and updated it
+        // (sent the real name as the filename) — no sanitised duplicate created.
+        api.Verify(x => x.UpdateAttachmentDataAsync("100", "ATT-1", It.IsAny<string>(), "diagram:v2", It.IsAny<string>()), Times.Once);
+        api.Verify(x => x.UploadAttachmentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
     public async Task UploadUpdateAsync_ShouldSkipUnchangedAttachment()
     {
         var localContent = "same data";

@@ -64,6 +64,37 @@ public class DownloadServiceTests
     }
 
     [Fact]
+    public async Task DownloadUpdateAsync_ShouldStampAttachmentBaseline_InMarker()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+
+        var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var attachments = new List<AttachmentData>
+        {
+            ApiClientMockFactory.CreateAttachment("a1", "file.txt", "/download/file.txt", version: 4)
+        };
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync(attachments);
+        api.Setup(x => x.DownloadAttachmentAsync("/download/file.txt")).ReturnsAsync([1, 2, 3]);
+
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
+
+        await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
+
+        var marker = PageMarker.Load(Path.Combine(outputDir, "Root"));
+        marker.ShouldNotBeNull();
+        marker!.Attachments.ShouldNotBeNull();
+        var baseline = marker.Attachments!["file.txt"];
+        baseline.ServerName.ShouldBe("file.txt");
+        baseline.Version.ShouldBe(4);
+        baseline.Size.ShouldBe(3);
+        baseline.Hash.ShouldNotBeNull();
+    }
+
+    [Fact]
     public async Task DownloadUpdateAsync_ShouldDownloadChildPages_WhenRecursiveEnabled()
     {
         using var temp = new TempDirectoryScope();
