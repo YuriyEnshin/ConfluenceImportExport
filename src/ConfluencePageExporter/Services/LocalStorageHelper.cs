@@ -111,6 +111,29 @@ public static class LocalStorageHelper
         return new AttachmentBaseline(serverName, serverVersion, hash, size);
     }
 
+    /// <summary>
+    /// Whether the local attachment file differs from the marker
+    /// <paramref name="baseline"/> (the local side of attachment change
+    /// detection): true/false, or null when undeterminable (no baseline hash, or
+    /// the file is missing). Uses a byte-size fast path before hashing.
+    /// </summary>
+    public static async Task<bool?> HasAttachmentChangedLocallyAsync(
+        string filePath, AttachmentBaseline? baseline, CancellationToken ct = default)
+    {
+        if (baseline == null || string.IsNullOrEmpty(baseline.Hash))
+            return null;
+
+        var info = new FileInfo(filePath);
+        if (!info.Exists)
+            return null;
+
+        if (baseline.Size is long size && info.Length != size)
+            return true;
+
+        var hash = await AttachmentHasher.ComputeFileHashAsync(filePath, ct);
+        return !string.Equals(hash, baseline.Hash, StringComparison.Ordinal);
+    }
+
     public static IEnumerable<string> GetPageSubdirectories(string pageDir)
     {
         return Directory.Exists(pageDir) ? Directory.GetDirectories(pageDir) : [];

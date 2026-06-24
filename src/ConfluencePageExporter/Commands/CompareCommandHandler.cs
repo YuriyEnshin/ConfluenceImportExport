@@ -141,6 +141,9 @@ public sealed class CompareCommandHandler : ICommandHandler
     {
         AttachmentDiffKind.OnlyLocal => $"+ {diff.FileName} (только локально)",
         AttachmentDiffKind.OnlyRemote => $"- {diff.FileName} (только на сервере)",
+        AttachmentDiffKind.ChangedLocal => $"* {diff.FileName} (изменено локально)",
+        AttachmentDiffKind.ChangedServer => $"* {diff.FileName} (изменено на сервере)",
+        AttachmentDiffKind.ChangedBoth => $"!! {diff.FileName} (конфликт: изменено с обеих сторон)",
         AttachmentDiffKind.SizeDiffers => $"* {diff.FileName} (размер отличается)",
         _ => diff.FileName
     };

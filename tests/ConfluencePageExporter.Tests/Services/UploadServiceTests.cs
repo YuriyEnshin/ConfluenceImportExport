@@ -672,6 +672,39 @@ public class UploadServiceTests
     }
 
     [Fact]
+    public async Task UploadMergeAsync_ShouldNotClobberServerChangedAttachment()
+    {
+        // Scenario B core fix: the attachment changed on the SERVER (version
+        // bumped) while local stayed at the baseline. upload merge must NOT
+        // overwrite the server copy — it skips and reports.
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(
+            temp.RootPath, "Root", "<p>same</p>", pageId: "100",
+            textAttachments: [("diagram", "OLD")], version: 5);
+
+        // Baseline: local matches the baseline bytes ("OLD"), server was at v5.
+        var localHash = AttachmentHasher.ComputeHash(System.Text.Encoding.UTF8.GetBytes("OLD"));
+        await PageMarker.WriteAsync(sourceDir, "100", 5, "Root", "SPACE", null, null,
+            new Dictionary<string, AttachmentBaseline> { ["diagram"] = new AttachmentBaseline("diagram", 5, localHash, 3) });
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>same</p>", versionNumber: 5);
+        var att = ApiClientMockFactory.CreateAttachment("a1", "diagram", fileSize: 3, version: 6); // server bumped to v6
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetAttachmentsAsync("100")).ReturnsAsync([att]);
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        api.Verify(x => x.UpdateAttachmentDataAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        api.Verify(x => x.UploadAttachmentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        report.SkippedPages.Count().ShouldBe(1);
+    }
+
+    [Fact]
     public async Task UploadMergeAsync_ShouldMoveRootPage_WhenParentMarkerDiffersAndContentUnchanged()
     {
         // Локальный сценарий: пользователь перенёс папку Subpage4 под NewParent (P2).

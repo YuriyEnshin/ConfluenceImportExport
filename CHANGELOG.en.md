@@ -6,6 +6,27 @@ All notable changes to the Confluence Page Exporter tool are documented in this 
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+
+- Attachment change-source detection in merge. The tool determines which side
+  changed an attachment (from the server version and the local raw-bytes hash, no
+  download) and protects both sides: `upload merge` won't overwrite an attachment
+  changed on the server; `download merge` won't clobber an attachment changed
+  locally; changes on both sides are flagged as a conflict. Skips and conflicts go
+  to the sync report. Previously an attachment moved in the command's direction and
+  could silently overwrite the other side's change.
+- `compare` shows the change source of each attachment: changed locally, changed
+  on the server, or conflict (still download-free). Without a baseline yet, it
+  falls back to the previous size comparison.
+
+### Changed
+
+- The force commands (`upload update` / `download update`) still overwrite an
+  attachment changed on the opposite side (force means force), but now print a
+  warning.
+
 ## [2.15.0] — 2026-06-24
 
 ### Fixed

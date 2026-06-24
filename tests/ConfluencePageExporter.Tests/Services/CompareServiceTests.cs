@@ -207,6 +207,47 @@ public class CompareServiceTests
     }
 
     [Fact]
+    public async Task CompareAsync_ShouldReportAttachmentOrigin_FromBaseline()
+    {
+        // With a marker baseline, compare classifies the change source per
+        // attachment (still download-free): local / server / conflict.
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var rootDir = LocalPageTreeBuilder.CreatePage(
+            outputDir, "Root", "<p>root</p>", "1",
+            textAttachments: [("loc", "LOCAL EDIT"), ("srv", "OLD"), ("cfl", "LOCAL EDIT")]);
+
+        var oldHash = AttachmentHasher.ComputeHash(System.Text.Encoding.UTF8.GetBytes("OLD"));
+        await PageMarker.WriteAsync(rootDir, "1", 5, "Root", "SPACE", null, null, new Dictionary<string, AttachmentBaseline>
+        {
+            ["loc"] = new AttachmentBaseline("loc", 5, oldHash, 3), // local changed (≠OLD), server v5 → Local
+            ["srv"] = new AttachmentBaseline("srv", 5, oldHash, 3), // local == OLD, server v6 → Server
+            ["cfl"] = new AttachmentBaseline("cfl", 5, oldHash, 3), // local changed + server v6 → Conflict
+        });
+
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", hasAttachments: true);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+        api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([]);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync(
+        [
+            ApiClientMockFactory.CreateAttachment("a-loc", "loc", version: 5),
+            ApiClientMockFactory.CreateAttachment("a-srv", "srv", version: 6),
+            ApiClientMockFactory.CreateAttachment("a-cfl", "cfl", version: 6),
+        ]);
+
+        var service = CreateService(api);
+
+        var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
+
+        var page = report.AttachmentsChanged.ShouldHaveSingleItem();
+        page.Differences.Count.ShouldBe(3);
+        page.Differences.ShouldContain(d => d.FileName == "loc" && d.Kind == AttachmentDiffKind.ChangedLocal);
+        page.Differences.ShouldContain(d => d.FileName == "srv" && d.Kind == AttachmentDiffKind.ChangedServer);
+        page.Differences.ShouldContain(d => d.FileName == "cfl" && d.Kind == AttachmentDiffKind.ChangedBoth);
+    }
+
+    [Fact]
     public async Task CompareAsync_ShouldNotReportContentChanged_WhenOnlyLineEndingsDiffer()
     {
         using var temp = new TempDirectoryScope();

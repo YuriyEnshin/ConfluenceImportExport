@@ -98,7 +98,7 @@ public class DownloadService
         if (page.ChildTypes?.HasAttachments ?? true)
         {
             var attachments = await _apiClient.GetAttachmentsAsync(page.Id, ct);
-            attachmentBaselines = await SaveAttachments(attachments, pageDir, ct);
+            attachmentBaselines = await SaveAttachments(attachments, pageDir, page.Id, page.Title, mergeMode: false, report, ct);
         }
 
         await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, page.Body.Storage.Value, attachmentBaselines, ct);
@@ -135,7 +135,7 @@ public class DownloadService
         if (page.ChildTypes?.HasAttachments ?? true)
         {
             var attachments = await _apiClient.GetAttachmentsAsync(page.Id, ct);
-            attachmentBaselines = await SaveAttachments(attachments, pageDir, ct);
+            attachmentBaselines = await SaveAttachments(attachments, pageDir, page.Id, page.Title, mergeMode: true, report, ct);
         }
 
         if (localContent == null)
@@ -314,13 +314,17 @@ public class DownloadService
     }
 
     /// <summary>
-    /// Mirrors each server attachment to the local directory and returns the
-    /// post-sync baseline map (sanitised local name → version/hash/size + the
-    /// full server name) for stamping into the marker. Server attachments are the
-    /// authority here (download direction); per-attachment source/conflict
-    /// detection is a later phase.
+    /// Mirrors server attachments to the local directory and returns the post-sync
+    /// baseline map for stamping into the marker. With a baseline,
+    /// <see cref="AttachmentChangeAnalyzer"/> decides the source: in
+    /// <paramref name="mergeMode"/> a locally-changed attachment (or a two-sided
+    /// conflict) is left untouched and reported instead of being overwritten by
+    /// the server copy; in force mode the server always wins (a local change is
+    /// overwritten with a warning). Without a baseline it falls back to the cheap
+    /// size/content check.
     /// </summary>
-    private async Task<IReadOnlyDictionary<string, AttachmentBaseline>> SaveAttachments(List<AttachmentData> attachments, string pageDir, CancellationToken ct)
+    private async Task<IReadOnlyDictionary<string, AttachmentBaseline>> SaveAttachments(
+        List<AttachmentData> attachments, string pageDir, string pageId, string pageTitle, bool mergeMode, SyncReport report, CancellationToken ct)
     {
         var priorBaselines = PageMarker.Load(pageDir)?.Attachments;
         var baselines = new ConcurrentDictionary<string, AttachmentBaseline>(StringComparer.OrdinalIgnoreCase);
@@ -332,6 +336,7 @@ public class DownloadService
             {
                 var localName = LocalStorageHelper.SanitizeFileName(att.Title);
                 var filePath = Path.Combine(pageDir, localName);
+                var prior = priorBaselines != null && priorBaselines.TryGetValue(localName, out var p) ? p : null;
 
                 try
                 {
@@ -341,21 +346,53 @@ public class DownloadService
                         return;
                     }
 
-                    if (IsLocalFileSizeMatch(filePath, att))
+                    // A missing local file is treated as "server-side" (just pull it).
+                    var verdict = File.Exists(filePath)
+                        ? AttachmentChangeAnalyzer.Analyze(prior, att.Version?.Number, await LocalStorageHelper.HasAttachmentChangedLocallyAsync(filePath, prior, ct))
+                        : AttachmentChangeOrigin.Server;
+
+                    // merge: protect a locally-changed attachment from the server copy.
+                    if (mergeMode && verdict is AttachmentChangeOrigin.Local or AttachmentChangeOrigin.Conflict)
                     {
-                        _logger.LogDebug(
-                            "Attachment '{Title}' is up to date (size: {Size}), skipping download",
-                            att.Title, att.Extensions!.FileSize);
+                        if (verdict == AttachmentChangeOrigin.Local)
+                        {
+                            _logger.LogInformation("Attachment '{Title}' is newer locally; skipping download", att.Title);
+                            report.AddSkipped(pageId, $"{pageTitle} → {att.Title}",
+                                "вложение новее локально — скачивание пропущено; выполните 'upload merge'");
+                        }
+                        else
+                        {
+                            _logger.LogWarning("CONFLICT: attachment '{Title}' changed on both sides; skipping download", att.Title);
+                            report.AddConflict(pageId, $"{pageTitle} → {att.Title}",
+                                "вложение изменено и локально, и на сервере — скачивание пропущено; разрешите вручную ('upload merge' или повторная правка)");
+                        }
+                        if (prior != null)
+                            baselines[localName] = prior; // keep prior baseline so the change is re-detected
+                        return;
+                    }
+
+                    if (!mergeMode && verdict is AttachmentChangeOrigin.Local or AttachmentChangeOrigin.Conflict)
+                        _logger.LogWarning("force: overwriting a local change of attachment '{Title}'", att.Title);
+
+                    if (verdict == AttachmentChangeOrigin.Unchanged)
+                    {
+                        _logger.LogDebug("Attachment '{Title}' is unchanged, skipping download", att.Title);
+                    }
+                    else if (verdict == AttachmentChangeOrigin.Unknown && IsLocalFileSizeMatch(filePath, att))
+                    {
+                        // No baseline and same size — keep the cheap legacy skip.
+                        _logger.LogDebug("Attachment '{Title}' is up to date (size: {Size}), skipping download", att.Title, att.Extensions!.FileSize);
                     }
                     else
                     {
+                        // Server is authoritative here (server-changed, force-overwrite,
+                        // missing locally, or unknown-with-differing-size): download and
+                        // write unless the bytes already match (avoids a needless rewrite).
                         var fileContent = await _apiClient.DownloadAttachmentAsync(att.Links.DownloadUrl, ct);
-
                         if (await IsLocalContentMatchAsync(filePath, fileContent, ct))
                         {
                             _logger.LogDebug(
-                                "Attachment '{Title}' content is unchanged after download (API fileSize mismatch: {ApiSize} vs actual {ActualSize}), skipping rewrite",
-                                att.Title, att.Extensions?.FileSize, fileContent.Length);
+                                "Attachment '{Title}' content already matches the server, skipping rewrite", att.Title);
                         }
                         else
                         {
