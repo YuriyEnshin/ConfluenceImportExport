@@ -77,9 +77,9 @@ public class UploadService
             $"страница '{rootServer.Title}' (ID {rootPageId})");
 
         var moveToParentId = await DetectRootPageMoveAsync(rootServer, sourceDir, treeSpace, report, ct);
-        var (result, effectiveTitle) = await UpdatePageContentAndAttachments(treeSpace, rootPageId, sourceDir, report, moveToParentId, ct);
+        var (result, effectiveTitle, attachmentBaselines) = await UpdatePageContentAndAttachments(treeSpace, rootPageId, sourceDir, report, moveToParentId, ct);
         if (result != null)
-            await UpdatePageIdMarker(sourceDir, result.Id, result.VersionNumber, effectiveTitle, treeSpace, ct);
+            await UpdatePageIdMarker(sourceDir, result.Id, result.VersionNumber, effectiveTitle, treeSpace, attachmentBaselines, ct);
 
         if (recursive)
         {
@@ -171,9 +171,9 @@ public class UploadService
                         $"родитель (ID {resolvedParentId})");
             }
 
-            var (createResult, effectiveTitle) = await CreatePageFromDirectory(treeSpace, sourceDir, resolvedParentId, ct);
+            var (createResult, effectiveTitle, attachmentBaselines) = await CreatePageFromDirectory(treeSpace, sourceDir, resolvedParentId, ct);
             if (createResult == null) return;
-            await UpdatePageIdMarker(sourceDir, createResult.Id, createResult.VersionNumber, effectiveTitle, treeSpace, ct);
+            await UpdatePageIdMarker(sourceDir, createResult.Id, createResult.VersionNumber, effectiveTitle, treeSpace, attachmentBaselines, ct);
 
             if (recursive)
             {
@@ -438,9 +438,9 @@ public class UploadService
             return;
         }
 
-        var (updateResult, effectiveTitle) = await UpdatePageContentAndAttachments(spaceKey, resolution.PageId, childDir, report, resolution.MoveToParentId, ct);
+        var (updateResult, effectiveTitle, attachmentBaselines) = await UpdatePageContentAndAttachments(spaceKey, resolution.PageId, childDir, report, resolution.MoveToParentId, ct);
         if (updateResult != null)
-            await UpdatePageIdMarker(childDir, updateResult.Id, updateResult.VersionNumber, effectiveTitle, spaceKey, ct);
+            await UpdatePageIdMarker(childDir, updateResult.Id, updateResult.VersionNumber, effectiveTitle, spaceKey, attachmentBaselines, ct);
 
         await ProcessChildrenAsync(childDir, ct,
             grandchildDir => ProcessChildForUpdate(spaceKey, grandchildDir, resolution.PageId, report, ct));
@@ -497,8 +497,8 @@ public class UploadService
             // attachment changed). Sync them anyway — otherwise an
             // attachment-only edit is silently never uploaded.
             _logger.LogDebug("Page {PageId} '{Title}' body is unchanged; checking attachments only", pageId, title);
-            await UploadPageAttachments(pageId, pageDir, ct);
-            await UpdatePageIdMarker(pageDir, pageId, serverPage.Version?.Number, title, spaceKey, ct);
+            var unchangedBaselines = await UploadPageAttachments(pageId, pageDir, ct);
+            await UpdatePageIdMarker(pageDir, pageId, serverPage.Version?.Number, title, spaceKey, unchangedBaselines, ct);
             return;
         }
 
@@ -515,8 +515,8 @@ public class UploadService
             try
             {
                 var moveResult = await _apiClient.UpdatePageAsync(pageId, serverPage.Title, serverPage.Body.Storage.Value, moveToParentId, serverPage.Version?.Number, ct);
-                await UpdatePageIdMarker(pageDir, moveResult.Id, moveResult.VersionNumber, serverPage.Title, spaceKey, ct);
-                await UploadPageAttachments(pageId, pageDir, ct);
+                var moveBaselines = await UploadPageAttachments(pageId, pageDir, ct);
+                await UpdatePageIdMarker(pageDir, moveResult.Id, moveResult.VersionNumber, serverPage.Title, spaceKey, moveBaselines, ct);
             }
             catch (ConfluenceApiException ex)
             {
@@ -540,8 +540,8 @@ public class UploadService
                 try
                 {
                     var result = await _apiClient.UpdatePageAsync(pageId, title, localContent, moveToParentId, serverPage.Version?.Number, ct);
-                    await UpdatePageIdMarker(pageDir, result.Id, result.VersionNumber, title, spaceKey, ct);
-                    await UploadPageAttachments(pageId, pageDir, ct);
+                    var localBaselines = await UploadPageAttachments(pageId, pageDir, ct);
+                    await UpdatePageIdMarker(pageDir, result.Id, result.VersionNumber, title, spaceKey, localBaselines, ct);
                 }
                 catch (ConfluenceApiException ex)
                 {
@@ -610,15 +610,15 @@ public class UploadService
 
     private async Task ProcessChildForCreate(string spaceKey, string childDir, string? parentPageId, CancellationToken ct)
     {
-        var (createResult, effectiveTitle) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId, ct);
+        var (createResult, effectiveTitle, attachmentBaselines) = await CreatePageFromDirectory(spaceKey, childDir, parentPageId, ct);
         if (createResult == null) return;
-        await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle, spaceKey, ct);
+        await UpdatePageIdMarker(childDir, createResult.Id, createResult.VersionNumber, effectiveTitle, spaceKey, attachmentBaselines, ct);
 
         await ProcessChildrenAsync(childDir, ct,
             grandchildDir => ProcessChildForCreate(spaceKey, grandchildDir, createResult.Id, ct));
     }
 
-    private async Task<(PageUpdateResult? Result, string? Title)> CreatePageFromDirectory(string spaceKey, string pageDir, string? parentId, CancellationToken ct)
+    private async Task<(PageUpdateResult? Result, string? Title, IReadOnlyDictionary<string, AttachmentBaseline>? Baselines)> CreatePageFromDirectory(string spaceKey, string pageDir, string? parentId, CancellationToken ct)
     {
         var title = LocalStorageHelper.GetPageTitle(pageDir);
         var content = await LocalStorageHelper.ReadPageContent(pageDir, ct);
@@ -627,14 +627,14 @@ public class UploadService
         if (existingId != null)
         {
             _logger.LogError("Cannot create page '{Title}': a page with this title already exists (ID: {ExistingId})", title, existingId);
-            return (null, null);
+            return (null, null, null);
         }
 
         if (_dryRun)
         {
             _logger.LogInformation("DRY RUN: Would create page '{Title}' under parent {ParentId}", title, parentId ?? "(space root)");
             LogDryRunAttachments(pageDir);
-            return (new PageUpdateResult($"dry-run-{title}", 1), title);
+            return (new PageUpdateResult($"dry-run-{title}", 1), title, null);
         }
 
         PageUpdateResult result;
@@ -648,17 +648,17 @@ public class UploadService
             // matching the pre-exception behaviour; auth failures propagate to
             // abort the run.
             _logger.LogError(ex, "Failed to create page '{Title}'", title);
-            return (null, null);
+            return (null, null, null);
         }
 
         _logger.LogInformation("Created page '{Title}' with ID {PageId}", title, result.Id);
-        await UploadPageAttachments(result.Id, pageDir, ct);
-        return (result, title);
+        var baselines = await UploadPageAttachments(result.Id, pageDir, ct);
+        return (result, title, baselines);
     }
 
     // ── shared: page content update ───────────────────────────────────
 
-    private async Task<(PageUpdateResult? Result, string? Title)> UpdatePageContentAndAttachments(
+    private async Task<(PageUpdateResult? Result, string? Title, IReadOnlyDictionary<string, AttachmentBaseline>? Baselines)> UpdatePageContentAndAttachments(
         string spaceKey, string pageId, string pageDir, SyncReport report, string? moveToParentId = null, CancellationToken ct = default)
     {
         var title = LocalStorageHelper.GetPageTitle(pageDir);
@@ -677,7 +677,7 @@ public class UploadService
                     pageId, title, existingByTitle);
 
             LogDryRunAttachments(pageDir);
-            return (null, null);
+            return (null, null, null);
         }
 
         var serverPage = await _apiClient.GetPageByIdAsync(pageId, ct);
@@ -709,8 +709,8 @@ public class UploadService
             _logger.LogInformation(
                 "Page {PageId} '{Title}' body is unchanged (title, content, parent match server); checking attachments only",
                 pageId, title);
-            await UploadPageAttachments(pageId, pageDir, ct);
-            return (new PageUpdateResult(pageId, serverVersion ?? 0), title);
+            var unchangedBaselines = await UploadPageAttachments(pageId, pageDir, ct);
+            return (new PageUpdateResult(pageId, serverVersion ?? 0), title, unchangedBaselines);
         }
 
         _logger.LogDebug("Page {PageId} changes detected: title={TitleChanged}, content={ContentChanged}, parent={ParentChanged}",
@@ -724,58 +724,116 @@ public class UploadService
         catch (ConfluenceApiException ex)
         {
             if (!TryRecordWriteFailure(ex, pageId, title, report)) throw;
-            return (null, null);
+            return (null, null, null);
         }
 
         if (moveToParentId != null)
             _logger.LogInformation("Moved and updated page {PageId} with title '{Title}' to parent {NewParent}", pageId, title, moveToParentId);
         else
             _logger.LogInformation("Updated page {PageId} with title '{Title}'", pageId, title);
-        await UploadPageAttachments(pageId, pageDir, ct);
-        return (result, title);
+        var baselines = await UploadPageAttachments(pageId, pageDir, ct);
+        return (result, title, baselines);
     }
 
     // ── shared: attachments ───────────────────────────────────────────
 
-    private async Task UploadPageAttachments(string pageId, string pageDir, CancellationToken ct)
+    private static readonly IReadOnlyDictionary<string, AttachmentBaseline> EmptyAttachmentBaselines =
+        new Dictionary<string, AttachmentBaseline>();
+
+    /// <summary>
+    /// Pushes local attachment files to the page and returns the post-sync
+    /// baseline map (sanitised local name → server name/version/hash/size) for
+    /// stamping into the marker. The stored server name is used to match the
+    /// existing server attachment and as the multipart filename, so a sanitised
+    /// local file round-trips to the exact server attachment and keeps its name
+    /// (no rename → draw.io macro references stay valid). Per-attachment
+    /// source/conflict detection is a later phase; here local is the authority.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, AttachmentBaseline>> UploadPageAttachments(string pageId, string pageDir, CancellationToken ct)
     {
         var files = LocalStorageHelper.GetAttachmentFiles(pageDir).ToList();
-        if (files.Count == 0) return;
+        if (files.Count == 0) return EmptyAttachmentBaselines;
 
+        var priorBaselines = PageMarker.Load(pageDir)?.Attachments;
         var existingAttachments = await _apiClient.GetAttachmentsAsync(pageId, ct);
+        var wrote = 0;
 
         await Parallel.ForEachAsync(
             files,
             new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
             async (file, _) =>
             {
-                var fileName = Path.GetFileName(file);
+                var localName = Path.GetFileName(file);
+
+                // Round-trip the exact server name via the stored baseline: a
+                // sanitised local file maps back to its server attachment, so the
+                // match succeeds and the upload keeps the server's name instead of
+                // renaming it to the sanitised form. New local-only files (no
+                // baseline) fall back to their own name.
+                var serverName = priorBaselines != null
+                    && priorBaselines.TryGetValue(localName, out var prior)
+                    && !string.IsNullOrEmpty(prior.ServerName)
+                        ? prior.ServerName!
+                        : localName;
+
                 var existing = existingAttachments.FirstOrDefault(
-                    a => a.Title.Equals(fileName, StringComparison.OrdinalIgnoreCase));
+                    a => a.Title.Equals(serverName, StringComparison.OrdinalIgnoreCase));
 
                 if (existing != null)
                 {
                     bool changed = await IsAttachmentChangedAsync(file, existing, ct);
                     if (!changed)
                     {
-                        _logger.LogDebug("Attachment '{FileName}' on page {PageId} is unchanged, skipping", fileName, pageId);
+                        _logger.LogDebug("Attachment '{FileName}' on page {PageId} is unchanged, skipping", serverName, pageId);
                         return;
                     }
 
                     // Preserve the attachment's stored media type so Confluence
                     // does not re-infer it from the (possibly absent) filename
                     // extension and drop the update — see UpdateAttachmentDataAsync.
-                    var updated = await _apiClient.UpdateAttachmentDataAsync(pageId, existing.Id, file, fileName, existing.EffectiveMediaType, ct);
+                    var updated = await _apiClient.UpdateAttachmentDataAsync(pageId, existing.Id, file, serverName, existing.EffectiveMediaType, ct);
                     if (updated)
-                        _logger.LogInformation("Updated attachment '{FileName}' (new version) on page {PageId}", fileName, pageId);
+                    {
+                        Interlocked.Exchange(ref wrote, 1);
+                        _logger.LogInformation("Updated attachment '{FileName}' (new version) on page {PageId}", serverName, pageId);
+                    }
                 }
                 else
                 {
-                    var uploaded = await _apiClient.UploadAttachmentAsync(pageId, file, fileName, ct);
+                    var uploaded = await _apiClient.UploadAttachmentAsync(pageId, file, serverName, ct);
                     if (uploaded)
-                        _logger.LogInformation("Uploaded new attachment '{FileName}' to page {PageId}", fileName, pageId);
+                    {
+                        Interlocked.Exchange(ref wrote, 1);
+                        _logger.LogInformation("Uploaded new attachment '{FileName}' to page {PageId}", serverName, pageId);
+                    }
                 }
             });
+
+        // Rebuild the baseline from the authoritative server state — re-fetch only
+        // when something was actually written, so an unchanged upload costs no
+        // extra call. Hashes are reused when version+size are unchanged.
+        var currentServer = wrote == 1 ? await _apiClient.GetAttachmentsAsync(pageId, ct) : existingAttachments;
+        return await BuildAttachmentBaselinesAsync(files, currentServer, priorBaselines, ct);
+    }
+
+    private static async Task<IReadOnlyDictionary<string, AttachmentBaseline>> BuildAttachmentBaselinesAsync(
+        List<string> files, List<AttachmentData> serverAttachments,
+        IReadOnlyDictionary<string, AttachmentBaseline>? prior, CancellationToken ct)
+    {
+        var map = new Dictionary<string, AttachmentBaseline>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in files)
+        {
+            var localName = Path.GetFileName(file);
+            // Associate to the server attachment whose sanitised title equals the
+            // local file name (= how the file was named on disk).
+            var server = serverAttachments.FirstOrDefault(
+                a => LocalStorageHelper.SanitizeFileName(a.Title).Equals(localName, StringComparison.OrdinalIgnoreCase));
+            var baseline = await LocalStorageHelper.BuildAttachmentBaselineAsync(
+                file, server?.Title, server?.Version?.Number, prior, ct);
+            if (baseline != null)
+                map[localName] = baseline;
+        }
+        return map;
     }
 
     private async Task<bool> IsAttachmentChangedAsync(string localFilePath, AttachmentData serverAttachment, CancellationToken ct)
@@ -865,14 +923,14 @@ public class UploadService
             _logger.LogInformation("DRY RUN: Would upload attachment '{FileName}'", Path.GetFileName(file));
     }
 
-    private async Task UpdatePageIdMarker(string pageDir, string pageId, int? version, string? originalTitle = null, string? spaceKey = null, CancellationToken ct = default)
+    private async Task UpdatePageIdMarker(string pageDir, string pageId, int? version, string? originalTitle = null, string? spaceKey = null, IReadOnlyDictionary<string, AttachmentBaseline>? attachments = null, CancellationToken ct = default)
     {
         if (_dryRun) return;
 
         // After a successful upload the local index.html IS the synced baseline
         // (upload never mutates local files) — hash it to stamp the marker.
         var syncedContent = await LocalStorageHelper.ReadLocalPageContentOrNull(pageDir, ct);
-        var written = await PageMarker.UpdateAsync(pageDir, pageId, version, originalTitle, spaceKey, syncedContent, _hasher, ct);
+        var written = await PageMarker.UpdateAsync(pageDir, pageId, version, originalTitle, spaceKey, syncedContent, _hasher, attachments, ct);
         if (written)
             _logger.LogInformation("Saved page ID marker '.id{PageId}_{Version}' in '{PageDir}'", pageId, version, pageDir);
     }

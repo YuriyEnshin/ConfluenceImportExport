@@ -1,3 +1,4 @@
+using ConfluencePageExporter.Models;
 using ConfluencePageExporter.Services;
 using ConfluencePageExporter.Tests.Helpers;
 using Shouldly;
@@ -369,5 +370,107 @@ public class PageMarkerTests
         marker!.Version.ShouldBe(6);
         marker.ContentHash.ShouldBe(storedHash);
         marker.NormalizationEpoch.ShouldBe(hasher.Epoch);
+    }
+
+    // ── attachments baseline (att) ────────────────────────────────────────
+
+    [Fact]
+    public async Task WriteAsync_ShouldRoundTripAttachmentBaselines()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        var att = new Dictionary<string, AttachmentBaseline>
+        {
+            ["diagram_v2"] = new AttachmentBaseline("diagram:v2", 5, "sha256:aa", 1234),
+            ["preview.png"] = new AttachmentBaseline("preview.png", 6, "sha256:bb", 5678),
+        };
+
+        await PageMarker.WriteAsync(pageDir, "100", 5, "Title", "DOCS", "sha256:cc", 2, att);
+
+        var body = await File.ReadAllTextAsync(Path.Combine(pageDir, ".id100_5"), TestContext.Current.CancellationToken);
+        body.ShouldContain("\"att\"");
+        body.ShouldContain("\"n\":\"diagram:v2\""); // full server name (with a Windows-invalid ':') preserved
+
+        var marker = PageMarker.Load(pageDir);
+        marker.ShouldNotBeNull();
+        marker!.Attachments.ShouldNotBeNull();
+        marker.Attachments!.Count.ShouldBe(2);
+        var diagram = marker.Attachments["diagram_v2"];
+        diagram.ServerName.ShouldBe("diagram:v2");
+        diagram.Version.ShouldBe(5);
+        diagram.Hash.ShouldBe("sha256:aa");
+        diagram.Size.ShouldBe(1234);
+    }
+
+    [Fact]
+    public async Task WriteAsync_ShouldWriteJsonWithAttachments_EvenWithoutSpaceOrHash()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        var att = new Dictionary<string, AttachmentBaseline> { ["a"] = new AttachmentBaseline("a", 1, "sha256:aa", 3) };
+
+        await PageMarker.WriteAsync(pageDir, "100", 5, "Title", spaceKey: null, contentHash: null, normalizationEpoch: null, attachments: att);
+
+        PageMarker.Load(pageDir).ShouldNotBeNull().Attachments.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void Load_ShouldReturnNullAttachments_ForMarkerWithoutAtt()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        File.WriteAllText(Path.Combine(pageDir, ".id123_5"), """{"title":"T","space":"D"}""");
+
+        PageMarker.Load(pageDir).ShouldNotBeNull().Attachments.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ShouldRewrite_WhenAttachmentsChange()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        var hasher = Hasher();
+        var att1 = new Dictionary<string, AttachmentBaseline> { ["a"] = new AttachmentBaseline("a", 1, "sha256:aa", 3) };
+        await PageMarker.UpdateAsync(pageDir, "100", 5, "Title", "DOCS", "<p>x</p>", hasher, att1);
+
+        var att2 = new Dictionary<string, AttachmentBaseline> { ["a"] = new AttachmentBaseline("a", 2, "sha256:bb", 9) };
+        var written = await PageMarker.UpdateAsync(pageDir, "100", 5, "Title", "DOCS", "<p>x</p>", hasher, att2);
+
+        written.ShouldBeTrue();
+        PageMarker.Load(pageDir)!.Attachments!["a"].Version.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ShouldSkipRewrite_WhenAttachmentsAlsoMatch()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        var hasher = Hasher();
+        var att = new Dictionary<string, AttachmentBaseline> { ["a"] = new AttachmentBaseline("a", 1, "sha256:aa", 3) };
+        await PageMarker.UpdateAsync(pageDir, "100", 5, "Title", "DOCS", "<p>x</p>", hasher, att);
+
+        var sameAtt = new Dictionary<string, AttachmentBaseline> { ["a"] = new AttachmentBaseline("a", 1, "sha256:aa", 3) };
+        var writtenAgain = await PageMarker.UpdateAsync(pageDir, "100", 5, "Title", "DOCS", "<p>x</p>", hasher, sameAtt);
+
+        writtenAgain.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ShouldPreserveAttachments_WhenNullPassed()
+    {
+        using var temp = new TempDirectoryScope();
+        var pageDir = temp.CreateDirectory("Page");
+        var hasher = Hasher();
+        var att = new Dictionary<string, AttachmentBaseline> { ["a"] = new AttachmentBaseline("a", 1, "sha256:aa", 3) };
+        await PageMarker.UpdateAsync(pageDir, "100", 5, "Title", "DOCS", "<p>x</p>", hasher, att);
+
+        // A later marker update that didn't sync attachments (null) must keep them.
+        await PageMarker.UpdateAsync(pageDir, "100", 6, "Title", "DOCS", "<p>x</p>", hasher, attachments: null);
+
+        var marker = PageMarker.Load(pageDir);
+        marker.ShouldNotBeNull();
+        marker!.Version.ShouldBe(6);
+        marker.Attachments.ShouldNotBeNull();
+        marker.Attachments!["a"].ServerName.ShouldBe("a");
     }
 }

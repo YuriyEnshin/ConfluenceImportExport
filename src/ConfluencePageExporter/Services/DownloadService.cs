@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
@@ -90,13 +91,17 @@ public class DownloadService
             Directory.CreateDirectory(pageDir);
 
         await SavePageContentForUpdate(page, pageDir, ct);
-        await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, page.Body.Storage.Value, ct);
 
+        // Sync attachments before stamping the marker so their baseline (server
+        // name/version/hash) is recorded in the same marker write.
+        IReadOnlyDictionary<string, AttachmentBaseline>? attachmentBaselines = null;
         if (page.ChildTypes?.HasAttachments ?? true)
         {
             var attachments = await _apiClient.GetAttachmentsAsync(page.Id, ct);
-            await SaveAttachments(attachments, pageDir, ct);
+            attachmentBaselines = await SaveAttachments(attachments, pageDir, ct);
         }
+
+        await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, page.Body.Storage.Value, attachmentBaselines, ct);
 
         if (recursive && (page.ChildTypes?.HasPages ?? true))
         {
@@ -121,15 +126,27 @@ public class DownloadService
         var serverContent = page.Body.Storage.Value;
         var localContent = await LocalStorageHelper.ReadLocalPageContentOrNull(pageDir, ct);
 
+        // Attachments are mirrored regardless of the page-content decision
+        // (download direction; per-attachment source detection is a later phase).
+        // Sync them first so their baseline can be stamped into the marker writes
+        // below. Branches that don't write the marker (local-newer / conflict)
+        // leave the baseline for the next successful sync.
+        IReadOnlyDictionary<string, AttachmentBaseline>? attachmentBaselines = null;
+        if (page.ChildTypes?.HasAttachments ?? true)
+        {
+            var attachments = await _apiClient.GetAttachmentsAsync(page.Id, ct);
+            attachmentBaselines = await SaveAttachments(attachments, pageDir, ct);
+        }
+
         if (localContent == null)
         {
             await WritePageContent(page.Title, pageDir, serverContent, ct);
-            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, page.Body.Storage.Value, ct);
+            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, page.Body.Storage.Value, attachmentBaselines, ct);
         }
         else if (_normalizer.ContentEquals(localContent, serverContent))
         {
             _logger.LogDebug("Page '{Title}' content is unchanged, skipping", page.Title);
-            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, page.Body.Storage.Value, ct);
+            await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, page.Body.Storage.Value, attachmentBaselines, ct);
         }
         else
         {
@@ -144,7 +161,7 @@ public class DownloadService
                 case ChangeOrigin.Server:
                     _logger.LogInformation("Page '{Title}' changed on server, downloading", page.Title);
                     await WritePageContent(page.Title, pageDir, serverContent, ct);
-                    await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, page.Body.Storage.Value, ct);
+                    await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, page.Body.Storage.Value, attachmentBaselines, ct);
                     break;
 
                 case ChangeOrigin.Local:
@@ -162,12 +179,6 @@ public class DownloadService
                     report.AddSkipped(page.Id, page.Title, sourceInfo.Reason);
                     break;
             }
-        }
-
-        if (page.ChildTypes?.HasAttachments ?? true)
-        {
-            var attachments = await _apiClient.GetAttachmentsAsync(page.Id, ct);
-            await SaveAttachments(attachments, pageDir, ct);
         }
 
         if (recursive && (page.ChildTypes?.HasPages ?? true))
@@ -287,7 +298,7 @@ public class DownloadService
         }
     }
 
-    private async Task SavePageIdMarker(string pageId, int? version, string pageDir, string? originalTitle = null, string? spaceKey = null, string? syncedContent = null, CancellationToken ct = default)
+    private async Task SavePageIdMarker(string pageId, int? version, string pageDir, string? originalTitle = null, string? spaceKey = null, string? syncedContent = null, IReadOnlyDictionary<string, AttachmentBaseline>? attachments = null, CancellationToken ct = default)
     {
         if (_dryRun)
         {
@@ -296,19 +307,31 @@ public class DownloadService
         }
 
         // syncedContent is the body that is now the synced baseline (server
-        // content, or the local content when it already matched); the shared
-        // skip/upgrade policy lives in PageMarker.UpdateAsync.
-        await PageMarker.UpdateAsync(pageDir, pageId, version, originalTitle, spaceKey, syncedContent, _hasher, ct);
+        // content, or the local content when it already matched); attachments is
+        // the post-sync per-attachment baseline (or null to preserve existing).
+        // The shared skip/upgrade policy lives in PageMarker.UpdateAsync.
+        await PageMarker.UpdateAsync(pageDir, pageId, version, originalTitle, spaceKey, syncedContent, _hasher, attachments, ct);
     }
 
-    private async Task SaveAttachments(List<AttachmentData> attachments, string pageDir, CancellationToken ct)
+    /// <summary>
+    /// Mirrors each server attachment to the local directory and returns the
+    /// post-sync baseline map (sanitised local name → version/hash/size + the
+    /// full server name) for stamping into the marker. Server attachments are the
+    /// authority here (download direction); per-attachment source/conflict
+    /// detection is a later phase.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, AttachmentBaseline>> SaveAttachments(List<AttachmentData> attachments, string pageDir, CancellationToken ct)
     {
+        var priorBaselines = PageMarker.Load(pageDir)?.Attachments;
+        var baselines = new ConcurrentDictionary<string, AttachmentBaseline>(StringComparer.OrdinalIgnoreCase);
+
         await Parallel.ForEachAsync(
             attachments,
             new ParallelOptions { MaxDegreeOfParallelism = _maxParallelism, CancellationToken = ct },
             async (att, _) =>
             {
-                var filePath = Path.Combine(pageDir, LocalStorageHelper.SanitizeFileName(att.Title));
+                var localName = LocalStorageHelper.SanitizeFileName(att.Title);
+                var filePath = Path.Combine(pageDir, localName);
 
                 try
                 {
@@ -323,21 +346,28 @@ public class DownloadService
                         _logger.LogDebug(
                             "Attachment '{Title}' is up to date (size: {Size}), skipping download",
                             att.Title, att.Extensions!.FileSize);
-                        return;
                     }
-
-                    var fileContent = await _apiClient.DownloadAttachmentAsync(att.Links.DownloadUrl, ct);
-
-                    if (await IsLocalContentMatchAsync(filePath, fileContent, ct))
+                    else
                     {
-                        _logger.LogDebug(
-                            "Attachment '{Title}' content is unchanged after download (API fileSize mismatch: {ApiSize} vs actual {ActualSize}), skipping rewrite",
-                            att.Title, att.Extensions?.FileSize, fileContent.Length);
-                        return;
+                        var fileContent = await _apiClient.DownloadAttachmentAsync(att.Links.DownloadUrl, ct);
+
+                        if (await IsLocalContentMatchAsync(filePath, fileContent, ct))
+                        {
+                            _logger.LogDebug(
+                                "Attachment '{Title}' content is unchanged after download (API fileSize mismatch: {ApiSize} vs actual {ActualSize}), skipping rewrite",
+                                att.Title, att.Extensions?.FileSize, fileContent.Length);
+                        }
+                        else
+                        {
+                            await File.WriteAllBytesAsync(filePath, fileContent, ct);
+                            _logger.LogInformation("Downloaded attachment '{Title}' -> {Path}", att.Title, filePath);
+                        }
                     }
 
-                    await File.WriteAllBytesAsync(filePath, fileContent, ct);
-                    _logger.LogInformation("Downloaded attachment '{Title}' -> {Path}", att.Title, filePath);
+                    var baseline = await LocalStorageHelper.BuildAttachmentBaselineAsync(
+                        filePath, att.Title, att.Version?.Number, priorBaselines, ct);
+                    if (baseline != null)
+                        baselines[localName] = baseline;
                 }
                 catch (OperationCanceledException)
                 {
@@ -351,6 +381,8 @@ public class DownloadService
                     _logger.LogError(ex, "Failed to download attachment: {Title}", att.Title);
                 }
             });
+
+        return baselines;
     }
 
     private static bool IsLocalFileSizeMatch(string filePath, AttachmentData serverAttachment)

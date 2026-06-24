@@ -24,7 +24,8 @@ public sealed record PageMarker(
     string? SpaceKey,
     string? ContentHash,
     int? NormalizationEpoch,
-    DateTime? FileTimeUtc)
+    DateTime? FileTimeUtc,
+    IReadOnlyDictionary<string, AttachmentBaseline>? Attachments = null)
 {
     /// <summary>
     /// Serialisation options for the marker body JSON. Null title/space are
@@ -43,6 +44,15 @@ public sealed record PageMarker(
         [JsonPropertyName("space")] public string? Space { get; set; }
         [JsonPropertyName("h")] public string? Hash { get; set; }
         [JsonPropertyName("ne")] public int? Ne { get; set; }
+        [JsonPropertyName("att")] public Dictionary<string, AttBody>? Att { get; set; }
+    }
+
+    private sealed class AttBody
+    {
+        [JsonPropertyName("n")] public string? Name { get; set; }
+        [JsonPropertyName("v")] public int? Version { get; set; }
+        [JsonPropertyName("h")] public string? Hash { get; set; }
+        [JsonPropertyName("s")] public long? Size { get; set; }
     }
 
     /// <summary>
@@ -72,10 +82,10 @@ public sealed record PageMarker(
             return null;
 
         var info = ParseFileName(Path.GetFileName(markerFile));
-        var (title, space, hash, epoch) = ParseBody(File.ReadAllText(markerFile));
+        var (title, space, hash, epoch, attachments) = ParseBody(File.ReadAllText(markerFile));
         return new PageMarker(
             info.PageId, info.Version, title, space, hash, epoch,
-            File.GetLastWriteTimeUtc(markerFile));
+            File.GetLastWriteTimeUtc(markerFile), attachments);
     }
 
     private static string? FindMarkerFile(string pageDir)
@@ -99,6 +109,7 @@ public sealed record PageMarker(
     public static async Task WriteAsync(
         string pageDir, string pageId, int? version = null, string? originalTitle = null,
         string? spaceKey = null, string? contentHash = null, int? normalizationEpoch = null,
+        IReadOnlyDictionary<string, AttachmentBaseline>? attachments = null,
         CancellationToken ct = default)
     {
         if (!Directory.Exists(pageDir))
@@ -111,7 +122,7 @@ public sealed record PageMarker(
 
         var markerName = version.HasValue ? $".id{pageId}_{version.Value}" : $".id{pageId}";
         var markerPath = Path.Combine(pageDir, markerName);
-        await File.WriteAllTextAsync(markerPath, SerializeBody(originalTitle, spaceKey, contentHash, normalizationEpoch), ct);
+        await File.WriteAllTextAsync(markerPath, SerializeBody(originalTitle, spaceKey, contentHash, normalizationEpoch, attachments), ct);
     }
 
     /// <summary>
@@ -127,17 +138,26 @@ public sealed record PageMarker(
     public static async Task<bool> UpdateAsync(
         string pageDir, string pageId, int? version, string? originalTitle,
         string? spaceKey, string? syncedContent, IContentHasher hasher,
+        IReadOnlyDictionary<string, AttachmentBaseline>? attachments = null,
         CancellationToken ct = default)
     {
         var contentHash = hasher.ComputeHash(syncedContent);
 
         var existing = Load(pageDir);
+
+        // A null attachment map means "this operation didn't sync attachments" —
+        // preserve whatever the marker already holds (mirrors the content-hash
+        // preservation below). A non-null map (even empty) is the authoritative
+        // current set and replaces it.
+        var effectiveAttachments = attachments ?? existing?.Attachments;
+
         if (existing != null
             && string.Equals(existing.PageId, pageId, StringComparison.OrdinalIgnoreCase)
             && existing.Version == version
             && existing.Title != null
             && string.Equals(existing.SpaceKey, spaceKey, StringComparison.OrdinalIgnoreCase)
-            && (contentHash == null || string.Equals(existing.ContentHash, contentHash, StringComparison.Ordinal)))
+            && (contentHash == null || string.Equals(existing.ContentHash, contentHash, StringComparison.Ordinal))
+            && AttachmentMapsEqual(existing.Attachments, effectiveAttachments))
         {
             return false;
         }
@@ -146,7 +166,32 @@ public sealed record PageMarker(
             pageDir, pageId, version, originalTitle, spaceKey,
             contentHash ?? existing?.ContentHash,
             contentHash != null ? hasher.Epoch : existing?.NormalizationEpoch,
+            effectiveAttachments,
             ct);
+        return true;
+    }
+
+    /// <summary>
+    /// Order-independent equality of two attachment baseline maps (null/empty
+    /// treated as equal). Used by <see cref="UpdateAsync"/> to keep the
+    /// "skip identical marker" optimisation — so an unchanged page with unchanged
+    /// attachments doesn't get a needless marker rewrite (which would also move
+    /// the marker mtime that doubles as the sync timestamp).
+    /// </summary>
+    private static bool AttachmentMapsEqual(
+        IReadOnlyDictionary<string, AttachmentBaseline>? a,
+        IReadOnlyDictionary<string, AttachmentBaseline>? b)
+    {
+        var countA = a?.Count ?? 0;
+        var countB = b?.Count ?? 0;
+        if (countA != countB)
+            return false;
+        if (countA == 0)
+            return true;
+
+        foreach (var (key, value) in a!)
+            if (!b!.TryGetValue(key, out var other) || other != value)
+                return false;
         return true;
     }
 
@@ -158,9 +203,12 @@ public sealed record PageMarker(
     /// captures space or hash. The normalization epoch is only emitted alongside
     /// a hash (it is meaningless on its own).
     /// </summary>
-    private static string SerializeBody(string? title, string? spaceKey, string? contentHash, int? normalizationEpoch)
+    private static string SerializeBody(
+        string? title, string? spaceKey, string? contentHash, int? normalizationEpoch,
+        IReadOnlyDictionary<string, AttachmentBaseline>? attachments)
     {
-        if (string.IsNullOrEmpty(spaceKey) && string.IsNullOrEmpty(contentHash))
+        var hasAttachments = attachments is { Count: > 0 };
+        if (string.IsNullOrEmpty(spaceKey) && string.IsNullOrEmpty(contentHash) && !hasAttachments)
             return title ?? string.Empty;
 
         return JsonSerializer.Serialize(
@@ -170,6 +218,17 @@ public sealed record PageMarker(
                 Space = string.IsNullOrEmpty(spaceKey) ? null : spaceKey,
                 Hash = string.IsNullOrEmpty(contentHash) ? null : contentHash,
                 Ne = string.IsNullOrEmpty(contentHash) ? null : normalizationEpoch,
+                Att = hasAttachments
+                    ? attachments!.ToDictionary(
+                        kv => kv.Key,
+                        kv => new AttBody
+                        {
+                            Name = kv.Value.ServerName,
+                            Version = kv.Value.Version,
+                            Hash = kv.Value.Hash,
+                            Size = kv.Value.Size,
+                        })
+                    : null,
             },
             MarkerJsonOptions);
     }
@@ -182,23 +241,25 @@ public sealed record PageMarker(
     /// legacy title (defensive — a real Confluence title is extremely unlikely
     /// to be a JSON object with these keys).
     /// </summary>
-    private static (string? Title, string? Space, string? Hash, int? Epoch) ParseBody(string raw)
+    private static (string? Title, string? Space, string? Hash, int? Epoch,
+        IReadOnlyDictionary<string, AttachmentBaseline>? Attachments) ParseBody(string raw)
     {
         var trimmed = raw.Trim();
         if (trimmed.Length == 0)
-            return (null, null, null, null);
+            return (null, null, null, null, null);
 
         if (trimmed[0] == '{')
         {
             try
             {
                 var body = JsonSerializer.Deserialize<MarkerBody>(trimmed, MarkerJsonOptions);
-                if (body != null && (body.Title != null || body.Space != null || body.Hash != null))
+                if (body != null && (body.Title != null || body.Space != null || body.Hash != null || body.Att != null))
                     return (
                         string.IsNullOrWhiteSpace(body.Title) ? null : body.Title,
                         string.IsNullOrWhiteSpace(body.Space) ? null : body.Space,
                         string.IsNullOrWhiteSpace(body.Hash) ? null : body.Hash,
-                        body.Ne);
+                        body.Ne,
+                        ParseAttachments(body.Att));
             }
             catch (JsonException)
             {
@@ -206,6 +267,17 @@ public sealed record PageMarker(
             }
         }
 
-        return (trimmed, null, null, null);
+        return (trimmed, null, null, null, null);
+    }
+
+    private static IReadOnlyDictionary<string, AttachmentBaseline>? ParseAttachments(Dictionary<string, AttBody>? att)
+    {
+        if (att is not { Count: > 0 })
+            return null;
+
+        var map = new Dictionary<string, AttachmentBaseline>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in att)
+            map[key] = new AttachmentBaseline(value.Name, value.Version, value.Hash, value.Size);
+        return map;
     }
 }
