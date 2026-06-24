@@ -58,6 +58,12 @@ public enum AttachmentDiffKind
     OnlyLocal,
     /// <summary>Present on the server, absent locally.</summary>
     OnlyRemote,
-    /// <summary>Present on both sides but the byte size differs.</summary>
-    SizeDiffers
+    /// <summary>Present on both sides, differs, but the source is unknown (no baseline).</summary>
+    SizeDiffers,
+    /// <summary>Changed locally since the last sync (server unchanged).</summary>
+    ChangedLocal,
+    /// <summary>Changed on the server since the last sync (local unchanged).</summary>
+    ChangedServer,
+    /// <summary>Changed on both sides since the last sync — a conflict.</summary>
+    ChangedBoth
 }

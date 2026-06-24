@@ -497,7 +497,7 @@ public class UploadService
             // attachment changed). Sync them anyway — otherwise an
             // attachment-only edit is silently never uploaded.
             _logger.LogDebug("Page {PageId} '{Title}' body is unchanged; checking attachments only", pageId, title);
-            var unchangedBaselines = await UploadPageAttachments(pageId, pageDir, ct);
+            var unchangedBaselines = await UploadPageAttachments(pageId, pageDir, title, mergeMode: true, report, ct);
             await UpdatePageIdMarker(pageDir, pageId, serverPage.Version?.Number, title, spaceKey, unchangedBaselines, ct);
             return;
         }
@@ -515,7 +515,7 @@ public class UploadService
             try
             {
                 var moveResult = await _apiClient.UpdatePageAsync(pageId, serverPage.Title, serverPage.Body.Storage.Value, moveToParentId, serverPage.Version?.Number, ct);
-                var moveBaselines = await UploadPageAttachments(pageId, pageDir, ct);
+                var moveBaselines = await UploadPageAttachments(pageId, pageDir, title, mergeMode: true, report, ct);
                 await UpdatePageIdMarker(pageDir, moveResult.Id, moveResult.VersionNumber, serverPage.Title, spaceKey, moveBaselines, ct);
             }
             catch (ConfluenceApiException ex)
@@ -540,7 +540,7 @@ public class UploadService
                 try
                 {
                     var result = await _apiClient.UpdatePageAsync(pageId, title, localContent, moveToParentId, serverPage.Version?.Number, ct);
-                    var localBaselines = await UploadPageAttachments(pageId, pageDir, ct);
+                    var localBaselines = await UploadPageAttachments(pageId, pageDir, title, mergeMode: true, report, ct);
                     await UpdatePageIdMarker(pageDir, result.Id, result.VersionNumber, title, spaceKey, localBaselines, ct);
                 }
                 catch (ConfluenceApiException ex)
@@ -652,7 +652,7 @@ public class UploadService
         }
 
         _logger.LogInformation("Created page '{Title}' with ID {PageId}", title, result.Id);
-        var baselines = await UploadPageAttachments(result.Id, pageDir, ct);
+        var baselines = await UploadPageAttachments(result.Id, pageDir, title, mergeMode: false, report: null, ct);
         return (result, title, baselines);
     }
 
@@ -709,7 +709,7 @@ public class UploadService
             _logger.LogInformation(
                 "Page {PageId} '{Title}' body is unchanged (title, content, parent match server); checking attachments only",
                 pageId, title);
-            var unchangedBaselines = await UploadPageAttachments(pageId, pageDir, ct);
+            var unchangedBaselines = await UploadPageAttachments(pageId, pageDir, title, mergeMode: false, report, ct);
             return (new PageUpdateResult(pageId, serverVersion ?? 0), title, unchangedBaselines);
         }
 
@@ -731,7 +731,7 @@ public class UploadService
             _logger.LogInformation("Moved and updated page {PageId} with title '{Title}' to parent {NewParent}", pageId, title, moveToParentId);
         else
             _logger.LogInformation("Updated page {PageId} with title '{Title}'", pageId, title);
-        var baselines = await UploadPageAttachments(pageId, pageDir, ct);
+        var baselines = await UploadPageAttachments(pageId, pageDir, title, mergeMode: false, report, ct);
         return (result, title, baselines);
     }
 
@@ -741,15 +741,19 @@ public class UploadService
         new Dictionary<string, AttachmentBaseline>();
 
     /// <summary>
-    /// Pushes local attachment files to the page and returns the post-sync
-    /// baseline map (sanitised local name → server name/version/hash/size) for
-    /// stamping into the marker. The stored server name is used to match the
-    /// existing server attachment and as the multipart filename, so a sanitised
-    /// local file round-trips to the exact server attachment and keeps its name
-    /// (no rename → draw.io macro references stay valid). Per-attachment
-    /// source/conflict detection is a later phase; here local is the authority.
+    /// Pushes local attachment changes to the page and returns the post-sync
+    /// baseline map for stamping into the marker. The stored server name is used
+    /// to match the existing server attachment and as the multipart filename, so
+    /// a sanitised local file round-trips to the exact server attachment and keeps
+    /// its name. With a baseline, <see cref="AttachmentChangeAnalyzer"/> decides
+    /// the source: in <paramref name="mergeMode"/> only locally-changed
+    /// attachments are pushed, while a server-side change or a two-sided conflict
+    /// is left untouched and reported; in force mode local always wins (a
+    /// server-side change is overwritten with a warning). Without a baseline it
+    /// falls back to "push if it differs".
     /// </summary>
-    private async Task<IReadOnlyDictionary<string, AttachmentBaseline>> UploadPageAttachments(string pageId, string pageDir, CancellationToken ct)
+    private async Task<IReadOnlyDictionary<string, AttachmentBaseline>> UploadPageAttachments(
+        string pageId, string pageDir, string pageTitle, bool mergeMode, SyncReport? report, CancellationToken ct)
     {
         var files = LocalStorageHelper.GetAttachmentFiles(pageDir).ToList();
         if (files.Count == 0) return EmptyAttachmentBaselines;
@@ -757,6 +761,22 @@ public class UploadService
         var priorBaselines = PageMarker.Load(pageDir)?.Attachments;
         var existingAttachments = await _apiClient.GetAttachmentsAsync(pageId, ct);
         var wrote = 0;
+        // Attachments whose prior baseline must be kept verbatim — a merge skip
+        // (server-newer / conflict) where local was NOT synced. Recomputing their
+        // baseline from the current server state would poison detection (the
+        // change would look resolved on the next sync).
+        var preserved = new System.Collections.Concurrent.ConcurrentDictionary<string, AttachmentBaseline>(StringComparer.OrdinalIgnoreCase);
+
+        async Task PushUpdate(AttachmentData existing, string file, string serverName)
+        {
+            // Preserve the attachment's stored media type so Confluence does not
+            // re-infer it from the (possibly absent) extension and drop the update.
+            if (await _apiClient.UpdateAttachmentDataAsync(pageId, existing.Id, file, serverName, existing.EffectiveMediaType, ct))
+            {
+                Interlocked.Exchange(ref wrote, 1);
+                _logger.LogInformation("Updated attachment '{FileName}' (new version) on page {PageId}", serverName, pageId);
+            }
+        }
 
         await Parallel.ForEachAsync(
             files,
@@ -764,66 +784,86 @@ public class UploadService
             async (file, _) =>
             {
                 var localName = Path.GetFileName(file);
-
-                // Round-trip the exact server name via the stored baseline: a
-                // sanitised local file maps back to its server attachment, so the
-                // match succeeds and the upload keeps the server's name instead of
-                // renaming it to the sanitised form. New local-only files (no
-                // baseline) fall back to their own name.
-                var serverName = priorBaselines != null
-                    && priorBaselines.TryGetValue(localName, out var prior)
-                    && !string.IsNullOrEmpty(prior.ServerName)
-                        ? prior.ServerName!
-                        : localName;
+                var prior = priorBaselines != null && priorBaselines.TryGetValue(localName, out var p) ? p : null;
+                var serverName = !string.IsNullOrEmpty(prior?.ServerName) ? prior!.ServerName! : localName;
 
                 var existing = existingAttachments.FirstOrDefault(
                     a => a.Title.Equals(serverName, StringComparison.OrdinalIgnoreCase));
 
-                if (existing != null)
+                if (existing == null)
                 {
-                    bool changed = await IsAttachmentChangedAsync(file, existing, ct);
-                    if (!changed)
-                    {
-                        _logger.LogDebug("Attachment '{FileName}' on page {PageId} is unchanged, skipping", serverName, pageId);
-                        return;
-                    }
-
-                    // Preserve the attachment's stored media type so Confluence
-                    // does not re-infer it from the (possibly absent) filename
-                    // extension and drop the update — see UpdateAttachmentDataAsync.
-                    var updated = await _apiClient.UpdateAttachmentDataAsync(pageId, existing.Id, file, serverName, existing.EffectiveMediaType, ct);
-                    if (updated)
-                    {
-                        Interlocked.Exchange(ref wrote, 1);
-                        _logger.LogInformation("Updated attachment '{FileName}' (new version) on page {PageId}", serverName, pageId);
-                    }
-                }
-                else
-                {
-                    var uploaded = await _apiClient.UploadAttachmentAsync(pageId, file, serverName, ct);
-                    if (uploaded)
+                    // New local-only attachment → create it.
+                    if (await _apiClient.UploadAttachmentAsync(pageId, file, serverName, ct))
                     {
                         Interlocked.Exchange(ref wrote, 1);
                         _logger.LogInformation("Uploaded new attachment '{FileName}' to page {PageId}", serverName, pageId);
                     }
+                    return;
+                }
+
+                var localChanged = await LocalStorageHelper.HasAttachmentChangedLocallyAsync(file, prior, ct);
+                switch (AttachmentChangeAnalyzer.Analyze(prior, existing.Version?.Number, localChanged))
+                {
+                    case AttachmentChangeOrigin.Unchanged:
+                        _logger.LogDebug("Attachment '{FileName}' on page {PageId} is unchanged, skipping", serverName, pageId);
+                        return;
+
+                    case AttachmentChangeOrigin.Local:
+                        await PushUpdate(existing, file, serverName);
+                        return;
+
+                    case AttachmentChangeOrigin.Server when mergeMode:
+                        _logger.LogInformation("Attachment '{FileName}' on page {PageId} is newer on the server; skipping upload", serverName, pageId);
+                        report?.AddSkipped(pageId, $"{pageTitle} → {serverName}",
+                            "вложение новее на сервере — загрузка пропущена; выполните 'download merge'");
+                        if (prior != null) preserved[localName] = prior;
+                        return;
+
+                    case AttachmentChangeOrigin.Conflict when mergeMode:
+                        _logger.LogWarning("CONFLICT: attachment '{FileName}' on page {PageId} changed on both sides; skipping upload", serverName, pageId);
+                        report?.AddConflict(pageId, $"{pageTitle} → {serverName}",
+                            "вложение изменено и локально, и на сервере — загрузка пропущена; разрешите вручную ('download merge' или повторная правка)");
+                        if (prior != null) preserved[localName] = prior;
+                        return;
+
+                    case AttachmentChangeOrigin.Server:
+                    case AttachmentChangeOrigin.Conflict:
+                        // force mode: local wins, overwrite the server-side change.
+                        _logger.LogWarning("force: overwriting a server-side change of attachment '{FileName}' on page {PageId}", serverName, pageId);
+                        await PushUpdate(existing, file, serverName);
+                        return;
+
+                    default: // Unknown — no usable baseline: push if it differs (legacy).
+                        if (await IsAttachmentChangedAsync(file, existing, ct))
+                            await PushUpdate(existing, file, serverName);
+                        else
+                            _logger.LogDebug("Attachment '{FileName}' on page {PageId} is unchanged, skipping", serverName, pageId);
+                        return;
                 }
             });
 
-        // Rebuild the baseline from the authoritative server state — re-fetch only
-        // when something was actually written, so an unchanged upload costs no
-        // extra call. Hashes are reused when version+size are unchanged.
+        // Re-fetch the authoritative server state only when something was written,
+        // so an unchanged upload costs no extra call. Merge-skipped attachments
+        // keep their prior baseline.
         var currentServer = wrote == 1 ? await _apiClient.GetAttachmentsAsync(pageId, ct) : existingAttachments;
-        return await BuildAttachmentBaselinesAsync(files, currentServer, priorBaselines, ct);
+        return await FinalizeAttachmentBaselinesAsync(files, currentServer, priorBaselines, preserved, ct);
     }
 
-    private static async Task<IReadOnlyDictionary<string, AttachmentBaseline>> BuildAttachmentBaselinesAsync(
+    private static async Task<IReadOnlyDictionary<string, AttachmentBaseline>> FinalizeAttachmentBaselinesAsync(
         List<string> files, List<AttachmentData> serverAttachments,
-        IReadOnlyDictionary<string, AttachmentBaseline>? prior, CancellationToken ct)
+        IReadOnlyDictionary<string, AttachmentBaseline>? prior,
+        IReadOnlyDictionary<string, AttachmentBaseline> preserved, CancellationToken ct)
     {
         var map = new Dictionary<string, AttachmentBaseline>(StringComparer.OrdinalIgnoreCase);
         foreach (var file in files)
         {
             var localName = Path.GetFileName(file);
+            if (preserved.TryGetValue(localName, out var keep))
+            {
+                map[localName] = keep; // merge skip — keep prior baseline so the change is re-detected
+                continue;
+            }
+
             // Associate to the server attachment whose sanitised title equals the
             // local file name (= how the file was named on disk).
             var server = serverAttachments.FirstOrDefault(

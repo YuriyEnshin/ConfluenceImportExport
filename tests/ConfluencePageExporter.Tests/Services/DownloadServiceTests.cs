@@ -356,6 +356,38 @@ public class DownloadServiceTests
     }
 
     [Fact]
+    public async Task DownloadMergeAsync_ShouldNotClobberLocallyChangedAttachment()
+    {
+        // Scenario A core fix: the page content matches, but the attachment changed
+        // LOCALLY. download merge must NOT overwrite it with the (older) server copy.
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var pageDir = LocalPageTreeBuilder.CreatePage(
+            outputDir, "Root", "<p>root</p>", "1",
+            textAttachments: [("diagram", "LOCAL EDIT")], version: 5);
+
+        // Baseline: server "diagram" was version 5 with the OLD bytes ("OLD").
+        var oldHash = AttachmentHasher.ComputeHash(System.Text.Encoding.UTF8.GetBytes("OLD"));
+        await PageMarker.WriteAsync(pageDir, "1", 5, "Root", "SPACE", null, null,
+            new Dictionary<string, AttachmentBaseline> { ["diagram"] = new AttachmentBaseline("diagram", 5, oldHash, 3) });
+
+        var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", versionNumber: 5);
+        var att = ApiClientMockFactory.CreateAttachment("a1", "diagram", "/download/diagram", fileSize: 3, version: 5); // server still v5
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([att]);
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
+
+        var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: false, analyzer);
+
+        (await File.ReadAllTextAsync(Path.Combine(pageDir, "diagram"), TestContext.Current.CancellationToken)).ShouldBe("LOCAL EDIT");
+        report.SkippedPages.Count().ShouldBe(1);
+        api.Verify(x => x.DownloadAttachmentAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
     public async Task DownloadMergeAsync_ShouldOverwriteServerChangedPage()
     {
         using var temp = new TempDirectoryScope();

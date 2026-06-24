@@ -204,15 +204,13 @@ public class CompareService
     }
 
     /// <summary>
-    /// Cheap attachment comparison for one matched page: by file name presence
-    /// and byte size only (no content download). Flags attachments present on
-    /// just one side, or present on both with a differing size. A same-size
-    /// in-place edit is intentionally NOT detected — that is the cost of staying
-    /// download-free. Server attachment titles are sanitised the same way the
-    /// download path names local files, so special characters don't produce
-    /// false only-local/only-remote pairs. The server list is fetched only when
-    /// there is something to compare (local attachment files exist, or the
-    /// server reports the page has attachments).
+    /// Attachment comparison for one matched page, download-free: presence by
+    /// (sanitised) name, and for attachments present on both sides the change
+    /// source via <see cref="AttachmentChangeAnalyzer"/> (server version vs the
+    /// marker baseline, local raw-bytes hash vs the baseline) → changed-locally /
+    /// changed-on-server / conflict. Without a baseline it falls back to a byte-size
+    /// comparison (a same-size edit then stays undetected). The server list is
+    /// fetched only when there is something to compare.
     /// </summary>
     private async Task CompareAttachmentsAsync(
         RemotePageSnapshot remote, string localDir, CompareReport report, CancellationToken ct)
@@ -222,10 +220,11 @@ public class CompareService
             return;
 
         var serverAttachments = await _apiClient.GetAttachmentsAsync(remote.PageId, ct);
+        var priorBaselines = PageMarker.Load(localDir)?.Attachments;
 
-        var localSizesByName = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        var localPathsByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var file in localFiles)
-            localSizesByName[Path.GetFileName(file)] = new FileInfo(file).Length;
+            localPathsByName[Path.GetFileName(file)] = file;
 
         var diffs = new List<CompareAttachmentDiff>();
         var serverNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -235,13 +234,31 @@ public class CompareService
             var localName = LocalStorageHelper.SanitizeFileName(attachment.Title);
             serverNames.Add(localName);
 
-            if (!localSizesByName.TryGetValue(localName, out var localSize))
+            if (!localPathsByName.TryGetValue(localName, out var localPath))
+            {
                 diffs.Add(new CompareAttachmentDiff(attachment.Title, AttachmentDiffKind.OnlyRemote));
-            else if (attachment.Extensions?.FileSize is long serverSize && localSize != serverSize)
-                diffs.Add(new CompareAttachmentDiff(attachment.Title, AttachmentDiffKind.SizeDiffers));
+                continue;
+            }
+
+            var prior = priorBaselines != null && priorBaselines.TryGetValue(localName, out var p) ? p : null;
+            var localChanged = await LocalStorageHelper.HasAttachmentChangedLocallyAsync(localPath, prior, ct);
+            AttachmentDiffKind? kind = AttachmentChangeAnalyzer.Analyze(prior, attachment.Version?.Number, localChanged) switch
+            {
+                AttachmentChangeOrigin.Unchanged => null,
+                AttachmentChangeOrigin.Local => AttachmentDiffKind.ChangedLocal,
+                AttachmentChangeOrigin.Server => AttachmentDiffKind.ChangedServer,
+                AttachmentChangeOrigin.Conflict => AttachmentDiffKind.ChangedBoth,
+                // Unknown (no baseline) → cheap size comparison.
+                _ => attachment.Extensions?.FileSize is long serverSize && new FileInfo(localPath).Length != serverSize
+                    ? AttachmentDiffKind.SizeDiffers
+                    : null,
+            };
+
+            if (kind is AttachmentDiffKind diffKind)
+                diffs.Add(new CompareAttachmentDiff(attachment.Title, diffKind));
         }
 
-        foreach (var name in localSizesByName.Keys)
+        foreach (var name in localPathsByName.Keys)
         {
             if (!serverNames.Contains(name))
                 diffs.Add(new CompareAttachmentDiff(name, AttachmentDiffKind.OnlyLocal));
