@@ -4,7 +4,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <Version>2.13.1</Version>
+    <Version>2.14.0</Version>
   </PropertyGroup>
 
 </Project>
