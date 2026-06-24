@@ -499,11 +499,14 @@ public sealed class ConfluenceMcpTools
     {
         var summary = $"Compare completed. Added: {report.AddedInConfluence.Count}; Deleted: {report.DeletedInConfluence.Count}; "
             + $"Renamed/moved: {report.RenamedOrMovedInConfluence.Count}; Content changed: {report.ContentChanged.Count}; "
+            + $"Attachments changed: {report.AttachmentsChanged.Count}; "
             + $"Conflicts: {report.Conflicts.Count}; Notes: {report.Notes.Count}.";
         if (report.Conflicts.Count > 0)
             summary += " To resolve a conflict, call confluence_get_page_content with the conflicting pageId, diff it against the local index.html, and upload the merged result with confluence_upload_update.";
         if (report.ContentChanged.Count > 0)
             summary += " For any page in 'ContentChanged', call confluence_get_page_content with its pageId to inspect the latest server content and assist with merging.";
+        if (report.AttachmentsChanged.Count > 0)
+            summary += " Pages in 'AttachmentsChanged' have differing attachments (by name/size); run confluence_upload_update or confluence_upload_merge to push local attachment changes.";
         return summary;
     }
 }

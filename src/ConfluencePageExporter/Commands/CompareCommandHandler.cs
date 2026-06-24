@@ -121,6 +121,14 @@ public sealed class CompareCommandHandler : ICommandHandler
                 writer.WriteLine($"    Источник: {FormatSource(page.ChangeSource)}");
         }
 
+        writer.WriteLine($"Attachments changed: {report.AttachmentsChanged.Count}");
+        foreach (var page in report.AttachmentsChanged)
+        {
+            writer.WriteLine($"  @ [{page.PageId}] {page.Title} ({page.Path})");
+            foreach (var diff in page.Differences)
+                writer.WriteLine($"      {FormatAttachmentDiff(diff)}");
+        }
+
         if (report.Notes.Count > 0)
         {
             writer.WriteLine("Notes:");
@@ -128,6 +136,14 @@ public sealed class CompareCommandHandler : ICommandHandler
                 writer.WriteLine($"  ! {note}");
         }
     }
+
+    private static string FormatAttachmentDiff(CompareAttachmentDiff diff) => diff.Kind switch
+    {
+        AttachmentDiffKind.OnlyLocal => $"+ {diff.FileName} (только локально)",
+        AttachmentDiffKind.OnlyRemote => $"- {diff.FileName} (только на сервере)",
+        AttachmentDiffKind.SizeDiffers => $"* {diff.FileName} (размер отличается)",
+        _ => diff.FileName
+    };
 
     private static string FormatSource(ChangeSourceInfo source)
     {

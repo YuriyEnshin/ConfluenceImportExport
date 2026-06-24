@@ -122,6 +122,91 @@ public class CompareServiceTests
     }
 
     [Fact]
+    public async Task CompareAsync_ShouldReportAttachmentDifferences_ByNameAndSize()
+    {
+        // Cheap attachment detection: size mismatch, only-local and only-remote
+        // are all flagged for a page whose body is otherwise identical.
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        LocalPageTreeBuilder.CreatePage(
+            outputDir, "Root", "<p>root</p>", "1",
+            textAttachments: [("diagram", "new diagram bytes"), ("local-only.txt", "x")]);
+
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", hasAttachments: true);
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+        api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([]);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync(
+        [
+            ApiClientMockFactory.CreateAttachment("ATT-1", "diagram", fileSize: 3),
+            ApiClientMockFactory.CreateAttachment("ATT-2", "server-only.bin", fileSize: 10)
+        ]);
+
+        var service = CreateService(api);
+
+        var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
+
+        report.ContentChanged.ShouldBeEmpty();
+        var page = report.AttachmentsChanged.ShouldHaveSingleItem();
+        page.PageId.ShouldBe("1");
+        page.Differences.Count.ShouldBe(3);
+        page.Differences.ShouldContain(d => d.FileName == "diagram" && d.Kind == AttachmentDiffKind.SizeDiffers);
+        page.Differences.ShouldContain(d => d.FileName == "server-only.bin" && d.Kind == AttachmentDiffKind.OnlyRemote);
+        page.Differences.ShouldContain(d => d.FileName == "local-only.txt" && d.Kind == AttachmentDiffKind.OnlyLocal);
+    }
+
+    [Fact]
+    public async Task CompareAsync_ShouldNotReportAttachments_WhenSizesMatch_AndNotDownload()
+    {
+        // Same-size attachments are treated as unchanged in cheap mode; no
+        // content download is attempted (the strict mock has none configured).
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        const string content = "12345";
+        LocalPageTreeBuilder.CreatePage(
+            outputDir, "Root", "<p>root</p>", "1",
+            textAttachments: [("diagram", content)]);
+
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", hasAttachments: true);
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+        api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([]);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync(
+            [ApiClientMockFactory.CreateAttachment("ATT-1", "diagram", fileSize: content.Length)]);
+
+        var service = CreateService(api);
+
+        var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
+
+        report.AttachmentsChanged.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task CompareAsync_ShouldNotFetchAttachments_WhenNoneLocallyOrOnServer()
+    {
+        // Optimisation guard: a page with no local attachment files and no
+        // server-reported attachments must not trigger a GetAttachmentsAsync call.
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
+
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", hasAttachments: false);
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+        api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([]);
+
+        var service = CreateService(api);
+
+        var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
+
+        report.AttachmentsChanged.ShouldBeEmpty();
+        api.Verify(x => x.GetAttachmentsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task CompareAsync_ShouldNotReportContentChanged_WhenOnlyLineEndingsDiffer()
     {
         using var temp = new TempDirectoryScope();

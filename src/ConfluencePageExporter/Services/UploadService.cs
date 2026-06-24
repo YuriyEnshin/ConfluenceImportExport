@@ -492,7 +492,12 @@ public class UploadService
 
         if (!contentChanged && !titleChanged && !parentChanged)
         {
-            _logger.LogDebug("Page {PageId} '{Title}' is unchanged, skipping merge-upload", pageId, title);
+            // The page body/title/parent match the server, but attachments are
+            // independent of the page version (e.g. only a draw.io diagram's
+            // attachment changed). Sync them anyway — otherwise an
+            // attachment-only edit is silently never uploaded.
+            _logger.LogDebug("Page {PageId} '{Title}' body is unchanged; checking attachments only", pageId, title);
+            await UploadPageAttachments(pageId, pageDir, ct);
             await UpdatePageIdMarker(pageDir, pageId, serverPage.Version?.Number, title, spaceKey, ct);
             return;
         }
@@ -697,9 +702,14 @@ public class UploadService
 
         if (!titleChanged && !contentChanged && !parentChanged)
         {
+            // The page body/title/parent match the server, but attachments are
+            // independent of the page version (e.g. only a draw.io diagram's
+            // attachment changed). Sync them anyway — otherwise an
+            // attachment-only edit is silently never uploaded.
             _logger.LogInformation(
-                "Page {PageId} '{Title}' is unchanged (title, content, parent match server), skipping update",
+                "Page {PageId} '{Title}' body is unchanged (title, content, parent match server); checking attachments only",
                 pageId, title);
+            await UploadPageAttachments(pageId, pageDir, ct);
             return (new PageUpdateResult(pageId, serverVersion ?? 0), title);
         }
 
