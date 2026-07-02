@@ -10,7 +10,7 @@ These same instructions are also published as `docs/mcp/agent-instructions.md` i
 
 - **Sandbox root.** The server was started with `--root-dir <path>`. Every path you pass to a tool is resolved relative to that root; absolute paths are accepted only when they lie inside it. Outside paths fail with `OUT_OF_SANDBOX`. **You cannot widen this sandbox** — it is set at server startup and ignores env vars and config files.
 - **Read-only mode.** If the server was started with `--read-only`, all `confluence_upload_*` tools refuse with `READ_ONLY_VIOLATION`. `confluence_download_*`, `confluence_compare`, `confluence_ping`, and `confluence_get_page_content` remain available.
-- **Confluence Cloud (read-only phase).** Against a Cloud site (auto-detected from a `*.atlassian.net` base URL, or `AuthType=cloud`) the download/compare/ping/get-page-content tools work via the Cloud v2 API; all `confluence_upload_*` tools currently fail with `NOT_SUPPORTED` — Cloud write support has not shipped yet. Do not retry; report it to the user.
+- **Confluence Cloud.** Cloud sites (auto-detected from a `*.atlassian.net` base URL, or `AuthType=cloud`) are fully supported — every tool works the same as against Server/Data Center. No Cloud-specific behaviour to account for.
 - **Space keys (multi-space).** A default `spaceKey` may be configured server-side, and most tools accept an optional `spaceKey` that overrides it. For an **already-synced tree you normally don't need to pass `spaceKey` at all** — each page records its space locally (in the `.id` marker) and the server is the authority. Passing a `spaceKey` that contradicts a page's real space makes the upload tools **error** rather than silently mis-place pages. New child pages are always created in their parent's space (a Confluence tree lives in exactly one space). See "Working with multiple spaces" below.
 
 ## Local layout
@@ -64,7 +64,7 @@ Every tool returns one of two shapes:
 | `INVALID_ARGS` | You passed contradictory or missing arguments. Read `error` and try again. |
 | `OUT_OF_SANDBOX` | A path argument resolved outside `--root-dir`. Use a path inside the sandbox. |
 | `READ_ONLY_VIOLATION` | You called an upload tool on a read-only server. Stop trying. |
-| `NOT_SUPPORTED` | The operation is not available for this deployment — currently any write against Confluence Cloud (read-only Cloud phase). Stop trying and tell the user. |
+| `NOT_SUPPORTED` | The operation is not available for this deployment. Stop trying and tell the user. |
 | `AUTH_FAILED` | 401/403 from Confluence or a local FS auth error. Report to the user. |
 | `PAGE_NOT_FOUND` | Page ID/title doesn't exist on the server. Re-check inputs. |
 | `NETWORK_ERROR` | `HttpRequestException` with no status — DNS/TCP/SSL. The server already retried up to 3× with backoff, so this means all retries failed. Call `confluence_ping` to confirm the server can reach Confluence. |

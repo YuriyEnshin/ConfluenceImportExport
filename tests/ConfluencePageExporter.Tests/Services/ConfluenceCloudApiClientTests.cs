@@ -404,22 +404,298 @@ public class ConfluenceCloudApiClientTests
         await Should.ThrowAsync<ConfluenceApiException>(act);
     }
 
-    // ── Read-only contract ───────────────────────────────────────────────
+    // ── Page writes ──────────────────────────────────────────────────────
 
     [Fact]
-    public async Task WriteOperations_ShouldThrowNotSupported_InReadOnlyCloudPhase()
+    public async Task CreatePageAsync_ShouldResolveSpaceKeyToId_AndPostV2Payload()
     {
         var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.OK, ListJson(new Dictionary<string, object?>
+        {
+            ["id"] = "777", ["key"] = "DOCS", ["name"] = "Docs",
+        }));
+        handler.EnqueueResponder(request =>
+        {
+            request.Method.ShouldBe(HttpMethod.Post);
+            request.RequestUri!.ToString().ShouldBe($"{V2}/pages");
+            var body = request.Content!.ReadAsStringAsync().Result;
+            body.ShouldContain("\"spaceId\":\"777\"");
+            body.ShouldContain("\"status\":\"current\"");
+            body.ShouldContain("\"title\":\"NewPage\"");
+            body.ShouldContain("\"parentId\":\"10\"");
+            body.ShouldContain("\"representation\":\"storage\"");
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(PageJson("700", "NewPage", spaceId: "777", parentId: "10")),
+            };
+        });
         var client = CreateClient(handler);
-        var ct = TestContext.Current.CancellationToken;
 
-        await Should.ThrowAsync<NotSupportedException>(() => client.CreatePageAsync("DOCS", null, "T", "<p/>", ct));
-        await Should.ThrowAsync<NotSupportedException>(() => client.UpdatePageAsync("1", "T", "<p/>", null, null, ct));
-        await Should.ThrowAsync<NotSupportedException>(() => client.UploadAttachmentAsync("1", "f", "f", ct));
-        await Should.ThrowAsync<NotSupportedException>(() => client.UpdateAttachmentDataAsync("1", "a", "f", "f", null, ct));
-        await Should.ThrowAsync<NotSupportedException>(() => client.DeleteAttachmentAsync("1", "a", ct));
+        var result = await client.CreatePageAsync("DOCS", "10", "NewPage", "<p>x</p>", TestContext.Current.CancellationToken);
 
-        handler.Requests.ShouldBeEmpty(); // rejected before any HTTP traffic
+        result.Id.ShouldBe("700");
+        result.VersionNumber.ShouldBe(1);
+        handler.Requests[0].RequestUri!.ToString().ShouldBe($"{V2}/spaces?keys=DOCS");
+    }
+
+    [Fact]
+    public async Task CreatePageAsync_WithoutParent_ShouldOmitParentId()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.OK, ListJson(new Dictionary<string, object?>
+        {
+            ["id"] = "777", ["key"] = "DOCS",
+        }));
+        handler.EnqueueResponder(request =>
+        {
+            request.Content!.ReadAsStringAsync().Result.ShouldNotContain("parentId");
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(PageJson("700", "NewPage", spaceId: "777")),
+            };
+        });
+        var client = CreateClient(handler);
+
+        var result = await client.CreatePageAsync("DOCS", null, "NewPage", "<p>x</p>", TestContext.Current.CancellationToken);
+
+        result.Id.ShouldBe("700");
+    }
+
+    [Fact]
+    public async Task CreatePageAsync_ShouldReuseSpaceCache_SeededByReads()
+    {
+        // A read resolves space id→key via GET /spaces/{id}; the same lookup
+        // must seed key→id so a following create needs no /spaces?keys= call.
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.OK, PageJson("100", "Existing", spaceId: "777"));
+        handler.EnqueueResponse(HttpStatusCode.OK, SpaceJson("777", "DOCS"));
+        handler.EnqueueResponder(request =>
+        {
+            request.RequestUri!.ToString().ShouldBe($"{V2}/pages"); // straight to POST
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(PageJson("700", "NewPage", spaceId: "777")),
+            };
+        });
+        var client = CreateClient(handler);
+
+        await client.GetPageByIdAsync("100", TestContext.Current.CancellationToken);
+        var result = await client.CreatePageAsync("DOCS", null, "NewPage", "<p>x</p>", TestContext.Current.CancellationToken);
+
+        result.Id.ShouldBe("700");
+        handler.Requests.Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task UpdatePageAsync_WithKnownVersion_ShouldPutOnce_WithIncrementAndStatus()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponder(request =>
+        {
+            request.Method.ShouldBe(HttpMethod.Put);
+            request.RequestUri!.ToString().ShouldBe($"{V2}/pages/900");
+            var body = request.Content!.ReadAsStringAsync().Result;
+            body.ShouldContain("\"number\":6");
+            body.ShouldContain("\"status\":\"current\"");
+            body.ShouldNotContain("parentId");
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(PageJson("900", "New", version: 6)),
+            };
+        });
+        var client = CreateClient(handler);
+
+        var result = await client.UpdatePageAsync("900", "New", "<p>new</p>", null, knownVersion: 5, TestContext.Current.CancellationToken);
+
+        result.VersionNumber.ShouldBe(6);
+        handler.Requests.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task UpdatePageAsync_WithoutKnownVersion_ShouldFetchCurrentVersion_ThenPut()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.OK, PageJson("900", "Old", version: 3));
+        handler.EnqueueResponder(request =>
+        {
+            request.Method.ShouldBe(HttpMethod.Put);
+            request.Content!.ReadAsStringAsync().Result.ShouldContain("\"number\":4");
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(PageJson("900", "New", version: 4)),
+            };
+        });
+        var client = CreateClient(handler);
+
+        var result = await client.UpdatePageAsync("900", "New", "<p>new</p>", null, null, TestContext.Current.CancellationToken);
+
+        result.VersionNumber.ShouldBe(4);
+        handler.Requests.Count.ShouldBe(2);
+        handler.Requests[0].Method.ShouldBe(HttpMethod.Get);
+        handler.Requests[0].RequestUri!.ToString().ShouldBe($"{V2}/pages/900");
+    }
+
+    [Fact]
+    public async Task UpdatePageAsync_ShouldThrowConflict_On409()
+    {
+        // Live-verified Cloud shape: 409 with errors[].code = CONFLICT.
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.Conflict,
+            """{"errors":[{"status":409,"code":"CONFLICT","title":"Version must be incremented when updating a page. Current Version: [5]. Provided version: [5]"}]}""");
+        var client = CreateClient(handler);
+
+        var act = async () => await client.UpdatePageAsync("900", "New", "<p>new</p>", null, knownVersion: 4, TestContext.Current.CancellationToken);
+
+        var ex = await Should.ThrowAsync<ConfluenceConflictException>(act);
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task UpdatePageAsync_ShouldReturnServerVersion_WhenCloudTreatsPutAsNoOp()
+    {
+        // Live-verified: a content-identical PUT is accepted (200) but the
+        // version stays unchanged — the response version is authoritative
+        // for the marker, not knownVersion+1.
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponder(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(PageJson("900", "Same", version: 1)),
+        });
+        var client = CreateClient(handler);
+
+        var result = await client.UpdatePageAsync("900", "Same", "<p>x</p>", null, knownVersion: 1, TestContext.Current.CancellationToken);
+
+        result.VersionNumber.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task UpdatePageAsync_ShouldSendParentId_ForMove()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponder(request =>
+        {
+            request.Content!.ReadAsStringAsync().Result.ShouldContain("\"parentId\":\"42\"");
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(PageJson("900", "T", parentId: "42", version: 2)),
+            };
+        });
+        var client = CreateClient(handler);
+
+        var result = await client.UpdatePageAsync("900", "T", "<p>x</p>", "42", knownVersion: 1, TestContext.Current.CancellationToken);
+
+        result.VersionNumber.ShouldBe(2);
+    }
+
+    // ── Attachment writes ────────────────────────────────────────────────
+
+    [Fact]
+    public async Task UploadAttachmentAsync_ShouldPostV1Multipart_UnderWikiContext()
+    {
+        var handler = new StubHttpMessageHandler();
+        string? nocheckHeader = null;
+        string? filePartType = null;
+        handler.EnqueueResponder(request =>
+        {
+            request.RequestUri!.ToString().ShouldBe($"{V1}/content/100/child/attachment");
+            nocheckHeader = request.Headers.TryGetValues("X-Atlassian-Token", out var values) ? string.Join(",", values) : null;
+            filePartType = GetFilePartContentType(request);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+        });
+        var client = CreateClient(handler);
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllBytesAsync(tempFile, [1, 2, 3], TestContext.Current.CancellationToken);
+
+            var ok = await client.UploadAttachmentAsync("100", tempFile, "preview.png", TestContext.Current.CancellationToken);
+
+            ok.ShouldBeTrue();
+            nocheckHeader.ShouldBe("nocheck");
+            filePartType.ShouldBe("image/png");
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateAttachmentDataAsync_ShouldPreserveProvidedMediaType()
+    {
+        var handler = new StubHttpMessageHandler();
+        string? filePartType = null;
+        handler.EnqueueResponder(request =>
+        {
+            request.RequestUri!.ToString().ShouldBe($"{V1}/content/100/child/attachment/ATT-1/data");
+            filePartType = GetFilePartContentType(request);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+        });
+        var client = CreateClient(handler);
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllBytesAsync(tempFile, [1, 2, 3], TestContext.Current.CancellationToken);
+
+            var ok = await client.UpdateAttachmentDataAsync("100", "ATT-1", tempFile, "diagram", "application/vnd.jgraph.mxfile", TestContext.Current.CancellationToken);
+
+            ok.ShouldBeTrue();
+            filePartType.ShouldBe("application/vnd.jgraph.mxfile");
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task UploadAttachmentAsync_ShouldReturnFalse_OnServerError()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.InternalServerError, """{"message":"boom"}""");
+        var client = CreateClient(handler);
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllBytesAsync(tempFile, [1], TestContext.Current.CancellationToken);
+
+            var ok = await client.UploadAttachmentAsync("100", tempFile, "f.bin", TestContext.Current.CancellationToken);
+
+            ok.ShouldBeFalse();
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteAttachmentAsync_ShouldDeleteViaV2()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponder(request =>
+        {
+            request.Method.ShouldBe(HttpMethod.Delete);
+            request.RequestUri!.ToString().ShouldBe($"{V2}/attachments/att123");
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
+        });
+        var client = CreateClient(handler);
+
+        var ok = await client.DeleteAttachmentAsync("100", "att123", TestContext.Current.CancellationToken);
+
+        ok.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task DeleteAttachmentAsync_ShouldReturnFalse_OnError()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.NotFound, """{"message":"gone"}""");
+        var client = CreateClient(handler);
+
+        var ok = await client.DeleteAttachmentAsync("100", "att123", TestContext.Current.CancellationToken);
+
+        ok.ShouldBeFalse();
     }
 
     // ── Cancellation ─────────────────────────────────────────────────────
@@ -447,6 +723,25 @@ public class ConfluenceCloudApiClientTests
             baseUrl,
             httpClient,
             LoggerTestHelper.CreateLogger<ConfluenceCloudApiClient>());
+    }
+
+    /// <summary>
+    /// Returns the media type of the multipart "file" part on an attachment
+    /// upload/update request, or <c>null</c> if absent. Read inside the stub
+    /// responder while the in-memory request content is still alive.
+    /// </summary>
+    private static string? GetFilePartContentType(HttpRequestMessage request)
+    {
+        if (request.Content is not MultipartFormDataContent multipart)
+            return null;
+
+        foreach (var part in multipart)
+        {
+            if (part.Headers.ContentDisposition?.Name?.Trim('"') == "file")
+                return part.Headers.ContentType?.MediaType;
+        }
+
+        return null;
     }
 
     private static Dictionary<string, object?> PageObj(

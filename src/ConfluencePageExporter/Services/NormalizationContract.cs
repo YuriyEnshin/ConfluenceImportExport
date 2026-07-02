@@ -23,9 +23,11 @@ public static class NormalizationContract
 {
     /// <summary>
     /// Epoch stamped into markers alongside a freshly computed hash.
-    /// History: 1 = initial; 2 = strip ac:macro-id and empty ac:parameter.
+    /// History: 1 = initial; 2 = strip ac:macro-id and empty ac:parameter;
+    /// 3 = also strip ac:schema-version and local-id / ac:local-id
+    /// (server- and Cloud-editor-assigned noise, verified live on Cloud).
     /// </summary>
-    public const int CurrentEpoch = 2;
+    public const int CurrentEpoch = 3;
 
     /// <summary>Algorithm tag prefixed to every stored hash, making it self-describing.</summary>
     public const string HashPrefix = "sha256:";
@@ -33,12 +35,13 @@ public static class NormalizationContract
     /// <summary>
     /// Golden canary input. Deliberately exercises the dimensions normalization
     /// touches: out-of-order attributes, a named HTML entity, inter-tag
-    /// whitespace, element nesting, a stripped <c>ac:macro-id</c>, a dropped
-    /// empty <c>ac:parameter</c>, and a retained named parameter.
+    /// whitespace, element nesting, stripped <c>ac:macro-id</c> /
+    /// <c>ac:schema-version</c> / <c>ac:local-id</c> / <c>local-id</c>, a
+    /// dropped empty <c>ac:parameter</c>, and a retained named parameter.
     /// </summary>
     internal const string GoldenInput =
-        "<p  class=\"b\" id=\"a\">x&nbsp;<b>y</b>  </p>" +
-        "<ac:structured-macro ac:macro-id=\"abc-123\" ac:name=\"note\">" +
+        "<p  local-id=\"p-loc\" class=\"b\" id=\"a\">x&nbsp;<b>y</b>  </p>" +
+        "<ac:structured-macro ac:macro-id=\"abc-123\" ac:schema-version=\"1\" ac:local-id=\"m-loc\" ac:name=\"note\">" +
         "<ac:parameter ac:name=\"\" /><ac:parameter ac:name=\"title\">T</ac:parameter>" +
         "</ac:structured-macro>";
 

@@ -6,6 +6,29 @@ All notable changes to the Confluence Page Exporter tool are documented in this 
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+
+- Write support for Confluence Cloud: `upload update` / `upload create` /
+  `upload merge` and all attachment operations now work on Cloud — Cloud
+  support is complete. Pages are created and updated via REST API v2 (the
+  numeric space id is resolved from the key automatically; a version conflict
+  arrives as 409 and is handled as before), attachments are uploaded through
+  the v1 endpoints Atlassian kept on Cloud. Verified end-to-end against a
+  live Cloud site, including both-sides conflict detection.
+
+### Fixed
+
+- Removed the phantom "changed on server" in `compare` for pages whose macros
+  were authored without service attributes: Confluence adds
+  `ac:schema-version` to macros on save, and the Cloud editor stamps
+  `local-id`/`ac:local-id` onto elements — the normalizer now ignores these
+  attributes during comparison (uploaded content is not affected). The
+  canonicalization epoch is bumped to 3: hashes stored in markers are
+  recomputed on each page's next sync; until then local-edit detection falls
+  back to file modification times, once.
+
 ## [2.17.0] — 2026-07-02
 
 ### Added
