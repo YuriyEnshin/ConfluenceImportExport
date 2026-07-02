@@ -37,8 +37,8 @@ public class CompareServiceTests
         var localRoot = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
         _ = localRoot;
 
-        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
-        var child = ApiClientMockFactory.CreatePage("2", "Child", "<p>child</p>", "1", "Root");
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", hasAttachments: false);
+        var child = ApiClientMockFactory.CreatePage("2", "Child", "<p>child</p>", "1", "Root", hasAttachments: false);
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
@@ -62,7 +62,7 @@ public class CompareServiceTests
         var rootDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
         LocalPageTreeBuilder.CreatePage(rootDir, "Child", "<p>child</p>", "2");
 
-        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", hasAttachments: false);
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
@@ -83,8 +83,8 @@ public class CompareServiceTests
         var rootDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
         LocalPageTreeBuilder.CreatePage(rootDir, "OldName", "<p>same</p>", "2");
 
-        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
-        var child = ApiClientMockFactory.CreatePage("2", "NewName", "<p>same</p>", "1", "Root");
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", hasAttachments: false);
+        var child = ApiClientMockFactory.CreatePage("2", "NewName", "<p>same</p>", "1", "Root", hasAttachments: false);
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
@@ -106,8 +106,8 @@ public class CompareServiceTests
         var rootDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
         LocalPageTreeBuilder.CreatePage(rootDir, "Child", "<p>local</p>", "2");
 
-        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
-        var child = ApiClientMockFactory.CreatePage("2", "Child", "<p>remote</p>", "1", "Root");
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", hasAttachments: false);
+        var child = ApiClientMockFactory.CreatePage("2", "Child", "<p>remote</p>", "1", "Root", hasAttachments: false);
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
@@ -255,7 +255,7 @@ public class CompareServiceTests
         var rootDir = LocalPageTreeBuilder.CreatePage(
             outputDir, "Root", "<p>Hello</p>\r\n<p>World</p>", "1");
 
-        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>Hello</p>\n<p>World</p>");
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>Hello</p>\n<p>World</p>", hasAttachments: false);
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
@@ -274,7 +274,7 @@ public class CompareServiceTests
         var outputDir = temp.CreateDirectory("out");
         LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>");
 
-        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", hasAttachments: false);
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
 
@@ -294,7 +294,7 @@ public class CompareServiceTests
         var rootDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
         LocalPageTreeBuilder.CreatePage(rootDir, "Child", "<p>child</p>", "2");
 
-        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", hasAttachments: false);
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
 
@@ -313,8 +313,8 @@ public class CompareServiceTests
         var rootDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
         LocalPageTreeBuilder.CreatePage(rootDir, "Child", "<p>local</p>", "2");
 
-        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
-        var child = ApiClientMockFactory.CreatePage("2", "Child", "<p>remote</p>", "1", "Root");
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", hasAttachments: false);
+        var child = ApiClientMockFactory.CreatePage("2", "Child", "<p>remote</p>", "1", "Root", hasAttachments: false);
         child.Version = new VersionInfo { Number = 3, When = DateTime.UtcNow.AddDays(1) };
 
         var api = ApiClientMockFactory.CreateStrict();
@@ -347,8 +347,8 @@ public class CompareServiceTests
         var indexPath = Path.Combine(childDir, "index.html");
         File.SetLastWriteTimeUtc(indexPath, DateTime.UtcNow.AddMinutes(-30));
 
-        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
-        var child = ApiClientMockFactory.CreatePage("2", "Child", "<p>server-edit</p>", "1", "Root");
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", hasAttachments: false);
+        var child = ApiClientMockFactory.CreatePage("2", "Child", "<p>server-edit</p>", "1", "Root", hasAttachments: false);
         child.Version = new VersionInfo { Number = 4, When = DateTime.UtcNow.AddHours(-1) };
 
         var api = ApiClientMockFactory.CreateStrict();
@@ -374,8 +374,8 @@ public class CompareServiceTests
         var rootDir = LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
         LocalPageTreeBuilder.CreatePage(rootDir, "OldName", "<p>same</p>", "2");
 
-        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
-        var child = ApiClientMockFactory.CreatePage("2", "NewName", "<p>same</p>", "1", "Root");
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", hasAttachments: false);
+        var child = ApiClientMockFactory.CreatePage("2", "NewName", "<p>same</p>", "1", "Root", hasAttachments: false);
         child.Version = new VersionInfo { Number = 3, When = DateTime.UtcNow.AddDays(1) };
 
         var historicalPage = ApiClientMockFactory.CreatePage("2", "OldName", "<p>same</p>", "1", "Root");
@@ -411,7 +411,7 @@ public class CompareServiceTests
         var newParentDir = LocalPageTreeBuilder.CreatePage(outputDir, "NewParent", "<p>np</p>", "P2");
         LocalPageTreeBuilder.CreatePage(newParentDir, "Subpage4", "<p>content</p>", "400");
 
-        var root = ApiClientMockFactory.CreatePage("400", "Subpage4", "<p>content</p>", parentId: "P1", parentTitle: "OldParent");
+        var root = ApiClientMockFactory.CreatePage("400", "Subpage4", "<p>content</p>", parentId: "P1", parentTitle: "OldParent", hasAttachments: false);
         root.Version = new VersionInfo { Number = 2, When = DateTime.UtcNow };
 
         var api = ApiClientMockFactory.CreateStrict();
@@ -434,7 +434,7 @@ public class CompareServiceTests
         File.WriteAllText(Path.Combine(outputDir, ".idP1"), string.Empty);
         LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>content</p>", "1");
 
-        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>content</p>", parentId: "P1", parentTitle: "Parent");
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>content</p>", parentId: "P1", parentTitle: "Parent", hasAttachments: false);
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
@@ -453,7 +453,7 @@ public class CompareServiceTests
         var outputDir = temp.CreateDirectory("out");
         LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>content</p>", "1");
 
-        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>content</p>", parentId: "P1");
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>content</p>", parentId: "P1", hasAttachments: false);
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
@@ -499,17 +499,45 @@ public class CompareServiceTests
         var outputDir = temp.CreateDirectory("out");
         LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
 
-        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>"); // ChildTypes: null
 
         var api = ApiClientMockFactory.CreateStrict();
         api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
         api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([]);
+        // null childTypes also means "attachments unknown" — compare checks them.
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([]);
 
         var service = CreateService(api);
 
         await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
 
         api.Verify(x => x.GetChildrenPagesAsync("1"), Times.Once);
+    }
+
+    [Fact]
+    public async Task CompareAsync_ShouldFetchAttachments_WhenChildTypesIsNull()
+    {
+        // Cloud v2 payloads carry no childTypes. null must mean "unknown —
+        // check", otherwise a server-only attachment would silently escape
+        // compare on Cloud (the old `?? false` fallback did exactly that).
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
+
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>"); // ChildTypes: null
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+        api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([]);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync(
+            [ApiClientMockFactory.CreateAttachment("ATT-1", "server-only.bin", fileSize: 10)]);
+
+        var service = CreateService(api);
+
+        var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
+
+        var page = report.AttachmentsChanged.ShouldHaveSingleItem();
+        page.Differences.ShouldContain(d => d.FileName == "server-only.bin" && d.Kind == AttachmentDiffKind.OnlyRemote);
     }
 
     [Fact]
@@ -520,9 +548,9 @@ public class CompareServiceTests
         var outputDir = temp.CreateDirectory("out");
         LocalPageTreeBuilder.CreatePage(outputDir, "Root", "<p>root</p>", "1");
 
-        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", hasAttachments: false);
         var children = Enumerable.Range(1, 10)
-            .Select(i => ApiClientMockFactory.CreatePage($"ch{i}", $"Child{i}", $"<p>child {i}</p>", "1", "Root"))
+            .Select(i => ApiClientMockFactory.CreatePage($"ch{i}", $"Child{i}", $"<p>child {i}</p>", "1", "Root", hasAttachments: false))
             .ToList();
 
         var api = ApiClientMockFactory.CreateStrict();

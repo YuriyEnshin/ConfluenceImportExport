@@ -25,6 +25,7 @@ The tool supports:
   - attachments as separate files
   - a marker file `.id<pageId>_<version>` (its body is JSON with the original title and space key) for stable page identification and version tracking
 - Authentication modes: `--auth-type onprem` and `--auth-type cloud`; by default the type is auto-detected from `--base-url` (`*.atlassian.net` hosts → `cloud`)
+- Confluence Cloud support (REST API v2) — read-only for now: `download update`/`download merge`, `compare`, and the `confluence_ping` / `confluence_get_page_content` MCP tools. Write operations (upload, attachments) on Cloud fail with a clear error and arrive in upcoming releases
 - Multi-layered configuration with priority: CLI > environment variables > file > default value
 - Global `--verbose` flag for detailed (debug-level) output
 - Dry-run support where applicable

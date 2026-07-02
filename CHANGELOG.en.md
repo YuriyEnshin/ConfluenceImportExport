@@ -10,6 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Confluence Cloud support — read operations. With `--auth-type cloud` (or
+  auto-detection via `*.atlassian.net`) the tool talks to the Cloud REST API v2
+  (`/wiki/api/v2`): `download update`/`download merge`, `compare` (including
+  `--detect-source`), and the `confluence_ping` / `confluence_get_page_content`
+  MCP tools are available. Cloud's numeric space ids are transparently
+  translated to keys — `.id` markers, configuration and tool parameters keep
+  using space keys. Write operations (upload update/create/merge, attachment
+  changes) are not supported on Cloud yet and fail with a clear error
+  (`NOT_SUPPORTED` in MCP); they arrive in upcoming releases.
 - Confluence deployment-type auto-detection from `--base-url`: `*.atlassian.net`
   hosts are treated as Cloud, everything else as on-prem; an explicit
   `--auth-type` takes precedence. An invalid `--auth-type` value now fails with
@@ -20,6 +29,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- `compare`: when the server does not report a page's child composition
+  (`childTypes` missing — as Cloud responds), attachments are now genuinely
+  checked instead of being silently skipped.
 - HTTP request retries honour the server's `Retry-After` header (429/503): the
   wait is taken from the header, capped at 60 seconds — matters for Confluence
   Cloud rate limits.
