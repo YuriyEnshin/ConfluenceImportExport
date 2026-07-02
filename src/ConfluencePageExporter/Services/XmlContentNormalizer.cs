@@ -126,15 +126,24 @@ public sealed class XmlContentNormalizer : IContentNormalizer
     /// <list type="bullet">
     /// <item><c>ac:macro-id</c> — a server-assigned GUID added to macros that lack
     /// one (and otherwise stable across saves); not content.</item>
+    /// <item><c>ac:schema-version</c> — assigned by the server to macros that lack
+    /// it (observed live on Cloud for both POST and PUT; Server does the same).</item>
+    /// <item><c>local-id</c> / <c>ac:local-id</c> — Cloud-editor bookkeeping ids
+    /// stamped on elements and macros; preserved by REST round-trips but injected
+    /// by editor saves.</item>
     /// <item>empty-named <c>&lt;ac:parameter ac:name=""/&gt;</c> — silently discarded
     /// by the server on save.</item>
     /// </list>
     /// Comparing with these stripped makes ContentEquals agree with Confluence's own
-    /// canonicalisation instead of reporting a permanent phantom diff.
+    /// canonicalisation instead of reporting a permanent phantom diff. Stripping
+    /// affects comparison/hashing only — uploaded content is never normalized.
     /// </summary>
     private static void StripVolatileConfluenceArtifacts(XElement element)
     {
         element.Attribute(Ac + "macro-id")?.Remove();
+        element.Attribute(Ac + "schema-version")?.Remove();
+        element.Attribute(Ac + "local-id")?.Remove();
+        element.Attribute("local-id")?.Remove();
 
         var emptyParameters = element.Elements(Ac + "parameter")
             .Where(p => string.IsNullOrWhiteSpace((string?)p.Attribute(Ac + "name")) && string.IsNullOrEmpty(p.Value))

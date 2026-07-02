@@ -36,6 +36,26 @@ public class XmlContentNormalizerTests
     }
 
     [Fact]
+    public void ContentEquals_IgnoresSchemaVersion_AssignedByServer()
+    {
+        // Verified live on Cloud: POST/PUT of a macro without ac:schema-version
+        // stores it with ac:schema-version="1" (Server behaves the same).
+        var local  = "<ac:structured-macro ac:name=\"info\"><ac:rich-text-body><p>x</p></ac:rich-text-body></ac:structured-macro>";
+        var server = "<ac:structured-macro ac:name=\"info\" ac:schema-version=\"1\"><ac:rich-text-body><p>x</p></ac:rich-text-body></ac:structured-macro>";
+        N.ContentEquals(local, server).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void ContentEquals_IgnoresLocalId_StampedByCloudEditor()
+    {
+        // The Cloud editor stamps local-id on elements and ac:local-id on
+        // macros; REST round-trips preserve them, editor saves inject them.
+        var local  = "<p>Text</p><ac:structured-macro ac:name=\"code\"><ac:plain-text-body>x</ac:plain-text-body></ac:structured-macro>";
+        var server = "<p local-id=\"35ce97f93c5c\">Text</p><ac:structured-macro ac:name=\"code\" ac:local-id=\"f1de5627211d\"><ac:plain-text-body>x</ac:plain-text-body></ac:structured-macro>";
+        N.ContentEquals(local, server).ShouldBeTrue();
+    }
+
+    [Fact]
     public void ContentEquals_StillDetectsRealParameterChange()
     {
         var a = "<ac:structured-macro ac:name=\"note\"><ac:parameter ac:name=\"title\">A</ac:parameter></ac:structured-macro>";
@@ -262,11 +282,12 @@ public class XmlContentNormalizerTests
     [Fact]
     public void NormalizeForComparison_ShouldSortAttributes()
     {
-        // ac:macro-id is stripped as a volatile artifact, so sorting is
-        // verified with two retained attributes (name < schema-version, Ordinal).
-        var input = "<ac:structured-macro ac:schema-version=\"1\" ac:name=\"toc\" />";
+        // Volatile artifacts (ac:macro-id, ac:schema-version, …) are stripped,
+        // so sorting is verified with two retained ac:parameter-style
+        // attributes on a plain element (class < id, Ordinal).
+        var input = "<p id=\"a\" class=\"b\">x</p>";
         var result = N.NormalizeForComparison(input);
-        result.ShouldContain("ac:name=\"toc\" ac:schema-version=\"1\"");
+        result.ShouldContain("<p class=\"b\" id=\"a\">x</p>");
     }
 
     [Fact]

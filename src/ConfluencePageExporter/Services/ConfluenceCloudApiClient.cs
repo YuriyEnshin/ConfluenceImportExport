@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using ConfluencePageExporter.Models;
@@ -22,9 +23,10 @@ namespace ConfluencePageExporter.Services;
 /// may exist".
 /// </para>
 /// <para>
-/// Read-only phase: write operations (page create/update, attachment
-/// upload/update/delete) throw <see cref="NotSupportedException"/> until the
-/// Cloud write phase ships.
+/// Writes: page create/update go through v2 (<c>POST/PUT /pages</c>, numeric
+/// <c>spaceId</c> resolved from the key, optimistic concurrency — a stale
+/// <c>version.number</c> yields 409 CONFLICT); attachment upload/update use
+/// the v1 multipart endpoints kept on Cloud, attachment delete uses v2.
 /// </para>
 /// </summary>
 public class ConfluenceCloudApiClient : IConfluenceApiClient
@@ -34,10 +36,6 @@ public class ConfluenceCloudApiClient : IConfluenceApiClient
     /// but ~100 keeps the URL comfortably short for proxies and log lines.
     /// </summary>
     private const int BulkPageChunkSize = 100;
-
-    private const string WriteNotSupportedMessage =
-        "This operation is not supported on Confluence Cloud yet: current Cloud support is read-only " +
-        "(download, compare, page content). Write support (upload/create/merge, attachments) arrives in an upcoming release.";
 
     private readonly HttpClient _httpClient;
     private readonly ILogger<ConfluenceCloudApiClient> _logger;
@@ -49,6 +47,9 @@ public class ConfluenceCloudApiClient : IConfluenceApiClient
 
     /// <summary>Numeric space id → space key, resolved once per space per client lifetime.</summary>
     private readonly ConcurrentDictionary<string, string> _spaceKeyById = new();
+
+    /// <summary>Space key → numeric space id (v2 create requires the id). Inverse of <see cref="_spaceKeyById"/>.</summary>
+    private readonly ConcurrentDictionary<string, string> _spaceIdByKey = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Page id → title cache. v2 responses carry only <c>parentId</c> (no
@@ -297,22 +298,191 @@ public class ConfluenceCloudApiClient : IConfluenceApiClient
         return await response.Content.ReadAsByteArrayAsync(ct);
     }
 
-    // ── Write operations: not supported in the read-only Cloud phase ─────
+    // ── Page writes (v2) ─────────────────────────────────────────────────
 
-    public Task<PageUpdateResult> CreatePageAsync(string spaceKey, string? parentId, string title, string content, CancellationToken ct = default) =>
-        throw new NotSupportedException(WriteNotSupportedMessage);
+    public async Task<PageUpdateResult> CreatePageAsync(string spaceKey, string? parentId, string title, string content, CancellationToken ct = default)
+    {
+        var spaceId = await GetSpaceIdByKeyAsync(spaceKey, ct);
 
-    public Task<PageUpdateResult> UpdatePageAsync(string pageId, string title, string content, string? parentId, int? knownVersion = null, CancellationToken ct = default) =>
-        throw new NotSupportedException(WriteNotSupportedMessage);
+        var payload = new Dictionary<string, object?>
+        {
+            ["spaceId"] = spaceId,
+            ["status"] = "current",
+            ["title"] = title,
+            ["body"] = new { representation = "storage", value = content },
+        };
+        // Absent parentId → Cloud files the page under the space homepage,
+        // the v2 counterpart of v1's "space root".
+        if (!string.IsNullOrEmpty(parentId))
+            payload["parentId"] = parentId;
 
-    public Task<bool> UploadAttachmentAsync(string pageId, string filePath, string fileName, CancellationToken ct = default) =>
-        throw new NotSupportedException(WriteNotSupportedMessage);
+        using var body = JsonContent(payload);
+        using var response = await _httpClient.PostAsync($"{_v2}/pages", body, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogError("Failed to create page '{Title}'. Status code: {StatusCode}, Error: {Error}",
+                title, response.StatusCode, errorContent);
+            throw ConfluenceApiHelpers.CreateException(response.StatusCode, errorContent, $"Failed to create page '{title}'");
+        }
 
-    public Task<bool> UpdateAttachmentDataAsync(string pageId, string attachmentId, string filePath, string fileName, string? contentType = null, CancellationToken ct = default) =>
-        throw new NotSupportedException(WriteNotSupportedMessage);
+        var created = await ReadPageAsync(response, $"Could not deserialize creation response for page '{title}'", ct);
+        _pageTitleById[created.Id] = created.Title;
+        return new PageUpdateResult(created.Id, created.Version?.Number ?? 1);
+    }
 
-    public Task<bool> DeleteAttachmentAsync(string pageId, string attachmentId, CancellationToken ct = default) =>
-        throw new NotSupportedException(WriteNotSupportedMessage);
+    public async Task<PageUpdateResult> UpdatePageAsync(string pageId, string title, string content, string? parentId, int? knownVersion = null, CancellationToken ct = default)
+    {
+        // Same optimistic-concurrency contract as the v1 client: the PUT is
+        // based on the caller-observed version when given (a concurrent edit
+        // then surfaces as 409), else on the current version fetched here.
+        // v2 accepts exactly current+1 and answers a stale number with
+        // 409 CONFLICT.
+        int version;
+        if (knownVersion is int known)
+        {
+            version = known + 1;
+        }
+        else
+        {
+            var current = await FetchPageAsync(pageId, "", $"Failed to fetch current version of page {pageId}", ct);
+            version = (current.Version?.Number ?? 1) + 1;
+        }
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["id"] = pageId,
+            ["status"] = "current",
+            ["title"] = title,
+            ["body"] = new { representation = "storage", value = content },
+            ["version"] = new { number = version },
+        };
+        // v2 PUT honours parentId — this is how a page moves to a new parent.
+        if (!string.IsNullOrEmpty(parentId))
+            payload["parentId"] = parentId;
+
+        using var body = JsonContent(payload);
+        using var response = await _httpClient.PutAsync($"{_v2}/pages/{pageId}", body, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogError("Failed to update page '{Title}' (ID: {PageId}). Status code: {StatusCode}, Error: {Error}",
+                title, pageId, response.StatusCode, errorContent);
+            throw ConfluenceApiHelpers.CreateException(response.StatusCode, errorContent, $"Failed to update page '{title}' (ID: {pageId})");
+        }
+
+        var updated = await ReadPageAsync(response, $"Could not deserialize update response for page {pageId}", ct);
+        _pageTitleById[updated.Id] = updated.Title;
+        // The response version is authoritative: Cloud accepts a
+        // content-identical PUT as a no-op and leaves the version unchanged.
+        return new PageUpdateResult(updated.Id, updated.Version?.Number ?? version);
+    }
+
+    // ── Attachment writes (v1 multipart kept on Cloud; delete via v2) ────
+
+    public async Task<bool> UploadAttachmentAsync(string pageId, string filePath, string fileName, CancellationToken ct = default)
+    {
+        try
+        {
+            var fileContent = await File.ReadAllBytesAsync(filePath, ct);
+            using var content = new MultipartFormDataContent();
+            var filePart = new ByteArrayContent(fileContent);
+            ConfluenceApiHelpers.ApplyAttachmentContentType(filePart, fileName, preferredMediaType: null);
+            content.Add(filePart, "file", fileName);
+
+            var url = $"{_v1}/content/{pageId}/child/attachment";
+            using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
+            request.Headers.Add("X-Atlassian-Token", "nocheck");
+
+            using var response = await _httpClient.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(ct);
+                _logger.LogWarning("Failed to upload attachment '{FileName}' to page {PageId}. Status code: {StatusCode}, Error: {Error}",
+                    fileName, pageId, response.StatusCode, errorContent);
+                return false;
+            }
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation is not a per-attachment failure — propagate it
+            // instead of reporting a tolerated "false" below.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error uploading attachment '{FileName}' to page {PageId}", fileName, pageId);
+            return false;
+        }
+    }
+
+    public async Task<bool> UpdateAttachmentDataAsync(string pageId, string attachmentId, string filePath, string fileName, string? contentType = null, CancellationToken ct = default)
+    {
+        try
+        {
+            var fileContent = await File.ReadAllBytesAsync(filePath, ct);
+            using var content = new MultipartFormDataContent();
+            var filePart = new ByteArrayContent(fileContent);
+            // Stamp the stored server media type so Confluence keeps it
+            // instead of re-inferring from a (possibly missing) extension —
+            // see the interface doc for the extensionless-attachment story.
+            ConfluenceApiHelpers.ApplyAttachmentContentType(filePart, fileName, preferredMediaType: contentType);
+            content.Add(filePart, "file", fileName);
+            content.Add(new StringContent("true"), "minorEdit");
+
+            var url = $"{_v1}/content/{pageId}/child/attachment/{attachmentId}/data";
+            using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
+            request.Headers.Add("X-Atlassian-Token", "nocheck");
+
+            using var response = await _httpClient.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(ct);
+                _logger.LogWarning(
+                    "Failed to update attachment '{FileName}' (ID: {AttachmentId}) on page {PageId}. Status code: {StatusCode}, Error: {Error}",
+                    fileName, attachmentId, pageId, response.StatusCode, errorContent);
+                return false;
+            }
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating attachment '{FileName}' (ID: {AttachmentId}) on page {PageId}", fileName, attachmentId, pageId);
+            return false;
+        }
+    }
+
+    public async Task<bool> DeleteAttachmentAsync(string pageId, string attachmentId, CancellationToken ct = default)
+    {
+        try
+        {
+            var url = $"{_v2}/attachments/{attachmentId}";
+            using var response = await _httpClient.DeleteAsync(url, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(ct);
+                _logger.LogWarning("Failed to delete attachment {AttachmentId} from page {PageId}. Status code: {StatusCode}, Error: {Error}",
+                    attachmentId, pageId, response.StatusCode, errorContent);
+                return false;
+            }
+            _logger.LogInformation("Deleted attachment {AttachmentId} from page {PageId}", attachmentId, pageId);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting attachment {AttachmentId} from page {PageId}", attachmentId, pageId);
+            return false;
+        }
+    }
 
     // ── v2 plumbing ──────────────────────────────────────────────────────
 
@@ -441,8 +611,48 @@ public class ConfluenceCloudApiClient : IConfluenceApiClient
         var space = JsonConvert.DeserializeObject<CloudSpace>(content)
             ?? throw new InvalidOperationException($"Could not deserialize space {spaceId}");
 
-        _spaceKeyById[space.Id] = space.Key;
+        CacheSpace(space);
         return space.Key;
+    }
+
+    /// <summary>
+    /// Resolves a space key to its numeric id (v2 page create requires the
+    /// id), cached per client lifetime. An unknown key throws — creating a
+    /// page in a mistyped space must not fail silently.
+    /// </summary>
+    private async Task<string> GetSpaceIdByKeyAsync(string spaceKey, CancellationToken ct)
+    {
+        if (_spaceIdByKey.TryGetValue(spaceKey, out var cached))
+            return cached;
+
+        var url = $"{_v2}/spaces?keys={Uri.EscapeDataString(spaceKey)}";
+        using var response = await _httpClient.GetAsync(url, ct);
+        await ConfluenceApiHelpers.EnsureSuccessAsync(response, $"Failed to resolve space key '{spaceKey}'", ct);
+        var content = await response.Content.ReadAsStringAsync(ct);
+        var spaces = JsonConvert.DeserializeObject<CloudResponse<CloudSpace>>(content)
+            ?? throw new InvalidOperationException($"Could not deserialize the spaces response for key '{spaceKey}'");
+        var space = spaces.Results.FirstOrDefault(s => string.Equals(s.Key, spaceKey, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"Space '{spaceKey}' was not found on the Cloud site.");
+
+        CacheSpace(space);
+        return space.Id;
+    }
+
+    /// <summary>Populates both directions of the space cache from one lookup.</summary>
+    private void CacheSpace(CloudSpace space)
+    {
+        _spaceKeyById[space.Id] = space.Key;
+        _spaceIdByKey[space.Key] = space.Id;
+    }
+
+    private static StringContent JsonContent(object payload) =>
+        new(JsonConvert.SerializeObject(payload), Encoding.UTF8, "application/json");
+
+    private static async Task<CloudPage> ReadPageAsync(HttpResponseMessage response, string errorContext, CancellationToken ct)
+    {
+        var content = await response.Content.ReadAsStringAsync(ct);
+        return JsonConvert.DeserializeObject<CloudPage>(content)
+            ?? throw new InvalidOperationException(errorContext);
     }
 
     /// <summary>
