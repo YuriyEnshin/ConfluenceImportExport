@@ -24,7 +24,7 @@ The tool supports:
   - an `index.html` file with the page content in storage representation
   - attachments as separate files
   - a marker file `.id<pageId>_<version>` (its body is JSON with the original title and space key) for stable page identification and version tracking
-- Authentication modes: `--auth-type onprem` and `--auth-type cloud`
+- Authentication modes: `--auth-type onprem` and `--auth-type cloud`; by default the type is auto-detected from `--base-url` (`*.atlassian.net` hosts → `cloud`)
 - Multi-layered configuration with priority: CLI > environment variables > file > default value
 - Global `--verbose` flag for detailed (debug-level) output
 - Dry-run support where applicable
@@ -294,7 +294,7 @@ Force-downloads a Confluence page (or subtree) to the local disk. Differing page
 - `--page-id` or `--page-title` (exactly one must be specified)
 - `--output-dir` (required)
 - `--recursive` (optional)
-- `--auth-type onprem|cloud` (optional, default `onprem`)
+- `--auth-type onprem|cloud` (optional, default: auto-detected from `--base-url`)
 - `--dry-run` (optional)
 - `--report` (optional)
 
@@ -324,7 +324,7 @@ Downloads pages from the server, overwriting only those that are newer on the se
 - `--page-id` or `--page-title` (exactly one must be specified)
 - `--output-dir` (required)
 - `--recursive` (optional)
-- `--auth-type onprem|cloud` (optional, default `onprem`)
+- `--auth-type onprem|cloud` (optional, default: auto-detected from `--base-url`)
 - `--dry-run` (optional)
 - `--report` (optional)
 
@@ -355,7 +355,7 @@ Force-uploads local pages to the server. Differing pages are overwritten with th
 - `--page-id` or `--page-title` (optional, explicit root page)
 - `--recursive` (optional)
 - `--multi-tree` (optional; `--source-dir` points to a directory with several trees — each is processed with its own space; incompatible with `--page-id`/`--page-title`)
-- `--auth-type onprem|cloud` (optional, default `onprem`)
+- `--auth-type onprem|cloud` (optional, default: auto-detected from `--base-url`)
 - `--dry-run` (optional)
 - `--report` (optional)
 
@@ -408,7 +408,7 @@ If the same page's content was also changed on the server, the structural move i
 - `--page-id` or `--page-title` (optional, explicit root page)
 - `--recursive` (optional)
 - `--multi-tree` (optional; `--source-dir` points to a directory with several trees — each is processed with its own space; incompatible with `--page-id`/`--page-title`)
-- `--auth-type onprem|cloud` (optional, default `onprem`)
+- `--auth-type onprem|cloud` (optional, default: auto-detected from `--base-url`)
 - `--dry-run` (optional)
 - `--report` (optional)
 
@@ -437,7 +437,7 @@ Creates new Confluence pages from local content.
 - `--source-dir` (required)
 - `--parent-id` or `--parent-title` (optional)
 - `--recursive` (optional)
-- `--auth-type onprem|cloud` (optional, default `onprem`)
+- `--auth-type onprem|cloud` (optional, default: auto-detected from `--base-url`)
 - `--dry-run` (optional)
 
 ### upload create example
@@ -470,7 +470,7 @@ With `--detect-source`, the Confluence version history is additionally analysed 
 - `--recursive` (optional)
 - `--match-by-title` (optional)
 - `--detect-source` (optional) — analyse version history to determine the source of renames and moves (extra API calls)
-- `--auth-type onprem|cloud` (optional, default `onprem`)
+- `--auth-type onprem|cloud` (optional, default: auto-detected from `--base-url`)
 
 ### Matching strategy
 

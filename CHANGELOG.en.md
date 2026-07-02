@@ -6,6 +6,27 @@ All notable changes to the Confluence Page Exporter tool are documented in this 
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+
+- Confluence deployment-type auto-detection from `--base-url`: `*.atlassian.net`
+  hosts are treated as Cloud, everything else as on-prem; an explicit
+  `--auth-type` takes precedence. An invalid `--auth-type` value now fails with
+  a clear error instead of being silently ignored, and `config show` displays
+  the effective mode (e.g. `cloud (auto-detected)`). The `cloud` mode is
+  preparatory for now: the existing (v1) API client is used and a warning is
+  printed — full Cloud API support arrives in upcoming releases.
+
+### Changed
+
+- HTTP request retries honour the server's `Retry-After` header (429/503): the
+  wait is taken from the header, capped at 60 seconds — matters for Confluence
+  Cloud rate limits.
+- POST requests are now retried on 429: the rate limiter rejects the request
+  before processing, so duplicated side effects are impossible. POST is still
+  never retried on network errors or 5xx.
+
 ## [2.16.0] — 2026-06-24
 
 ### Added

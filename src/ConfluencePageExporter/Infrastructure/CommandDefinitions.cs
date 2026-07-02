@@ -19,7 +19,7 @@ public static class CommandDefinitions
         root.Options.Add(Opt<string?>("--username", "Username or email for authentication", recursive: true));
         root.Options.Add(Opt<string?>("--token", "API token or password for authentication", recursive: true));
         root.Options.Add(Opt<string?>("--space-key", "Confluence space key", recursive: true));
-        root.Options.Add(Opt<string?>("--auth-type", "Authentication type: 'onprem' or 'cloud'", recursive: true));
+        root.Options.Add(Opt<string?>("--auth-type", "Deployment type: 'onprem' or 'cloud' (default: auto-detected from --base-url, *.atlassian.net → cloud)", recursive: true));
         root.Options.Add(Flag("--dry-run", "Perform a dry run without writing changes", recursive: true));
         root.Options.Add(Flag("--recursive", "Recursively process child pages", recursive: true));
         root.Options.Add(Flag("--multi-tree", "Upload update/merge: process every page tree under --source-dir independently (each may live in a different space)", recursive: true));

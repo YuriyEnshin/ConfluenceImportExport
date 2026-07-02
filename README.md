@@ -24,7 +24,7 @@
   - файл `index.html` с контентом страницы в storage representation
   - вложения как отдельные файлы
   - файл-маркер `.id<pageId>_<version>` (в теле — JSON с оригинальным заголовком и ключом пространства) для стабильной идентификации страницы и отслеживания версии
-- Режимы аутентификации: `--auth-type onprem` и `--auth-type cloud`
+- Режимы аутентификации: `--auth-type onprem` и `--auth-type cloud`; по умолчанию тип определяется автоматически по `--base-url` (хосты `*.atlassian.net` → `cloud`)
 - Многоуровневая конфигурация с приоритетом: CLI > переменные окружения > файл > значение по умолчанию
 - Глобальный параметр `--verbose` для подробного (debug-level) вывода
 - Поддержка dry-run там, где применимо
@@ -294,7 +294,7 @@ ConfluencePageExporter upload merge --source-dir ./export/MyPage --recursive --r
 - `--page-id` или `--page-title` (обязательно указать ровно один)
 - `--output-dir` (обязательный)
 - `--recursive` (опционально)
-- `--auth-type onprem|cloud` (опционально, по умолчанию `onprem`)
+- `--auth-type onprem|cloud` (опционально, по умолчанию — автоопределение по `--base-url`)
 - `--dry-run` (опционально)
 - `--report` (опционально)
 
@@ -324,7 +324,7 @@ ConfluencePageExporter download update \
 - `--page-id` или `--page-title` (обязательно указать ровно один)
 - `--output-dir` (обязательный)
 - `--recursive` (опционально)
-- `--auth-type onprem|cloud` (опционально, по умолчанию `onprem`)
+- `--auth-type onprem|cloud` (опционально, по умолчанию — автоопределение по `--base-url`)
 - `--dry-run` (опционально)
 - `--report` (опционально)
 
@@ -355,7 +355,7 @@ ConfluencePageExporter --report download merge \
 - `--page-id` или `--page-title` (опционально, явное указание корневой страницы)
 - `--recursive` (опционально)
 - `--multi-tree` (опционально; `--source-dir` указывает на каталог с несколькими деревьями — каждое обрабатывается со своим пространством; несовместимо с `--page-id`/`--page-title`)
-- `--auth-type onprem|cloud` (опционально, по умолчанию `onprem`)
+- `--auth-type onprem|cloud` (опционально, по умолчанию — автоопределение по `--base-url`)
 - `--dry-run` (опционально)
 - `--report` (опционально)
 
@@ -408,7 +408,7 @@ ConfluencePageExporter upload update \
 - `--page-id` или `--page-title` (опционально, явное указание корневой страницы)
 - `--recursive` (опционально)
 - `--multi-tree` (опционально; `--source-dir` указывает на каталог с несколькими деревьями — каждое обрабатывается со своим пространством; несовместимо с `--page-id`/`--page-title`)
-- `--auth-type onprem|cloud` (опционально, по умолчанию `onprem`)
+- `--auth-type onprem|cloud` (опционально, по умолчанию — автоопределение по `--base-url`)
 - `--dry-run` (опционально)
 - `--report` (опционально)
 
@@ -437,7 +437,7 @@ ConfluencePageExporter --report upload merge \
 - `--source-dir` (обязательный)
 - `--parent-id` или `--parent-title` (опционально)
 - `--recursive` (опционально)
-- `--auth-type onprem|cloud` (опционально, по умолчанию `onprem`)
+- `--auth-type onprem|cloud` (опционально, по умолчанию — автоопределение по `--base-url`)
 - `--dry-run` (опционально)
 
 ### Пример upload create
@@ -470,7 +470,7 @@ ConfluencePageExporter upload create \
 - `--recursive` (опционально)
 - `--match-by-title` (опционально)
 - `--detect-source` (опционально) — анализировать историю версий для определения источника переименований и перемещений (дополнительные API-вызовы)
-- `--auth-type onprem|cloud` (опционально, по умолчанию `onprem`)
+- `--auth-type onprem|cloud` (опционально, по умолчанию — автоопределение по `--base-url`)
 
 ### Стратегия сопоставления
 
