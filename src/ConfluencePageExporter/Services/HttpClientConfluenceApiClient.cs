@@ -293,48 +293,17 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         return new PageUpdateResult(result.Id, result.Version?.Number ?? version);
     }
 
-    /// <summary>
-    /// Builds a typed exception from a failed write response: 409 becomes a
-    /// <see cref="ConfluenceConflictException"/> (recoverable per-page), every
-    /// other status a <see cref="ConfluenceApiException"/> carrying the code
-    /// and a trimmed response body for diagnostics.
-    /// </summary>
-    private static ConfluenceApiException ApiException(HttpStatusCode status, string responseBody, string context)
-    {
-        var trimmed = responseBody?.Trim() ?? string.Empty;
-        var snippet = trimmed.Length == 0
-            ? string.Empty
-            : " — " + (trimmed.Length > 500 ? trimmed[..500] + "…" : trimmed);
-        var message = $"{context}: HTTP {(int)status} {status}{snippet}";
-        return status == HttpStatusCode.Conflict
-            ? new ConfluenceConflictException(message, responseBody)
-            : new ConfluenceApiException(status, message, responseBody);
-    }
+    // Error contract and CQL escaping live in ConfluenceApiHelpers, shared
+    // with the Cloud client so both deployments produce identical typed
+    // exceptions (409 → ConfluenceConflictException etc.).
+    private static ConfluenceApiException ApiException(HttpStatusCode status, string responseBody, string context) =>
+        ConfluenceApiHelpers.CreateException(status, responseBody, context);
 
-    /// <summary>
-    /// Read-path counterpart of <see cref="ApiException"/>: replaces
-    /// <c>EnsureSuccessStatusCode</c> so read failures carry the status code and
-    /// a response-body snippet with the same fidelity as write failures, and so
-    /// callers can react to <see cref="ConfluenceApiException.IsAuthFailure"/>
-    /// uniformly (e.g. multi-tree upload aborts the batch on 401/403).
-    /// </summary>
-    private static async Task EnsureSuccessAsync(HttpResponseMessage response, string context, CancellationToken ct)
-    {
-        if (response.IsSuccessStatusCode)
-            return;
+    private static Task EnsureSuccessAsync(HttpResponseMessage response, string context, CancellationToken ct) =>
+        ConfluenceApiHelpers.EnsureSuccessAsync(response, context, ct);
 
-        var errorContent = await response.Content.ReadAsStringAsync(ct);
-        throw ApiException(response.StatusCode, errorContent, context);
-    }
-
-    /// <summary>
-    /// Escapes a value for safe interpolation into a double-quoted CQL string
-    /// literal. CQL uses backslash escaping inside quotes, so a space key or
-    /// title containing <c>"</c> or <c>\</c> (both legal in page titles) would
-    /// otherwise break the query or silently change its meaning.
-    /// </summary>
     private static string EscapeCql(string value) =>
-        value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        ConfluenceApiHelpers.EscapeCql(value);
 
     private const string DefaultAttachmentMediaType = "application/octet-stream";
 

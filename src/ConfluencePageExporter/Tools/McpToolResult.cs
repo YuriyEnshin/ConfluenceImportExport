@@ -81,6 +81,8 @@ public static class McpToolResult
             HttpRequestException hre when hre.StatusCode == HttpStatusCode.Forbidden => "AUTH_FAILED",
             HttpRequestException hre when hre.StatusCode == HttpStatusCode.NotFound => "PAGE_NOT_FOUND",
             HttpRequestException => "NETWORK_ERROR",
+            // Read-only Cloud phase: write tools against a Cloud deployment.
+            NotSupportedException => "NOT_SUPPORTED",
             DirectoryNotFoundException => "DIRECTORY_NOT_FOUND",
             FileNotFoundException => "FILE_NOT_FOUND",
             ArgumentException => "INVALID_ARGS",

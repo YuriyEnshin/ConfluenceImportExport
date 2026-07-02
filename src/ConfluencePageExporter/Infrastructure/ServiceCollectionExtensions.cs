@@ -67,22 +67,18 @@ public static class ServiceCollectionExtensions
             var opts = sp.GetRequiredService<IOptions<GlobalOptions>>().Value;
             var baseUrl = opts.BaseUrl
                 ?? throw new ArgumentException("Missing required parameter: --base-url (or Global:BaseUrl in config)");
-            // Deployment-type switch point: the Cloud (v2) client plugs in here.
-            // Until it exists, Cloud mode still gets the v1 client — with a
-            // warning rather than an error, so an on-prem setup that merely
-            // set AuthType=cloud by mistake keeps working.
             var deployment = DeploymentTypeResolver.Resolve(opts.AuthType, baseUrl);
             var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient(ConfluenceClientName);
-            var logger = sp.GetRequiredService<ILogger<HttpClientConfluenceApiClient>>();
             if (deployment == DeploymentType.Cloud)
             {
-                logger.LogWarning(
-                    "Confluence Cloud deployment ({Source}), but Cloud API support is not implemented yet — " +
-                    "using the Server/Data Center (v1) API client. Atlassian removed the v1 content endpoints " +
-                    "from Cloud in 2025, so most operations will fail until Cloud support ships.",
-                    string.IsNullOrWhiteSpace(opts.AuthType) ? "auto-detected from base URL" : "--auth-type cloud");
+                // Cloud client (v2 + the v1 endpoints Atlassian kept). Read
+                // operations only for now: write methods throw
+                // NotSupportedException until Cloud write support ships.
+                return new ConfluenceCloudApiClient(baseUrl, http,
+                    sp.GetRequiredService<ILogger<ConfluenceCloudApiClient>>());
             }
-            return new HttpClientConfluenceApiClient(baseUrl, http, logger);
+            return new HttpClientConfluenceApiClient(baseUrl, http,
+                sp.GetRequiredService<ILogger<HttpClientConfluenceApiClient>>());
         });
 
         return services;

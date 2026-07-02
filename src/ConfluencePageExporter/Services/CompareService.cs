@@ -290,7 +290,10 @@ public class CompareService
             page.Body.Storage.Value,
             page.Version?.When?.ToUniversalTime(),
             page.Version?.Number,
-            page.ChildTypes?.HasAttachments ?? false);
+            // null = unknown: Cloud v2 payloads carry no childTypes, so the
+            // attachment check must run rather than be silently skipped
+            // (Server/DC always populates it via expand=childTypes.all).
+            page.ChildTypes?.HasAttachments ?? true);
 
         if (!recursive)
             return;
