@@ -69,7 +69,7 @@ public sealed class ConfigShowCommandHandler : ICommandHandler
         PrintValue("  Username", g.Username, "Global:Username");
         PrintValue("  Token", Mask(g.Token), "Global:Token");
         PrintValue("  SpaceKey", g.SpaceKey, "Global:SpaceKey");
-        PrintValue("  AuthType", g.AuthType ?? "onprem", "Global:AuthType");
+        PrintValue("  AuthType", DescribeAuthType(g), "Global:AuthType");
         PrintValue("  Verbose", (g.Verbose ?? false).ToString(), "Global:Verbose");
         PrintValue("  DryRun", (g.DryRun ?? false).ToString(), "Global:DryRun");
         PrintValue("  Recursive", (g.Recursive ?? false).ToString(), "Global:Recursive");
@@ -182,6 +182,24 @@ public sealed class ConfigShowCommandHandler : ICommandHandler
     {
         var envKey = EnvPrefix + configKey.Replace(":", "__", StringComparison.Ordinal).ToUpperInvariant();
         return Environment.GetEnvironmentVariable(envKey) != null;
+    }
+
+    /// <summary>
+    /// An explicit AuthType is echoed as-is (with a hint when unrecognised —
+    /// the API client registration would reject it with the same expectation);
+    /// an absent one shows what deployment auto-detection resolves to, so the
+    /// operator sees the effective mode, not just "(not set)".
+    /// </summary>
+    private static string DescribeAuthType(GlobalOptions g)
+    {
+        if (!string.IsNullOrWhiteSpace(g.AuthType))
+            return DeploymentTypeResolver.TryParse(g.AuthType, out _)
+                ? g.AuthType.Trim().ToLowerInvariant()
+                : $"{g.AuthType} (invalid: expected onprem|cloud)";
+
+        return DeploymentTypeResolver.Autodetect(g.BaseUrl) == DeploymentType.Cloud
+            ? "cloud (auto-detected)"
+            : "onprem";
     }
 
     private static string? Mask(string? value)

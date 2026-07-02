@@ -6,10 +6,15 @@ namespace ConfluencePageExporter.Infrastructure;
 
 /// <summary>
 /// <see cref="DelegatingHandler"/> that retries transient HTTP failures with
-/// exponential backoff. Idempotent verbs only (GET / HEAD / PUT / DELETE /
-/// OPTIONS); POST is passed through untouched so we never accidentally
-/// duplicate a non-idempotent side effect like "create page" or "upload
-/// attachment".
+/// exponential backoff, honouring the server's <c>Retry-After</c> header when
+/// present (Confluence Cloud sends it with 429 rate-limit and some 503
+/// responses; capped at <see cref="MaxRetryAfter"/> so a long server-suggested
+/// pause can't hang a tool call). Idempotent verbs (GET / HEAD / PUT / DELETE /
+/// OPTIONS) retry on any transient failure. POST retries <b>only</b> on 429:
+/// a rate limiter rejects the request before it is processed, so a side effect
+/// like "create page" or "upload attachment" cannot be duplicated — while on
+/// 5xx or a network error the server may have already applied the change, so
+/// POST is passed through untouched.
 /// </summary>
 /// <remarks>
 /// Designed for the long-running MCP server: combined with the connection-
@@ -21,6 +26,13 @@ namespace ConfluencePageExporter.Infrastructure;
 /// </remarks>
 public sealed class RetryingHttpHandler : DelegatingHandler
 {
+    /// <summary>
+    /// Upper bound for a server-suggested <c>Retry-After</c> wait. Anything
+    /// longer degenerates into an apparent hang for an interactive CLI/MCP
+    /// call; better to burn the remaining attempts and surface the 429.
+    /// </summary>
+    internal static readonly TimeSpan MaxRetryAfter = TimeSpan.FromSeconds(60);
+
     private readonly ILogger _logger;
     private readonly int _maxAttempts;
     private readonly TimeSpan _baseDelay;
@@ -54,13 +66,7 @@ public sealed class RetryingHttpHandler : DelegatingHandler
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        // POST is non-idempotent. We don't know whether the server saw the
-        // request before the failure, so retrying could create a duplicate
-        // page or attachment. Pass through unchanged.
-        if (!IsIdempotent(request.Method))
-        {
-            return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        }
+        var idempotent = IsIdempotent(request.Method);
 
         Exception? lastException = null;
         for (var attempt = 1; attempt <= _maxAttempts; attempt++)
@@ -68,35 +74,68 @@ public sealed class RetryingHttpHandler : DelegatingHandler
             try
             {
                 var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
-                if (!IsTransientStatus(response.StatusCode) || attempt == _maxAttempts)
+
+                // 429 is safe to retry for every verb: the rate limiter
+                // rejected the request before any side effect happened.
+                var retryable = IsTransientStatus(response.StatusCode)
+                    && (idempotent || response.StatusCode == HttpStatusCode.TooManyRequests);
+                if (!retryable || attempt == _maxAttempts)
                 {
                     return response;
                 }
+
+                var delay = RetryAfterDelay(response) ?? NextDelay(attempt);
                 _logger.LogWarning(
                     "HTTP {Method} {Uri} returned transient status {Status}; retrying in {DelayMs}ms ({Attempt}/{Max}).",
                     request.Method.Method, request.RequestUri, (int)response.StatusCode,
-                    NextDelay(attempt).TotalMilliseconds, attempt, _maxAttempts);
+                    delay.TotalMilliseconds, attempt, _maxAttempts);
                 response.Dispose();
+
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (
-                IsTransient(ex)
+                idempotent
+                && IsTransient(ex)
                 && attempt < _maxAttempts
                 && !cancellationToken.IsCancellationRequested)
             {
                 lastException = ex;
+                var delay = NextDelay(attempt);
                 _logger.LogWarning(
                     ex,
                     "HTTP {Method} {Uri} threw transient error; retrying in {DelayMs}ms ({Attempt}/{Max}).",
                     request.Method.Method, request.RequestUri,
-                    NextDelay(attempt).TotalMilliseconds, attempt, _maxAttempts);
-            }
+                    delay.TotalMilliseconds, attempt, _maxAttempts);
 
-            await Task.Delay(NextDelay(attempt), cancellationToken).ConfigureAwait(false);
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         // Unreachable in practice: the loop always either returns or rethrows
         // on the final attempt. Defensive throw for completeness.
         throw lastException ?? new InvalidOperationException("Retry loop exited without a response.");
+    }
+
+    /// <summary>
+    /// Extracts the server-suggested wait from <c>Retry-After</c> (both the
+    /// delta-seconds and HTTP-date forms), clamped to
+    /// [0, <see cref="MaxRetryAfter"/>]. Returns <c>null</c> when the header
+    /// is absent, letting the caller fall back to exponential backoff.
+    /// </summary>
+    internal static TimeSpan? RetryAfterDelay(HttpResponseMessage response)
+    {
+        var retryAfter = response.Headers.RetryAfter;
+        if (retryAfter is null)
+            return null;
+
+        TimeSpan? delay = retryAfter.Delta
+            ?? (retryAfter.Date is { } date ? date - DateTimeOffset.UtcNow : null);
+        if (delay is null)
+            return null;
+
+        if (delay < TimeSpan.Zero)
+            return TimeSpan.Zero;
+        return delay > MaxRetryAfter ? MaxRetryAfter : delay;
     }
 
     private TimeSpan NextDelay(int attempt) =>

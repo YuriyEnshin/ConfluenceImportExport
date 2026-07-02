@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Sockets;
 using ConfluencePageExporter.Infrastructure;
 using Shouldly;
@@ -11,7 +12,7 @@ namespace ConfluencePageExporter.Tests.Infrastructure;
 /// top of an <see cref="HttpClient"/>, plug a <see cref="StubInnerHandler"/>
 /// beneath it that produces controlled responses/exceptions per attempt, and
 /// assert the retry contract: transient → retry, non-transient → propagate,
-/// POST → never retry, cancellation → abort.
+/// POST → retry only on 429, Retry-After honoured, cancellation → abort.
 /// </summary>
 public class RetryingHttpHandlerTests
 {
@@ -156,6 +157,101 @@ public class RetryingHttpHandlerTests
 
         response.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
         inner.AttemptCount.ShouldBe(1);
+    }
+
+    // ── Rate limiting: POST + 429, Retry-After ───────────────────────────
+
+    [Fact]
+    public async Task SendAsync_ShouldRetryPost_On429_ThenSucceed()
+    {
+        // 429 comes from the rate limiter, which rejects the request before
+        // any side effect happens — the one transient status POST retries on.
+        var inner = new StubInnerHandler(attempt => attempt < 2
+            ? new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+            : new HttpResponseMessage(HttpStatusCode.OK));
+        using var client = new HttpClient(Build(inner));
+
+        var response = await client.PostAsync("http://example.com/", new StringContent("{}"), TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        inner.AttemptCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task SendAsync_ShouldReturnLast429_WhenPostStaysRateLimited()
+    {
+        var inner = new StubInnerHandler(_ => new HttpResponseMessage(HttpStatusCode.TooManyRequests));
+        using var client = new HttpClient(Build(inner, max: 3));
+
+        var response = await client.PostAsync("http://example.com/", new StringContent("{}"), TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        inner.AttemptCount.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task SendAsync_ShouldRetry_UsingRetryAfterHeader()
+    {
+        // Retry-After: 0 → immediate retry; proves the header path is taken
+        // without slowing the suite down.
+        var inner = new StubInnerHandler(attempt =>
+        {
+            if (attempt >= 2)
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            var rateLimited = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            rateLimited.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.Zero);
+            return rateLimited;
+        });
+        using var client = new HttpClient(Build(inner));
+
+        var response = await client.GetAsync("http://example.com/", TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        inner.AttemptCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public void RetryAfterDelay_ShouldUseDeltaSeconds()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        response.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromSeconds(5));
+
+        RetryingHttpHandler.RetryAfterDelay(response).ShouldBe(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public void RetryAfterDelay_ShouldClampLongDelta_ToMaximum()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        response.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromMinutes(10));
+
+        RetryingHttpHandler.RetryAfterDelay(response).ShouldBe(RetryingHttpHandler.MaxRetryAfter);
+    }
+
+    [Fact]
+    public void RetryAfterDelay_ShouldClampFarFutureDate_ToMaximum()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        response.Headers.RetryAfter = new RetryConditionHeaderValue(DateTimeOffset.UtcNow.AddMinutes(10));
+
+        RetryingHttpHandler.RetryAfterDelay(response).ShouldBe(RetryingHttpHandler.MaxRetryAfter);
+    }
+
+    [Fact]
+    public void RetryAfterDelay_ShouldTreatPastDate_AsZero()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        response.Headers.RetryAfter = new RetryConditionHeaderValue(DateTimeOffset.UtcNow.AddMinutes(-5));
+
+        RetryingHttpHandler.RetryAfterDelay(response).ShouldBe(TimeSpan.Zero);
+    }
+
+    [Fact]
+    public void RetryAfterDelay_ShouldReturnNull_WhenHeaderAbsent()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+
+        RetryingHttpHandler.RetryAfterDelay(response).ShouldBeNull();
     }
 
     // ── Cancellation ─────────────────────────────────────────────────────
