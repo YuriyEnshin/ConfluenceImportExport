@@ -17,7 +17,8 @@ namespace ConfluencePageExporter.Services;
 ///    algorithm, or switching the active IContentNormalizer. Stored hashes
 ///    computed under the old recipe will otherwise silently mismatch. The
 ///    golden-vector unit test fails until you update both, which is the intended
-///    tripwire. See .cursor/rules/confluence-import-export.mdc §11.
+///    tripwire. See .claude/rules/dotnet-maintenance.md, section
+///    "КРИТИЧНО: контракт нормализации".
 /// </summary>
 public static class NormalizationContract
 {

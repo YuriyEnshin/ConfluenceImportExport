@@ -17,7 +17,8 @@ namespace ConfluencePageExporter.Services;
 /// behaviour (whitespace / attribute / entity handling), you MUST bump
 /// <see cref="NormalizationContract.CurrentEpoch"/> and refresh its golden value,
 /// or stored hashes silently mismatch. The golden-vector test fails until you do.
-/// See .cursor/rules/confluence-import-export.mdc §11.
+/// See .claude/rules/dotnet-maintenance.md ("КРИТИЧНО: контракт нормализации").
+/// The /bump-normalization-epoch skill walks through this update.
 /// </remarks>
 public sealed class XmlContentNormalizer : IContentNormalizer
 {
