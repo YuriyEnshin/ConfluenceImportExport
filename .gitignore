@@ -107,8 +107,9 @@ _ReSharper*/
 # AI assistants
 ############################
 .cursor/
-# .claude/ is local by default; the shared agent rules under .claude/rules/ are committed
+# .claude/ is local by default; shared agent rules and project skills are committed
 .claude/*
 !.claude/rules/
+!.claude/skills/
 # CLAUDE.md / AGENTS.md are committed project AI-agent instructions
 graphify-out/
