@@ -413,6 +413,36 @@ public class UploadServiceTests
     }
 
     [Fact]
+    public async Task UploadUpdateAsync_ShouldReportFailedListing_AndNotPushBlindly()
+    {
+        // A failed attachment listing must not be read as "the server has none":
+        // that would re-create every existing attachment. Skip and report instead.
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(
+            temp.RootPath,
+            "Root",
+            "<p>content</p>",
+            textAttachments: [("file.txt", "data")]);
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(ApiClientMockFactory.CreatePage("100", "Remote", "<p>x</p>"));
+        api.Setup(x => x.UpdatePageAsync("100", "Root", "<p>content</p>", null, It.IsAny<int?>())).ReturnsAsync(new PageUpdateResult("100", 2));
+        api.Setup(x => x.GetAttachmentsAsync("100"))
+            .ThrowsAsync(new ConfluenceApiException(System.Net.HttpStatusCode.InternalServerError, "listing exploded"));
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadUpdateAsync("SPACE", sourceDir, "100", null, recursive: false);
+
+        api.Verify(x => x.UploadAttachmentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        report.HasIssues.ShouldBeTrue();
+        var failed = report.FailedAttachments.ShouldHaveSingleItem();
+        failed.PageId.ShouldBe("100");
+        failed.FileName.ShouldBe(SyncReport.AttachmentListingFileName);
+    }
+
+    [Fact]
     public async Task UploadUpdateAsync_ShouldDetectChangeByFileSize_WithoutDownloading()
     {
         using var temp = new TempDirectoryScope();

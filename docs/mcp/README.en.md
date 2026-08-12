@@ -136,6 +136,12 @@ resulting tree using its own filesystem tools (Read, Grep, Bash, etc.).
 The MCP server deliberately does not duplicate
 this functionality — it is responsible only for synchronisation.
 
+Note that `success: true` does **not** mean "everything is in sync": attachments
+that could not be synchronised are listed in `report.failedAttachments` (page, file
+name, reason), raise `report.hasIssues` and appear in the `summary`
+(`… ; 1 attachment(s) failed`). The agent must check that field before telling the
+user the mirror is up to date.
+
 ## Scenario: resolving a conflict with the agent's help
 
 `download_merge` and `upload_merge` report conflicts (edits on both

@@ -250,15 +250,18 @@ public class ConfluenceCloudApiClientTests
     }
 
     [Fact]
-    public async Task GetAttachmentsAsync_ShouldReturnEmpty_OnError()
+    public async Task GetAttachmentsAsync_ShouldThrow_OnError()
     {
+        // An empty list must mean "the page has no attachments". Masking a failed
+        // listing as empty let a page's attachments silently vanish from the mirror.
         var handler = new StubHttpMessageHandler();
         handler.EnqueueResponse(HttpStatusCode.InternalServerError, """{"message":"boom"}""");
         var client = CreateClient(handler);
 
-        var attachments = await client.GetAttachmentsAsync("100", TestContext.Current.CancellationToken);
+        var act = async () => await client.GetAttachmentsAsync("100", TestContext.Current.CancellationToken);
 
-        attachments.ShouldBeEmpty();
+        var ex = await Should.ThrowAsync<ConfluenceApiException>(act);
+        ex.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
     }
 
     [Theory]

@@ -6,6 +6,39 @@ All notable changes to the Confluence Page Exporter tool are documented in this 
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+
+- The sync report gained an "attachments not synchronised" section: attachments
+  that could not be downloaded or uploaded are now listed with the page, file
+  name and reason. Such entries raise the issue flag (`hasIssues`), appear in the
+  MCP envelope's `summary` (`… ; 1 attachment(s) failed`) and in
+  `report.failedAttachments`, and in the CLI a warning about the incomplete
+  mirror is printed even without `--report`.
+
+### Fixed
+
+- `download update` / `download merge` no longer report success when an
+  attachment failed to download: the failure previously went to the log only —
+  no file appeared in the page folder while the report showed
+  `hasIssues: false`, so the mirror divergence was visible only through a
+  separate `compare`.
+- An unreachable attachment listing no longer looks like "the page has no
+  attachments" (on Server/DC and on Cloud): the listing error reaches the
+  report, the page's attachments are not counted as synchronised, and the
+  attachment baselines stored in the marker are not wiped. In this situation
+  `upload update` / `upload merge` no longer push attachments blindly, and
+  `compare` marks the page as not compared in `Notes`.
+- The `compare` summary advice for differing attachments is now chosen by the
+  direction of the difference: `OnlyRemote` / `ChangedServer` suggests
+  downloading, `OnlyLocal` / `ChangedLocal` suggests uploading, and a conflict
+  or a size-only difference suggests manual inspection (previously uploading was
+  suggested in every case).
+- The version in `Directory.Build.props` was brought in line with the latest
+  release (2.18.0): a build from source printed `--version 2.16.0`, even though
+  release artifacts were built with the correct version from the tag.
+
 ## [2.18.0] — 2026-07-02
 
 ### Added

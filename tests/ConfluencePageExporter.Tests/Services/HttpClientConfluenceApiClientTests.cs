@@ -84,6 +84,22 @@ public class HttpClientConfluenceApiClientTests
     }
 
     [Fact]
+    public async Task GetAttachmentsAsync_ShouldThrow_WhenListingFails()
+    {
+        // An empty list must mean "the page has no attachments". Returning a
+        // partial/empty list on a non-2xx let a page's attachments silently vanish
+        // from the mirror while the download reported success.
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueResponse(HttpStatusCode.InternalServerError, """{"message":"boom"}""");
+        var client = CreateClient(handler);
+
+        var act = async () => await client.GetAttachmentsAsync("20");
+
+        var ex = await Should.ThrowAsync<ConfluenceApiException>(act);
+        ex.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+    }
+
+    [Fact]
     public async Task FindPageByTitleAsync_ShouldReturnFirstPageId_WhenFound()
     {
         var handler = new StubHttpMessageHandler();

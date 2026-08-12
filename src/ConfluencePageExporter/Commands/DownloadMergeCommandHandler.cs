@@ -79,6 +79,8 @@ public sealed class DownloadMergeCommandHandler : ICommandHandler
         _writer.WriteLine($"Download merge completed. Files saved to: {outputDir}");
         if (showReport)
             report.PrintReport(_writer);
+        else
+            report.PrintFailureWarning(_writer);
         return 0;
     }
 }

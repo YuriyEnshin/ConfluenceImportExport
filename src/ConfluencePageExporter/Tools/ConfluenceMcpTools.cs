@@ -489,9 +489,14 @@ public sealed class ConfluenceMcpTools
         if (report.ConflictPages.Count > 0) parts.Add($"{report.ConflictPages.Count} conflict(s)");
         if (report.OrphanPages.Count > 0) parts.Add($"{report.OrphanPages.Count} orphan(s)");
         if (report.SkippedPages.Count > 0) parts.Add($"{report.SkippedPages.Count} skipped");
+        if (report.FailedAttachments.Count > 0) parts.Add($"{report.FailedAttachments.Count} attachment(s) failed");
         var summary = string.Join("; ", parts) + ".";
         if (report.ConflictPages.Count > 0)
             summary += " To resolve a conflict, call confluence_get_page_content with the conflicting pageId, diff it against the local index.html, and upload the merged result with confluence_upload_update.";
+        if (report.FailedAttachments.Count > 0)
+            summary += " WARNING: the local mirror is incomplete — some attachments could not be synchronised."
+                + " See report.failedAttachments (pass report=true) for the page, file name and reason;"
+                + " a failure on the server side (e.g. a lost binary) needs an operator, not a retry.";
         return summary;
     }
 
@@ -506,7 +511,31 @@ public sealed class ConfluenceMcpTools
         if (report.ContentChanged.Count > 0)
             summary += " For any page in 'ContentChanged', call confluence_get_page_content with its pageId to inspect the latest server content and assist with merging.";
         if (report.AttachmentsChanged.Count > 0)
-            summary += " Pages in 'AttachmentsChanged' have differing attachments (by name/size); run confluence_upload_update or confluence_upload_merge to push local attachment changes.";
+            summary += BuildAttachmentAdvice(report);
         return summary;
+    }
+
+    /// <summary>
+    /// Direction-aware advice for 'AttachmentsChanged': the fix depends on which
+    /// side holds the newer file. A blanket "run upload" pointed the wrong way for
+    /// an attachment that exists only on the server.
+    /// </summary>
+    private static string BuildAttachmentAdvice(CompareReport report)
+    {
+        var kinds = report.AttachmentsChanged
+            .SelectMany(page => page.Differences)
+            .Select(diff => diff.Kind)
+            .ToHashSet();
+
+        var advice = " Pages in 'AttachmentsChanged' have differing attachments.";
+        if (kinds.Contains(AttachmentDiffKind.OnlyLocal) || kinds.Contains(AttachmentDiffKind.ChangedLocal))
+            advice += " For 'OnlyLocal' / 'ChangedLocal' the local copy is newer: run confluence_upload_update or confluence_upload_merge to push it.";
+        if (kinds.Contains(AttachmentDiffKind.OnlyRemote) || kinds.Contains(AttachmentDiffKind.ChangedServer))
+            advice += " For 'OnlyRemote' / 'ChangedServer' the server copy is newer: run confluence_download_update or confluence_download_merge to pull it.";
+        if (kinds.Contains(AttachmentDiffKind.ChangedBoth))
+            advice += " 'ChangedBoth' is a conflict — pick a side manually before syncing.";
+        if (kinds.Contains(AttachmentDiffKind.SizeDiffers))
+            advice += " 'SizeDiffers' has no baseline to judge the direction — inspect both copies before syncing.";
+        return advice;
     }
 }

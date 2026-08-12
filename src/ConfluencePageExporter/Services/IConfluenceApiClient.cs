@@ -15,6 +15,13 @@ public interface IConfluenceApiClient
     /// </summary>
     Task<PageData?> TryGetPageByIdAsync(string pageId, CancellationToken ct = default);
     Task<List<PageData>> GetChildrenPagesAsync(string parentId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the page's attachments; an empty list means the page really has
+    /// none. Any API failure throws <see cref="ConfluenceApiException"/> — callers
+    /// treat an empty list as "nothing to mirror", so a masked error would silently
+    /// drop the page's attachments from the local mirror.
+    /// </summary>
     Task<List<AttachmentData>> GetAttachmentsAsync(string pageId, CancellationToken ct = default);
 
     /// <summary>
