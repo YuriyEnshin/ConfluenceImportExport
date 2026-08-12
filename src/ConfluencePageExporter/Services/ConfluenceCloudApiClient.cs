@@ -267,23 +267,15 @@ public class ConfluenceCloudApiClient : IConfluenceApiClient
 
     public async Task<List<AttachmentData>> GetAttachmentsAsync(string pageId, CancellationToken ct = default)
     {
-        try
-        {
-            var cloudAttachments = await GetAllPagesAsync<CloudAttachment>(
-                $"{_v2}/pages/{pageId}/attachments", "?limit=250",
-                $"Failed to fetch attachments for page {pageId}", ct);
-            return cloudAttachments.Select(MapAttachment).ToList();
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // Best-effort listing, matching the v1 client's contract.
-            _logger.LogWarning(ex, "Failed to fetch attachments for page {PageId}", pageId);
-            return [];
-        }
+        // Throws on failure (like the v1 client): an empty list means the page
+        // really has no attachments. Swallowing the error here made "listing
+        // failed" indistinguishable from "no attachments" and let a page's
+        // attachments silently drop out of the mirror; the decision to continue
+        // belongs to the caller, which can report the gap.
+        var cloudAttachments = await GetAllPagesAsync<CloudAttachment>(
+            $"{_v2}/pages/{pageId}/attachments", "?limit=250",
+            $"Failed to fetch attachments for page {pageId}", ct);
+        return cloudAttachments.Select(MapAttachment).ToList();
     }
 
     public async Task<byte[]> DownloadAttachmentAsync(string downloadUrl, CancellationToken ct = default)

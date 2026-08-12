@@ -157,6 +157,33 @@ public class CompareServiceTests
     }
 
     [Fact]
+    public async Task CompareAsync_ShouldNoteFailedAttachmentListing_InsteadOfReportingNoDifferences()
+    {
+        // A page whose attachment listing cannot be fetched is *unknown*, not
+        // "identical": say so in Notes rather than silently comparing nothing.
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        LocalPageTreeBuilder.CreatePage(
+            outputDir, "Root", "<p>root</p>", "1",
+            textAttachments: [("diagram", "bytes")]);
+
+        var root = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", hasAttachments: true);
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(root);
+        api.Setup(x => x.GetChildrenPagesAsync("1")).ReturnsAsync([]);
+        api.Setup(x => x.GetAttachmentsAsync("1"))
+            .ThrowsAsync(new ConfluenceApiException(System.Net.HttpStatusCode.InternalServerError, "listing exploded"));
+
+        var service = CreateService(api);
+
+        var report = await service.CompareAsync("SPACE", "1", null, outputDir, recursive: true);
+
+        report.AttachmentsChanged.ShouldBeEmpty();
+        report.Notes.ShouldContain(n => n.Contains("listing exploded") && n.Contains("could not be compared"));
+    }
+
+    [Fact]
     public async Task CompareAsync_ShouldNotReportAttachments_WhenSizesMatch_AndNotDownload()
     {
         // Same-size attachments are treated as unchanged in cheap mode; no

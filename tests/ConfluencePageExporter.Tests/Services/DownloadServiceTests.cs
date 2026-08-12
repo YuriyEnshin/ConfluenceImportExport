@@ -1,3 +1,4 @@
+using System.Net;
 using ConfluencePageExporter.Models;
 using ConfluencePageExporter.Services;
 using ConfluencePageExporter.Tests.Helpers;
@@ -92,6 +93,138 @@ public class DownloadServiceTests
         baseline.Version.ShouldBe(4);
         baseline.Size.ShouldBe(3);
         baseline.Hash.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_ShouldReportFailedAttachment_WhenDownloadFails()
+    {
+        // Регрессионный (issue #61): вложение, которое сервер не отдаёт, не должно
+        // молча выпадать из зеркала — выгрузка обязана сообщить о неполноте.
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+
+        var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>");
+        var attachments = new List<AttachmentData>
+        {
+            ApiClientMockFactory.CreateAttachment("a1", "ok.txt", "/download/ok.txt"),
+            ApiClientMockFactory.CreateAttachment("a2", "lost.pdf", "/download/lost.pdf")
+        };
+
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync(attachments);
+        api.Setup(x => x.DownloadAttachmentAsync("/download/ok.txt")).ReturnsAsync([1, 2, 3]);
+        api.Setup(x => x.DownloadAttachmentAsync("/download/lost.pdf"))
+            .ThrowsAsync(new ConfluenceApiException(HttpStatusCode.BadRequest, "Failed to download: HTTP 400 BadRequest"));
+
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
+
+        var report = await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
+
+        var pageDir = Path.Combine(outputDir, "Root");
+        // The healthy sibling still lands; only the failing one is missing.
+        File.Exists(Path.Combine(pageDir, "ok.txt")).ShouldBeTrue();
+        File.Exists(Path.Combine(pageDir, "lost.pdf")).ShouldBeFalse();
+
+        report.HasIssues.ShouldBeTrue();
+        var failed = report.FailedAttachments.ShouldHaveSingleItem();
+        failed.PageId.ShouldBe("1");
+        failed.PageTitle.ShouldBe("Root");
+        failed.FileName.ShouldBe("lost.pdf");
+        failed.Reason.ShouldContain("400");
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_ShouldKeepPriorBaseline_WhenAttachmentDownloadFails()
+    {
+        // A failed download must not let the stale local file pose as synced:
+        // the prior baseline stays so the divergence is re-detected next run.
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var pageDir = LocalPageTreeBuilder.CreatePage(
+            outputDir, "Root", "<p>root</p>", "1",
+            textAttachments: [("diagram", "OLD")], version: 5);
+
+        var oldHash = AttachmentHasher.ComputeHash(System.Text.Encoding.UTF8.GetBytes("OLD"));
+        await PageMarker.WriteAsync(pageDir, "1", 5, "Root", "SPACE", null, null,
+            new Dictionary<string, AttachmentBaseline> { ["diagram"] = new AttachmentBaseline("diagram", 5, oldHash, 3) });
+
+        var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", versionNumber: 6);
+        // Server moved to version 6 → a download is due, but the server fails it.
+        var att = ApiClientMockFactory.CreateAttachment("a1", "diagram", "/download/diagram", fileSize: 9, version: 6);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([att]);
+        api.Setup(x => x.DownloadAttachmentAsync("/download/diagram"))
+            .ThrowsAsync(new ConfluenceApiException(HttpStatusCode.InternalServerError, "boom"));
+
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
+
+        var report = await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
+
+        report.FailedAttachments.ShouldHaveSingleItem().FileName.ShouldBe("diagram");
+        var baseline = PageMarker.Load(pageDir).ShouldNotBeNull().Attachments.ShouldNotBeNull()["diagram"];
+        baseline.Version.ShouldBe(5);
+        baseline.Hash.ShouldBe(oldHash);
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAsync_ShouldReportFailedListing_AndPreserveBaselines()
+    {
+        // "Не удалось получить список" не равно "вложений нет": страница с
+        // недоступным листингом раньше выгружалась как страница без вложений.
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+        var pageDir = LocalPageTreeBuilder.CreatePage(
+            outputDir, "Root", "<p>old</p>", "1",
+            textAttachments: [("diagram", "SYNCED")], version: 5);
+
+        var hash = AttachmentHasher.ComputeHash(System.Text.Encoding.UTF8.GetBytes("SYNCED"));
+        await PageMarker.WriteAsync(pageDir, "1", 5, "Root", "SPACE", null, null,
+            new Dictionary<string, AttachmentBaseline> { ["diagram"] = new AttachmentBaseline("diagram", 5, hash, 6) });
+
+        var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>new</p>", versionNumber: 6);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
+        api.Setup(x => x.GetAttachmentsAsync("1"))
+            .ThrowsAsync(new ConfluenceApiException(HttpStatusCode.InternalServerError, "listing exploded"));
+
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
+
+        var report = await service.DownloadUpdateAsync("SPACE", "1", null, outputDir, recursive: false);
+
+        // The page body is still mirrored — only its attachments are unaccounted for.
+        (await File.ReadAllTextAsync(Path.Combine(pageDir, "index.html"), TestContext.Current.CancellationToken))
+            .ShouldBe("<p>new</p>");
+        report.HasIssues.ShouldBeTrue();
+        var failed = report.FailedAttachments.ShouldHaveSingleItem();
+        failed.FileName.ShouldBe(SyncReport.AttachmentListingFileName);
+        failed.Reason.ShouldContain("listing exploded");
+        // A failed listing must not wipe the marker's attachment memory.
+        PageMarker.Load(pageDir).ShouldNotBeNull().Attachments.ShouldNotBeNull()["diagram"].Version.ShouldBe(5);
+    }
+
+    [Fact]
+    public async Task DownloadMergeAsync_ShouldReportFailedAttachment_WhenDownloadFails()
+    {
+        using var temp = new TempDirectoryScope();
+        var outputDir = temp.CreateDirectory("out");
+
+        var page = ApiClientMockFactory.CreatePage("1", "Root", "<p>root</p>", versionNumber: 2);
+        var att = ApiClientMockFactory.CreateAttachment("a1", "lost.pdf", "/download/lost.pdf");
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.GetPageByIdAsync("1")).ReturnsAsync(page);
+        api.Setup(x => x.GetAttachmentsAsync("1")).ReturnsAsync([att]);
+        api.Setup(x => x.DownloadAttachmentAsync("/download/lost.pdf"))
+            .ThrowsAsync(new ConfluenceApiException(HttpStatusCode.BadRequest, "HTTP 400 BadRequest"));
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new DownloadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<DownloadService>());
+
+        var report = await service.DownloadMergeAsync("SPACE", "1", null, outputDir, recursive: false, analyzer);
+
+        report.HasIssues.ShouldBeTrue();
+        report.FailedAttachments.ShouldHaveSingleItem().FileName.ShouldBe("lost.pdf");
     }
 
     [Fact]

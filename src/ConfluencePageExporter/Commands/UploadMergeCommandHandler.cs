@@ -78,6 +78,8 @@ public sealed class UploadMergeCommandHandler : ICommandHandler
         _writer.WriteLine("Upload merge completed.");
         if (showReport)
             report.PrintReport(_writer);
+        else
+            report.PrintFailureWarning(_writer);
         return 0;
     }
 }

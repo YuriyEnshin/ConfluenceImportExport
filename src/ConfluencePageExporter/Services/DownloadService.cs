@@ -94,12 +94,7 @@ public class DownloadService
 
         // Sync attachments before stamping the marker so their baseline (server
         // name/version/hash) is recorded in the same marker write.
-        IReadOnlyDictionary<string, AttachmentBaseline>? attachmentBaselines = null;
-        if (page.ChildTypes?.HasAttachments ?? true)
-        {
-            var attachments = await _apiClient.GetAttachmentsAsync(page.Id, ct);
-            attachmentBaselines = await SaveAttachments(attachments, pageDir, page.Id, page.Title, mergeMode: false, report, ct);
-        }
+        var attachmentBaselines = await SyncPageAttachments(page, pageDir, mergeMode: false, report, ct);
 
         await SavePageIdMarker(page.Id, page.Version?.Number, pageDir, page.Title, treeSpaceKey, page.Body.Storage.Value, attachmentBaselines, ct);
 
@@ -131,12 +126,7 @@ public class DownloadService
         // Sync them first so their baseline can be stamped into the marker writes
         // below. Branches that don't write the marker (local-newer / conflict)
         // leave the baseline for the next successful sync.
-        IReadOnlyDictionary<string, AttachmentBaseline>? attachmentBaselines = null;
-        if (page.ChildTypes?.HasAttachments ?? true)
-        {
-            var attachments = await _apiClient.GetAttachmentsAsync(page.Id, ct);
-            attachmentBaselines = await SaveAttachments(attachments, pageDir, page.Id, page.Title, mergeMode: true, report, ct);
-        }
+        var attachmentBaselines = await SyncPageAttachments(page, pageDir, mergeMode: true, report, ct);
 
         if (localContent == null)
         {
@@ -314,6 +304,46 @@ public class DownloadService
     }
 
     /// <summary>
+    /// Lists the page's server attachments and mirrors them, returning the
+    /// post-sync baseline map for the marker — or <c>null</c> when attachments
+    /// were not synced at all (the page has none, or the listing itself failed).
+    /// <c>null</c> preserves the marker's existing attachment baselines instead of
+    /// replacing them with an empty set, so a failed listing cannot erase what the
+    /// mirror already knows. A failed listing is reported: "could not list" must
+    /// not be indistinguishable from "has no attachments" — that is exactly how a
+    /// whole page's attachments used to go missing silently.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, AttachmentBaseline>?> SyncPageAttachments(
+        PageData page, string pageDir, bool mergeMode, SyncReport report, CancellationToken ct)
+    {
+        if (!(page.ChildTypes?.HasAttachments ?? true))
+            return null;
+
+        List<AttachmentData> attachments;
+        try
+        {
+            attachments = await _apiClient.GetAttachmentsAsync(page.Id, ct);
+        }
+        catch (ConfluenceApiException ex) when (ex.IsAuthFailure)
+        {
+            throw; // auth is global — abort the run rather than report it per page
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to fetch the attachment list for page '{Title}' (ID: {PageId})", page.Title, page.Id);
+            report.AddFailedAttachment(page.Id, page.Title, SyncReport.AttachmentListingFileName,
+                $"не удалось получить список вложений — вложения страницы не синхронизированы: {ex.Message}");
+            return null;
+        }
+
+        return await SaveAttachments(attachments, pageDir, page.Id, page.Title, mergeMode, report, ct);
+    }
+
+    /// <summary>
     /// Mirrors server attachments to the local directory and returns the post-sync
     /// baseline map for stamping into the marker. With a baseline,
     /// <see cref="AttachmentChangeAnalyzer"/> decides the source: in
@@ -415,7 +445,17 @@ public class DownloadService
                 }
                 catch (Exception ex)
                 {
+                    // A failed attachment is a real mirror divergence, not a
+                    // detail: report it so the caller (CLI summary / MCP
+                    // envelope) sees an incomplete download instead of a clean
+                    // "completed". Keeping the prior baseline (when any) leaves
+                    // the change detectable on the next run instead of letting a
+                    // stale local file pose as synced.
                     _logger.LogError(ex, "Failed to download attachment: {Title}", att.Title);
+                    report.AddFailedAttachment(pageId, pageTitle, att.Title,
+                        $"не удалось скачать вложение: {ex.Message}");
+                    if (prior != null)
+                        baselines[localName] = prior;
                 }
             });
 

@@ -91,11 +91,11 @@ public class HttpClientConfluenceApiClient : IConfluenceApiClient
         {
             var url = $"{_baseUrl}/rest/api/content/{pageId}/child/attachment?limit={limit}&start={start}&expand=extensions,version";
             using var response = await _httpClient.GetAsync(url, ct);
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning("Failed to fetch attachments for page {PageId}. Status code: {StatusCode}", pageId, response.StatusCode);
-                break;
-            }
+            // Throw instead of returning a partial/empty list: "listing failed"
+            // must not be indistinguishable from "the page has no attachments" —
+            // that silently dropped a page's attachments from the mirror. The
+            // decision to continue belongs to the caller, which reports the gap.
+            await EnsureSuccessAsync(response, $"Failed to fetch attachments for page {pageId}", ct);
 
             var content = await response.Content.ReadAsStringAsync(ct);
             var result = JsonConvert.DeserializeObject<ConfluenceResponse<AttachmentData>>(content)

@@ -72,6 +72,19 @@ Every tool returns one of two shapes:
 
 The `error` field flattens the full `InnerException` chain joined with `→`, so the root cause is visible without extra calls.
 
+### `success: true` does not mean "everything is in sync"
+
+A sync operation can finish while part of the mirror could **not** be synchronised. Before telling the user the mirror is up to date, check:
+
+| Field | Meaning |
+|---|---|
+| `report.hasIssues` | `true` when the report holds conflicts, orphans **or** failed attachments. |
+| `report.failedAttachments[]` | Attachments that could not be synchronised: `pageId`, `pageTitle`, `fileName`, `reason`. A `fileName` of `(список вложений)` means the page's attachment **listing** failed, so *none* of its attachments were synced. |
+
+The `summary` always names the count (`… ; 1 attachment(s) failed`), so you can spot this without passing `report: true`.
+
+A failed attachment is a real divergence, not a cosmetic warning: the page folder is missing a file the server has (or the server is missing a local one). Retry the tool once; if the same attachment keeps failing, the cause is usually server-side — e.g. Confluence lost the binary and answers the media link with `400` — and needs the user, not another retry. Do not "repair" it by deleting the local page folder or re-downloading the whole tree.
+
 ---
 
 ## The six sync operations — when to choose which

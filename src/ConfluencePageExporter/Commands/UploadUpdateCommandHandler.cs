@@ -74,6 +74,8 @@ public sealed class UploadUpdateCommandHandler : ICommandHandler
         _writer.WriteLine("Upload update completed.");
         if (showReport)
             report.PrintReport(_writer);
+        else
+            report.PrintFailureWarning(_writer);
         return 0;
     }
 }

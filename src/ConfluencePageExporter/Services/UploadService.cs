@@ -751,15 +751,20 @@ public class UploadService
     /// is left untouched and reported; in force mode local always wins (a
     /// server-side change is overwritten with a warning). Without a baseline it
     /// falls back to "push if it differs".
+    /// Returns <c>null</c> when the server attachment list could not be fetched:
+    /// the attachments are then left alone (pushing blindly would treat every
+    /// existing server attachment as new) and the gap is reported, while a null
+    /// map keeps the marker's prior baselines instead of wiping them.
     /// </summary>
-    private async Task<IReadOnlyDictionary<string, AttachmentBaseline>> UploadPageAttachments(
+    private async Task<IReadOnlyDictionary<string, AttachmentBaseline>?> UploadPageAttachments(
         string pageId, string pageDir, string pageTitle, bool mergeMode, SyncReport? report, CancellationToken ct)
     {
         var files = LocalStorageHelper.GetAttachmentFiles(pageDir).ToList();
         if (files.Count == 0) return EmptyAttachmentBaselines;
 
         var priorBaselines = PageMarker.Load(pageDir)?.Attachments;
-        var existingAttachments = await _apiClient.GetAttachmentsAsync(pageId, ct);
+        var existingAttachments = await TryListServerAttachments(pageId, pageTitle, report, ct);
+        if (existingAttachments == null) return null;
         var wrote = 0;
         // Attachments whose prior baseline must be kept verbatim — a merge skip
         // (server-newer / conflict) where local was NOT synced. Recomputing their
@@ -844,9 +849,41 @@ public class UploadService
 
         // Re-fetch the authoritative server state only when something was written,
         // so an unchanged upload costs no extra call. Merge-skipped attachments
-        // keep their prior baseline.
-        var currentServer = wrote == 1 ? await _apiClient.GetAttachmentsAsync(pageId, ct) : existingAttachments;
+        // keep their prior baseline. If that re-fetch fails the write itself
+        // succeeded, but we have no trustworthy state to build baselines from —
+        // report it and keep the prior ones so the next sync re-checks.
+        List<AttachmentData>? currentServer = existingAttachments;
+        if (wrote == 1)
+        {
+            currentServer = await TryListServerAttachments(pageId, pageTitle, report, ct);
+            if (currentServer == null) return null;
+        }
+
         return await FinalizeAttachmentBaselinesAsync(files, currentServer, priorBaselines, preserved, ct);
+    }
+
+    /// <summary>
+    /// Fetches the page's server attachments, or returns <c>null</c> after
+    /// reporting the failure. Auth failures (401/403) are global and propagate.
+    /// </summary>
+    private async Task<List<AttachmentData>?> TryListServerAttachments(
+        string pageId, string pageTitle, SyncReport? report, CancellationToken ct)
+    {
+        try
+        {
+            return await _apiClient.GetAttachmentsAsync(pageId, ct);
+        }
+        catch (ConfluenceApiException ex) when (ex.IsAuthFailure)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to fetch the attachment list for page '{Title}' (ID: {PageId})", pageTitle, pageId);
+            report?.AddFailedAttachment(pageId, pageTitle, SyncReport.AttachmentListingFileName,
+                $"не удалось получить список вложений — вложения страницы не синхронизированы: {ex.Message}");
+            return null;
+        }
     }
 
     private static async Task<IReadOnlyDictionary<string, AttachmentBaseline>> FinalizeAttachmentBaselinesAsync(

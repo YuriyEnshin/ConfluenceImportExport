@@ -219,7 +219,26 @@ public class CompareService
         if (localFiles.Count == 0 && !remote.HasAttachments)
             return;
 
-        var serverAttachments = await _apiClient.GetAttachmentsAsync(remote.PageId, ct);
+        List<AttachmentData> serverAttachments;
+        try
+        {
+            serverAttachments = await _apiClient.GetAttachmentsAsync(remote.PageId, ct);
+        }
+        catch (ConfluenceApiException ex) when (ex.IsAuthFailure)
+        {
+            throw; // auth is global — abort the comparison rather than note it per page
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // A page whose attachment listing is unreadable is *unknown*, not
+            // "identical" — say so instead of reporting no differences.
+            _logger.LogError(ex, "Failed to fetch the attachment list for page '{Title}' (ID: {PageId})", remote.Title, remote.PageId);
+            report.Notes.Add(
+                $"Attachments of page '{remote.Title}' (ID {remote.PageId}) could not be compared: "
+                + $"fetching the server attachment list failed ({ex.Message}).");
+            return;
+        }
+
         var priorBaselines = PageMarker.Load(localDir)?.Attachments;
 
         var localPathsByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

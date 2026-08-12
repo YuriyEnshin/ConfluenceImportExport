@@ -282,6 +282,12 @@ In `merge` mode the tool uses the `.id<pageId>_<version>` marker to detect confl
 
 With the `--report` flag, a summary of all pages requiring manual resolution is printed after the command finishes.
 
+A separate section of the report lists **attachments that were not synchronised** —
+files that could not be downloaded or uploaded (for example, the server lost the
+binary content and answers the download link with an error), plus pages whose
+attachment listing could not be fetched. This is a mirror divergence, so a warning
+about such attachments is printed even without `--report`.
+
 ## Command download update
 
 Force-downloads a Confluence page (or subtree) to the local disk. Differing pages are overwritten with the server versions. Local edits will be lost.
