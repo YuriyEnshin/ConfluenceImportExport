@@ -6,7 +6,7 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/).
 
-## [Unreleased]
+## [2.20.0] — 2026-09-17
 
 ### Добавлено
 
