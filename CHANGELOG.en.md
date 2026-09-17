@@ -6,6 +6,17 @@ All notable changes to the Confluence Page Exporter tool are documented in this 
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- `upload merge` and `upload update` no longer advance the `.id` marker version
+  to the server version for a page whose body is unchanged locally when the
+  server body is newer. Previously the server edit was passed off as synced: if
+  the page was then edited locally without running `download merge`, the change
+  was treated as local instead of a conflict and `upload merge` silently
+  overwrote the server edit.
+
 ## [2.20.0] — 2026-09-17
 
 ### Added

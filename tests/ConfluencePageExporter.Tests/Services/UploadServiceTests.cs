@@ -619,6 +619,28 @@ public class UploadServiceTests
     }
 
     [Fact]
+    public async Task UploadUpdateAsync_ShouldKeepMarkerVersion_WhenBodyUnchangedLocally_ButServerBodyNewer()
+    {
+        // Force-режим не пушит тело, которое локально не менялось (по хэшу), — но и
+        // версию маркера до серверной поднимать нельзя: серверная правка не попала в
+        // локальную копию, и последующий 'upload merge' перетёр бы её как «локальную».
+        using var temp = new TempDirectoryScope();
+        var sourceDir = await CreateSyncedPageAsync(temp.RootPath, "Root", "Root", "<p>old</p>", "100", 5);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>server edit</p>", versionNumber: 7);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadUpdateAsync("SPACE", sourceDir, null, null, recursive: false);
+
+        api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<int?>()), Times.Never);
+        PageMarker.Load(sourceDir).ShouldNotBeNull().Version.ShouldBe(5);
+    }
+
+    [Fact]
     public async Task UploadMergeAsync_ShouldUploadLocallyChangedPage()
     {
         using var temp = new TempDirectoryScope();
@@ -902,6 +924,62 @@ public class UploadServiceTests
         api.Verify(x => x.UpdatePageAsync("100", "Renamed", "<p>server edit</p>", null, 7), Times.Once);
         report.HasIssues.ShouldBeFalse();
         PageMarker.Load(sourceDir).ShouldNotBeNull().Version.ShouldBe(5);
+    }
+
+    [Fact]
+    public async Task UploadMergeAsync_ShouldKeepMarkerVersion_WhenBodyUnchangedLocally_ButServerBodyNewer()
+    {
+        // Ничего не переименовано и не перемещено, локальное тело не менялось (по
+        // хэшу), но на сервере тело новее. Ранний возврат «checking attachments only»
+        // не должен поднимать версию маркера до серверной: иначе серверная правка
+        // выглядит синхронизированной, и следующая локальная правка её перетрёт.
+        using var temp = new TempDirectoryScope();
+        var sourceDir = await CreateSyncedPageAsync(temp.RootPath, "Root", "Root", "<p>old</p>", "100", 5);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>server edit</p>", versionNumber: 7);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<int?>()), Times.Never);
+        PageMarker.Load(sourceDir).ShouldNotBeNull().Version.ShouldBe(5);
+
+        // Последствие: пользователь правит страницу локально и снова делает upload
+        // merge — это конфликт, а не «изменено локально» с перетиранием серверной правки.
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "index.html"), "<p>local edit</p>");
+
+        var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<int?>()), Times.Never);
+        report.ConflictPages.ShouldHaveSingleItem();
+        report.HasIssues.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task UploadMergeAsync_ShouldAdvanceMarkerVersion_WhenBodyUnchanged_AndServerOnlyCanonicalized()
+    {
+        // Контрольный случай: серверная версия новее маркера, но тело совпадает с
+        // локальным с точностью до каноникализации — локальная копия и есть базис
+        // серверной версии, маркер догоняет сервер.
+        using var temp = new TempDirectoryScope();
+        var sourceDir = await CreateSyncedPageAsync(temp.RootPath, "Root", "Root", "<p>same</p>", "100", 5);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Root", "<p>same</p>", versionNumber: 6);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        PageMarker.Load(sourceDir).ShouldNotBeNull().Version.ShouldBe(6);
     }
 
     [Fact]
