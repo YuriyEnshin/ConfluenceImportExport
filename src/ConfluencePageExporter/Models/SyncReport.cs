@@ -8,11 +8,21 @@ public class SyncReport
     private readonly ConcurrentBag<SyncReportItem> _conflictPages = [];
     private readonly ConcurrentBag<SyncReportItem> _orphanPages = [];
     private readonly ConcurrentBag<SyncReportItem> _skippedPages = [];
+    private readonly ConcurrentBag<SyncReportItem> _unappliedPages = [];
     private readonly ConcurrentBag<SyncReportAttachmentItem> _failedAttachments = [];
 
     public IReadOnlyCollection<SyncReportItem> ConflictPages => GetSorted(_conflictPages);
     public IReadOnlyCollection<SyncReportItem> OrphanPages => GetSorted(_orphanPages);
     public IReadOnlyCollection<SyncReportItem> SkippedPages => GetSorted(_skippedPages);
+
+    /// <summary>
+    /// Pages whose local change (rename, move, content) was NOT applied and will
+    /// not arrive on its own: a structural change deferred until the server-side
+    /// edits are downloaded, or a failed write. Unlike a skip (nothing to do in
+    /// this direction) the user's intent is left unfulfilled, so it counts as an
+    /// issue.
+    /// </summary>
+    public IReadOnlyCollection<SyncReportItem> UnappliedPages => GetSorted(_unappliedPages);
 
     /// <summary>
     /// Attachments that could not be synchronised at all. Unlike a skip or a
@@ -25,7 +35,8 @@ public class SyncReport
         .ThenBy(x => x.PageId, StringComparer.Ordinal)
         .ToArray();
 
-    public bool HasIssues => !_conflictPages.IsEmpty || !_orphanPages.IsEmpty || !_failedAttachments.IsEmpty;
+    public bool HasIssues => !_conflictPages.IsEmpty || !_orphanPages.IsEmpty
+        || !_unappliedPages.IsEmpty || !_failedAttachments.IsEmpty;
 
     public void AddConflict(string pageId, string title, string reason)
     {
@@ -40,6 +51,11 @@ public class SyncReport
     public void AddSkipped(string pageId, string title, string reason)
     {
         _skippedPages.Add(new SyncReportItem(pageId, title, reason));
+    }
+
+    public void AddUnapplied(string pageId, string title, string reason)
+    {
+        _unappliedPages.Add(new SyncReportItem(pageId, title, reason));
     }
 
     /// <summary>
@@ -87,6 +103,14 @@ public class SyncReport
                 writer.WriteLine($"  ~~ [{item.PageId}] {item.Title} — {item.Reason}");
         }
 
+        if (!_unappliedPages.IsEmpty)
+        {
+            writer.WriteLine();
+            writer.WriteLine($"Не применены локальные изменения (требуют действий): {_unappliedPages.Count}");
+            foreach (var item in UnappliedPages)
+                writer.WriteLine($"  !~ [{item.PageId}] {item.Title} — {item.Reason}");
+        }
+
         if (!_failedAttachments.IsEmpty)
         {
             writer.WriteLine();
@@ -105,19 +129,27 @@ public class SyncReport
     }
 
     /// <summary>
-    /// One-line warning about failures that leave the mirror incomplete, for the
-    /// default (no <c>--report</c>) output: a silent gap must not hide behind an
-    /// "operation completed" line. <see cref="PrintReport"/> already lists the
-    /// details, so callers print one or the other.
+    /// One-line warnings about failures that leave the mirror incomplete or a
+    /// local change unapplied, for the default (no <c>--report</c>) output: a
+    /// silent gap must not hide behind an "operation completed" line.
+    /// <see cref="PrintReport"/> already lists the details, so callers print one
+    /// or the other.
     /// </summary>
     public void PrintFailureWarning(IConsoleWriter writer)
     {
-        if (_failedAttachments.IsEmpty)
-            return;
+        if (!_unappliedPages.IsEmpty)
+        {
+            writer.WriteLine(
+                $"ВНИМАНИЕ: не применены локальные изменения страниц: {_unappliedPages.Count}. "
+                + "Подробности и что делать — выводятся с --report.");
+        }
 
-        writer.WriteLine(
-            $"ВНИМАНИЕ: не удалось синхронизировать вложений: {_failedAttachments.Count}. "
-            + "Зеркало неполное — подробности выводятся с --report.");
+        if (!_failedAttachments.IsEmpty)
+        {
+            writer.WriteLine(
+                $"ВНИМАНИЕ: не удалось синхронизировать вложений: {_failedAttachments.Count}. "
+                + "Зеркало неполное — подробности выводятся с --report.");
+        }
     }
 
     private static IReadOnlyCollection<SyncReportItem> GetSorted(ConcurrentBag<SyncReportItem> bag)

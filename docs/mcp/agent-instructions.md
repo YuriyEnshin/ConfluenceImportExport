@@ -78,10 +78,11 @@ A sync operation can finish while part of the mirror could **not** be synchronis
 
 | Field | Meaning |
 |---|---|
-| `report.hasIssues` | `true` when the report holds conflicts, orphans **or** failed attachments. |
+| `report.hasIssues` | `true` when the report holds conflicts, orphans, unapplied pages **or** failed attachments. |
+| `report.unappliedPages[]` | Pages whose local change (rename, move or content) was **not** applied on the server and will not get there by itself: `pageId`, `title`, `reason`. Either a structural change deferred until server edits are downloaded, or a failed write. The `reason` says what was not done and what to do. Unlike `skippedPages` (nothing to push in this direction), this is the user's intent left unfulfilled. |
 | `report.failedAttachments[]` | Attachments that could not be synchronised: `pageId`, `pageTitle`, `fileName`, `reason`. A `fileName` of `(список вложений)` means the page's attachment **listing** failed, so *none* of its attachments were synced. |
 
-The `summary` always names the count (`… ; 1 attachment(s) failed`), so you can spot this without passing `report: true`.
+The `summary` always names the counts (`… ; 1 unapplied`, `… ; 1 attachment(s) failed`), so you can spot this without passing `report: true`.
 
 A failed attachment is a real divergence, not a cosmetic warning: the page folder is missing a file the server has (or the server is missing a local one). Retry the tool once; if the same attachment keeps failing, the cause is usually server-side — e.g. Confluence lost the binary and answers the media link with `400` — and needs the user, not another retry. Do not "repair" it by deleting the local page folder or re-downloading the whole tree.
 
@@ -121,7 +122,8 @@ If the user moves a page folder to a different location inside the synced tree (
 - Pass `sourceDir` pointing at the moved folder itself, **or** at any ancestor with `recursive: true`. The server-side `ancestors` (parent) and/or title are updated in a single API call; the local `.idPAGEID_VER` marker is refreshed to the new version.
 - **Do not run `confluence_download_merge` after a local move and before `upload merge`.** Download treats the server's hierarchy as canonical and will move the local folder back to its original location, undoing the user's intent.
 - `confluence_compare` may report the move as "changed on server" when only dates are available — its heuristic compares server `version.when` with local directory mtime. Pass `detectSource: true` to consult version history for a more reliable verdict, but `upload merge` itself does **not** need `compare` to run first.
-- If `upload merge` reports the page as skipped with a hint about a deferred move, the server's content was updated since the last sync. Run `confluence_download_merge` for that page, re-apply the local move on the now-up-to-date folder, then run `upload merge` again.
+- A rename or move is applied even when the page body is unchanged: the new title/parent is sent together with the server's current body, so server content edits are not overwritten. If the page was renamed both locally and on the server, it is reported in `conflictPages`.
+- If `upload merge` lists the page in `report.unappliedPages` with a hint about a deferred rename/move, the server's content was updated since the last sync and the local body could not be proven unchanged. Run `confluence_download_merge` for that page, re-apply the local rename/move on the now-up-to-date folder, then run `upload merge` again.
 
 ## Working with multiple spaces
 

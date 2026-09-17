@@ -401,9 +401,10 @@ Uploads only locally changed pages to the server. Server edits are preserved. Co
 Additionally, `upload merge` recognises structural changes in the local tree:
 
 - **Local folder move** (the new parent folder has its own `.id` marker) — the page is moved on the server (`ancestors`) in a single API call.
+- **Local folder rename** (the folder name no longer matches the title in the `.id` marker) — the page is renamed on the server, even when the page body has not changed. If the page was renamed both locally and on the server, it is reported as a conflict.
 - **A new folder inside an already-synced subtree** — it is created as a page on the server with the correct parent and the local `.id` marker is written automatically. There is no need to use `upload create` for single new pages inside an existing hierarchy.
 
-If the same page's content was also changed on the server, the structural move is deferred: the page goes into the Skipped section with a hint to run `download merge`, move the folder again, and repeat `upload merge`.
+If the local page body has not changed since the last sync, the move and rename are applied on top of the server body — server content edits are not overwritten and will be pulled by the next `download merge`. If the body cannot be proven unchanged and the server content is newer, the structural change is deferred: the page goes into the "local changes not applied" section (`unappliedPages`, raises `hasIssues`) with a hint to run `download merge`, rename/move the folder again if needed, and repeat `upload merge`. Pages whose write to the server failed go into the same section.
 
 ### upload merge parameters
 
