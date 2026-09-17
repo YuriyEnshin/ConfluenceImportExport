@@ -498,7 +498,9 @@ public class UploadService
             // attachment-only edit is silently never uploaded.
             _logger.LogDebug("Page {PageId} '{Title}' body is unchanged; checking attachments only", pageId, title);
             var unchangedBaselines = await UploadPageAttachments(pageId, pageDir, title, mergeMode: true, report, ct);
-            await UpdatePageIdMarker(pageDir, pageId, serverPage.Version?.Number, title, spaceKey, unchangedBaselines, ct);
+            var serverVersion = serverPage.Version?.Number;
+            var markerVersion = ResolveMarkerVersionOverServerBody(syncState, localContent, serverPage.Body.Storage.Value, serverVersion, serverVersion);
+            await UpdatePageIdMarker(pageDir, pageId, markerVersion, title, spaceKey, unchangedBaselines, ct);
             return;
         }
 
@@ -544,17 +546,9 @@ public class UploadService
                 var structuralResult = await _apiClient.UpdatePageAsync(pageId, title, serverPage.Body.Storage.Value, moveToParentId, serverPage.Version?.Number, ct);
                 var structuralBaselines = await UploadPageAttachments(pageId, pageDir, title, mergeMode: true, report, ct);
 
-                // The new server version carries the server body, so the local
-                // index.html is its baseline only if it already matched that body
-                // (up to canonicalisation). If the server body is newer, advancing
-                // the marker would pass that server edit off as synced and a later
-                // local edit would overwrite it — keep the old version so
-                // 'download merge' still pulls it.
-                var serverVersion = serverPage.Version?.Number;
-                bool localIsServerBaseline = syncState.MarkerVersion == null
-                    || syncState.MarkerVersion == serverVersion
-                    || _normalizer.ContentEquals(localContent, serverPage.Body.Storage.Value);
-                var markerVersion = localIsServerBaseline ? structuralResult.VersionNumber : syncState.MarkerVersion;
+                // The new server version carries the server body, not the local one.
+                var markerVersion = ResolveMarkerVersionOverServerBody(
+                    syncState, localContent, serverPage.Body.Storage.Value, serverPage.Version?.Number, structuralResult.VersionNumber);
                 await UpdatePageIdMarker(pageDir, structuralResult.Id, markerVersion, title, spaceKey, structuralBaselines, ct);
             }
             catch (ConfluenceApiException ex)
@@ -772,7 +766,10 @@ public class UploadService
                 "Page {PageId} '{Title}' body is unchanged (title, content, parent match server); checking attachments only",
                 pageId, title);
             var unchangedBaselines = await UploadPageAttachments(pageId, pageDir, title, mergeMode: false, report, ct);
-            return (new PageUpdateResult(pageId, serverVersion ?? 0), title, unchangedBaselines);
+            // Force mode still doesn't push a body that is unchanged locally, so the
+            // server body stays in place — same marker rule as in merge.
+            var markerVersion = ResolveMarkerVersionOverServerBody(syncState, localContent, serverPage.Body.Storage.Value, serverVersion, serverVersion);
+            return (new PageUpdateResult(pageId, markerVersion ?? 0), title, unchangedBaselines);
         }
 
         _logger.LogDebug("Page {PageId} changes detected: title={TitleChanged}, content={ContentChanged}, parent={ParentChanged}",
@@ -1060,6 +1057,25 @@ public class UploadService
     {
         foreach (var file in LocalStorageHelper.GetAttachmentFiles(pageDir))
             _logger.LogInformation("DRY RUN: Would upload attachment '{FileName}'", Path.GetFileName(file));
+    }
+
+    /// <summary>
+    /// Marker version after a sync that left the server body in place (a
+    /// structural update sent with the server body, or an attachments-only pass).
+    /// The local index.html is the baseline of <paramref name="resultVersion"/>
+    /// only if it already matched the server body (up to canonicalisation) or the
+    /// marker was already at the server version. If the server body is newer,
+    /// advancing the marker would pass that server edit off as synced and a later
+    /// local edit would overwrite it — keep the old version so the server edit
+    /// still reads as newer and a later local edit is a conflict.
+    /// </summary>
+    private int? ResolveMarkerVersionOverServerBody(
+        LocalSyncState syncState, string localContent, string serverContent, int? serverVersion, int? resultVersion)
+    {
+        bool localIsServerBaseline = syncState.MarkerVersion == null
+            || syncState.MarkerVersion == serverVersion
+            || _normalizer.ContentEquals(localContent, serverContent);
+        return localIsServerBaseline ? resultVersion : syncState.MarkerVersion;
     }
 
     private async Task UpdatePageIdMarker(string pageDir, string pageId, int? version, string? originalTitle = null, string? spaceKey = null, IReadOnlyDictionary<string, AttachmentBaseline>? attachments = null, CancellationToken ct = default)
