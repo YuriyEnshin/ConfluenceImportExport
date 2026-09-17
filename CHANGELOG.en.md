@@ -6,6 +6,31 @@ All notable changes to the Confluence Page Exporter tool are documented in this 
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+
+- The sync report gained a "local changes not applied" section
+  (`report.unappliedPages`): pages whose rename, move or content could not be
+  applied on the server — a structural change deferred until `download merge`,
+  or a failed write. Such entries raise `hasIssues`, appear in the MCP
+  envelope's `summary` (`… ; 1 unapplied`), and in the CLI a warning is printed
+  even without `--report`. Page write failures (other than `409`) used to be
+  listed among skipped pages.
+
+### Fixed
+
+- `upload merge` no longer silently loses a page rename when the page body is
+  unchanged (#64): the new title is applied on top of the server body, just like
+  a pure move. Previously the page went into skipped pages with a reason about
+  content canonicalisation while `hasIssues` stayed `false`. A page renamed both
+  locally and on the server is now reported as a conflict, and the reason for a
+  deferred change names exactly what was not applied (rename and/or move).
+- After moving or renaming a page via `upload merge`, the `.id` marker version is
+  no longer advanced when the server content is newer than the local copy: the
+  server edit is not passed off as synced and cannot be overwritten by the next
+  local edit.
+
 ## [2.19.0] — 2026-08-12
 
 ### Added

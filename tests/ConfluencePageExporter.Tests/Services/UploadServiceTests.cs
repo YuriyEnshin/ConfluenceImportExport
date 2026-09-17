@@ -823,8 +823,179 @@ public class UploadServiceTests
         var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
 
         api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<int?>()), Times.Never);
-        report.SkippedPages.Count().ShouldBe(1);
-        report.SkippedPages.First().Reason.ShouldContain("перемещение отложено");
+        // Отложенное перемещение — невыполненное намерение пользователя, а не штатный пропуск.
+        report.SkippedPages.ShouldBeEmpty();
+        report.UnappliedPages.ShouldHaveSingleItem().Reason.ShouldContain("перемещение отложено");
+        report.HasIssues.ShouldBeTrue();
+    }
+
+    // ── rename (issue #64): folder renamed, body untouched ──
+
+    private static readonly ContentHasher Hasher = new(new XmlContentNormalizer());
+
+    /// <summary>
+    /// Page folder <paramref name="folderName"/> whose marker records the page as
+    /// synced at <paramref name="version"/> under <paramref name="markerTitle"/>,
+    /// with a content hash of the local body — i.e. the body is provably unchanged.
+    /// </summary>
+    private static async Task<string> CreateSyncedPageAsync(
+        string parentDir, string folderName, string markerTitle, string content, string pageId, int version)
+    {
+        var pageDir = LocalPageTreeBuilder.CreatePage(parentDir, folderName, content);
+        await PageMarker.UpdateAsync(pageDir, pageId, version, markerTitle, "SPACE", content, Hasher);
+        File.SetLastWriteTimeUtc(Path.Combine(pageDir, "index.html"), DateTime.UtcNow.AddHours(-1));
+        return pageDir;
+    }
+
+    [Fact]
+    public async Task UploadMergeAsync_ShouldApplyLocalRename_WhenBodyUnchanged_EvenIfServerBodyCanonicalized()
+    {
+        // Сценарий из issue #64: папка переименована, тело не трогали, серверное
+        // тело отличается только каноникализацией (версия та же). Раньше вердикт
+        // по контенту был Server, и переименование молча терялось.
+        using var temp = new TempDirectoryScope();
+        var sourceDir = await CreateSyncedPageAsync(temp.RootPath, "Новый заголовок", "Старый заголовок", "<p>local</p>", "100", 10);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Старый заголовок", "<p>server canonical</p>", versionNumber: 10);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.UpdatePageAsync("100", "Новый заголовок", "<p>server canonical</p>", null, 10))
+            .ReturnsAsync(new PageUpdateResult("100", 11));
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        // Новый заголовок уходит поверх серверного тела — локальное тело сервер не перетирает.
+        api.Verify(x => x.UpdatePageAsync("100", "Новый заголовок", "<p>server canonical</p>", null, 10), Times.Once);
+        report.HasIssues.ShouldBeFalse();
+        report.SkippedPages.ShouldBeEmpty();
+        var marker = PageMarker.Load(sourceDir).ShouldNotBeNull();
+        marker.Title.ShouldBe("Новый заголовок");
+        marker.Version.ShouldBe(11);
+    }
+
+    [Fact]
+    public async Task UploadMergeAsync_ShouldApplyLocalRename_ButKeepMarkerVersion_WhenServerBodyNewer()
+    {
+        // Папка переименована, локальное тело не менялось, но на сервере тело новее.
+        // Переименование применяется поверх серверного тела, а версия маркера НЕ
+        // поднимается: иначе серверная правка выглядела бы синхронизированной и
+        // последующая локальная правка её перетёрла бы.
+        using var temp = new TempDirectoryScope();
+        var sourceDir = await CreateSyncedPageAsync(temp.RootPath, "Renamed", "Original", "<p>old</p>", "100", 5);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Original", "<p>server edit</p>", versionNumber: 7);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.UpdatePageAsync("100", "Renamed", "<p>server edit</p>", null, 7))
+            .ReturnsAsync(new PageUpdateResult("100", 8));
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        api.Verify(x => x.UpdatePageAsync("100", "Renamed", "<p>server edit</p>", null, 7), Times.Once);
+        report.HasIssues.ShouldBeFalse();
+        PageMarker.Load(sourceDir).ShouldNotBeNull().Version.ShouldBe(5);
+    }
+
+    [Fact]
+    public async Task UploadMergeAsync_ShouldReportConflict_WhenRenamedBothLocallyAndOnServer()
+    {
+        using var temp = new TempDirectoryScope();
+        var sourceDir = await CreateSyncedPageAsync(temp.RootPath, "Local Name", "Original", "<p>same</p>", "100", 5);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Server Name", "<p>same</p>", versionNumber: 6);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<int?>()), Times.Never);
+        report.ConflictPages.ShouldHaveSingleItem().Reason.ShouldContain("переименована с обеих сторон");
+        report.HasIssues.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task UploadMergeAsync_ShouldNotRevertServerRename()
+    {
+        // Переименовали только на сервере: локальная папка хранит прежний заголовок,
+        // это не намерение пользователя — upload его не откатывает и не поднимает проблему.
+        using var temp = new TempDirectoryScope();
+        var sourceDir = await CreateSyncedPageAsync(temp.RootPath, "Original", "Original", "<p>same</p>", "100", 5);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Server Name", "<p>same</p>", versionNumber: 6);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<int?>()), Times.Never);
+        report.SkippedPages.ShouldHaveSingleItem();
+        report.HasIssues.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task UploadMergeAsync_ShouldReportDeferredRename_AsUnapplied_WhenServerContentNewer()
+    {
+        // Без хэша в маркере локальное тело нельзя доказать неизменным, поэтому
+        // решает анализатор контента (Server). Переименование откладывается — и
+        // отчёт должен назвать именно его, подняв hasIssues.
+        using var temp = new TempDirectoryScope();
+        var sourceDir = LocalPageTreeBuilder.CreatePage(temp.RootPath, "Renamed", "<p>old local</p>");
+        await PageMarker.WriteAsync(sourceDir, "100", 2, "Original", "SPACE");
+        File.SetLastWriteTimeUtc(Path.Combine(sourceDir, "index.html"), DateTime.UtcNow.AddHours(-1));
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Original", "<p>server edit</p>", versionNumber: 5);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        api.Verify(x => x.UpdatePageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<int?>()), Times.Never);
+        report.SkippedPages.ShouldBeEmpty();
+        report.UnappliedPages.ShouldHaveSingleItem().Reason.ShouldContain("переименование ('Original' → 'Renamed') отложено");
+        report.HasIssues.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task UploadMergeAsync_ShouldReportFailedWrite_AsUnapplied()
+    {
+        using var temp = new TempDirectoryScope();
+        var sourceDir = await CreateSyncedPageAsync(temp.RootPath, "Taken Title", "Original", "<p>same</p>", "100", 5);
+
+        var serverPage = ApiClientMockFactory.CreatePage("100", "Original", "<p>same</p>", versionNumber: 5);
+        var api = ApiClientMockFactory.CreateStrict();
+        api.Setup(x => x.TryGetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.GetPageByIdAsync("100")).ReturnsAsync(serverPage);
+        api.Setup(x => x.UpdatePageAsync("100", "Taken Title", "<p>same</p>", null, 5))
+            .ThrowsAsync(new ConfluenceApiException(HttpStatusCode.BadRequest, "A page with this title already exists"));
+
+        var analyzer = new ChangeSourceAnalyzer(api.Object, LoggerTestHelper.CreateLogger<ChangeSourceAnalyzer>());
+        var service = new UploadService(api.Object, new XmlContentNormalizer(), LoggerTestHelper.CreateLogger<UploadService>());
+
+        var report = await service.UploadMergeAsync("SPACE", sourceDir, null, null, recursive: false, analyzer);
+
+        report.UnappliedPages.ShouldHaveSingleItem().Reason.ShouldContain("already exists");
+        report.HasIssues.ShouldBeTrue();
+        PageMarker.Load(sourceDir).ShouldNotBeNull().Title.ShouldBe("Original");
     }
 
     [Fact]

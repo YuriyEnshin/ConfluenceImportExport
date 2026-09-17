@@ -502,21 +502,60 @@ public class UploadService
             return;
         }
 
-        // Структурное перемещение без изменения контента/заголовка. Применяем
-        // безусловно: пользователь явно перенёс папку, а локальные правки
-        // контента отсутствуют. Чтобы не порождать «шумовую» правку контента
-        // на сервере, отправляем серверные значения title/body — Confluence
-        // создаст новую версию только с изменением ancestors.
-        if (parentChanged && !contentChanged && !titleChanged)
+        // Who renamed the page? The marker holds the title as of the last sync:
+        // a folder name that no longer matches it is a local rename (the user's
+        // intent), a server title that moved away from it is a server rename.
+        // Without a marker title (legacy marker) the origin is unknown.
+        var markerTitle = syncState.Marker?.Title;
+        bool renamedLocally = titleChanged && markerTitle != null
+            && !string.Equals(title, markerTitle, StringComparison.Ordinal);
+        bool renamedOnServer = titleChanged && markerTitle != null
+            && !string.Equals(serverPage.Title, markerTitle, StringComparison.Ordinal);
+        // A title difference that may carry the user's intent and would be lost
+        // if the page is skipped (a pure server rename is not one).
+        bool titleIntent = titleChanged && (markerTitle == null || renamedLocally);
+
+        if (renamedLocally && renamedOnServer)
+        {
+            var bothRenamedReason =
+                $"Страница переименована с обеих сторон: локально — '{title}', на сервере — '{serverPage.Title}' "
+                + $"(при синхронизации — '{markerTitle}'); изменения страницы не загружены";
+            if (parentChanged)
+                bothRenamedReason += ", перемещение также отложено до разрешения конфликта";
+            _logger.LogWarning("CONFLICT: Page '{Title}' was renamed both locally and on server ('{ServerTitle}')",
+                title, serverPage.Title);
+            report.AddConflict(pageId, title, bothRenamedReason);
+            return;
+        }
+
+        // Структурное изменение (переименование и/или перемещение папки) без
+        // правок контента. Применяем безусловно: пользователь явно переименовал
+        // или перенёс папку, а локальные правки контента отсутствуют. Чтобы не
+        // порождать «шумовую» правку контента на сервере (и не перетирать
+        // серверные правки тела), отправляем серверное тело — Confluence создаст
+        // новую версию только с новым заголовком/ancestors.
+        if (!contentChanged && (parentChanged || titleChanged) && (!titleChanged || renamedLocally))
         {
             _logger.LogInformation(
-                "Page '{Title}' was moved locally (parent: {OldParent} -> {NewParent}); applying move on the server",
-                title, serverPage.ParentId, moveToParentId);
+                "Page '{Title}' was renamed/moved locally (title: '{OldTitle}' -> '{NewTitle}', parent: {OldParent} -> {NewParent}); applying on the server",
+                title, serverPage.Title, title, serverPage.ParentId, moveToParentId ?? serverPage.ParentId);
             try
             {
-                var moveResult = await _apiClient.UpdatePageAsync(pageId, serverPage.Title, serverPage.Body.Storage.Value, moveToParentId, serverPage.Version?.Number, ct);
-                var moveBaselines = await UploadPageAttachments(pageId, pageDir, title, mergeMode: true, report, ct);
-                await UpdatePageIdMarker(pageDir, moveResult.Id, moveResult.VersionNumber, serverPage.Title, spaceKey, moveBaselines, ct);
+                var structuralResult = await _apiClient.UpdatePageAsync(pageId, title, serverPage.Body.Storage.Value, moveToParentId, serverPage.Version?.Number, ct);
+                var structuralBaselines = await UploadPageAttachments(pageId, pageDir, title, mergeMode: true, report, ct);
+
+                // The new server version carries the server body, so the local
+                // index.html is its baseline only if it already matched that body
+                // (up to canonicalisation). If the server body is newer, advancing
+                // the marker would pass that server edit off as synced and a later
+                // local edit would overwrite it — keep the old version so
+                // 'download merge' still pulls it.
+                var serverVersion = serverPage.Version?.Number;
+                bool localIsServerBaseline = syncState.MarkerVersion == null
+                    || syncState.MarkerVersion == serverVersion
+                    || _normalizer.ContentEquals(localContent, serverPage.Body.Storage.Value);
+                var markerVersion = localIsServerBaseline ? structuralResult.VersionNumber : syncState.MarkerVersion;
+                await UpdatePageIdMarker(pageDir, structuralResult.Id, markerVersion, title, spaceKey, structuralBaselines, ct);
             }
             catch (ConfluenceApiException ex)
             {
@@ -551,18 +590,20 @@ public class UploadService
 
             case ChangeOrigin.Server:
                 // Контент/заголовок на сервере новее — поверх него ничего не пишем.
-                // Структурное перемещение, если оно есть, тоже откладываем: иначе
-                // пришлось бы либо потерять серверные правки, либо перетащить их
-                // в локальную копию (что выходит за рамки upload-операции).
-                // Пользователю выводим явную подсказку.
-                if (parentChanged)
+                // Структурное изменение (переименование/перемещение), если оно
+                // есть, тоже откладываем: иначе пришлось бы либо потерять серверные
+                // правки, либо перетащить их в локальную копию (что выходит за
+                // рамки upload-операции). Отложенное намерение пользователя само не
+                // доедет — это не штатный пропуск, а невыполненное изменение.
+                var deferred = DescribeStructuralChange(titleIntent, parentChanged, serverPage.Title, title);
+                if (deferred != null)
                 {
                     var reason = sourceInfo.Reason
-                        + "; перемещение отложено до синхронизации контента — выполните 'download merge', при необходимости заново переместите папку и повторите 'upload merge'";
-                    _logger.LogInformation(
-                        "Page '{Title}' changed on server and was moved locally; skipping upload and deferring move",
-                        title);
-                    report.AddSkipped(pageId, title, reason);
+                        + $"; {deferred} до синхронизации контента — выполните 'download merge', при необходимости заново переименуйте/переместите папку и повторите 'upload merge'";
+                    _logger.LogWarning(
+                        "Page '{Title}' changed on server and was renamed/moved locally; skipping upload, {Deferred}",
+                        title, deferred);
+                    report.AddUnapplied(pageId, title, reason);
                 }
                 else
                 {
@@ -572,8 +613,9 @@ public class UploadService
                 break;
 
             case ChangeOrigin.Conflict:
-                var conflictReason = parentChanged
-                    ? sourceInfo.Reason + "; перемещение страницы также отложено до разрешения конфликта"
+                var conflictDeferred = DescribeStructuralChange(titleIntent, parentChanged, serverPage.Title, title);
+                var conflictReason = conflictDeferred != null
+                    ? sourceInfo.Reason + $"; {conflictDeferred} до разрешения конфликта"
                     : sourceInfo.Reason;
                 _logger.LogWarning("CONFLICT: Page '{Title}' changed both locally and on server", title);
                 report.AddConflict(pageId, title, conflictReason);
@@ -581,9 +623,29 @@ public class UploadService
 
             default:
                 _logger.LogWarning("Page '{Title}' change source unknown, skipping upload", title);
-                report.AddSkipped(pageId, title, sourceInfo.Reason);
+                var unknownDeferred = DescribeStructuralChange(titleIntent, parentChanged, serverPage.Title, title);
+                if (unknownDeferred != null)
+                    report.AddUnapplied(pageId, title, sourceInfo.Reason + $"; {unknownDeferred}");
+                else
+                    report.AddSkipped(pageId, title, sourceInfo.Reason);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Names the structural change a skipped page leaves unapplied, as a Russian
+    /// "… отложено" clause for the report reason, or null when there is none.
+    /// </summary>
+    private static string? DescribeStructuralChange(bool renamed, bool moved, string serverTitle, string localTitle)
+    {
+        var rename = $"переименование ('{serverTitle}' → '{localTitle}')";
+        return (renamed, moved) switch
+        {
+            (true, true) => $"{rename} и перемещение отложены",
+            (true, false) => $"{rename} отложено",
+            (false, true) => "перемещение отложено",
+            _ => null,
+        };
     }
 
     private async Task ProcessChildForMerge(
@@ -988,7 +1050,7 @@ public class UploadService
         else
         {
             _logger.LogError(ex, "Failed to upload page '{Title}' (ID: {PageId})", title, pageId);
-            report.AddSkipped(pageId, title, $"Не удалось загрузить страницу на сервер: {ex.Message}");
+            report.AddUnapplied(pageId, title, $"Не удалось загрузить страницу на сервер: {ex.Message}");
         }
 
         return true;

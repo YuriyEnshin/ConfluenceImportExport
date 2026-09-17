@@ -489,10 +489,14 @@ public sealed class ConfluenceMcpTools
         if (report.ConflictPages.Count > 0) parts.Add($"{report.ConflictPages.Count} conflict(s)");
         if (report.OrphanPages.Count > 0) parts.Add($"{report.OrphanPages.Count} orphan(s)");
         if (report.SkippedPages.Count > 0) parts.Add($"{report.SkippedPages.Count} skipped");
+        if (report.UnappliedPages.Count > 0) parts.Add($"{report.UnappliedPages.Count} unapplied");
         if (report.FailedAttachments.Count > 0) parts.Add($"{report.FailedAttachments.Count} attachment(s) failed");
         var summary = string.Join("; ", parts) + ".";
         if (report.ConflictPages.Count > 0)
             summary += " To resolve a conflict, call confluence_get_page_content with the conflicting pageId, diff it against the local index.html, and upload the merged result with confluence_upload_update.";
+        if (report.UnappliedPages.Count > 0)
+            summary += " WARNING: some local page changes (rename, move or content) were NOT applied on the server."
+                + " See report.unappliedPages (pass report=true) for the page and the reason — it says what to do (usually confluence_download_merge, then retry the upload).";
         if (report.FailedAttachments.Count > 0)
             summary += " WARNING: the local mirror is incomplete — some attachments could not be synchronised."
                 + " See report.failedAttachments (pass report=true) for the page, file name and reason;"

@@ -139,8 +139,11 @@ this functionality — it is responsible only for synchronisation.
 Note that `success: true` does **not** mean "everything is in sync": attachments
 that could not be synchronised are listed in `report.failedAttachments` (page, file
 name, reason), raise `report.hasIssues` and appear in the `summary`
-(`… ; 1 attachment(s) failed`). The agent must check that field before telling the
-user the mirror is up to date.
+(`… ; 1 attachment(s) failed`). Likewise, pages whose local changes could not be
+applied on the server (a deferred rename or move, a failed write) are listed in
+`report.unappliedPages` with a reason and a hint, raise `report.hasIssues` and
+appear in the `summary` (`… ; 1 unapplied`). The agent must check these fields
+before telling the user the mirror is up to date.
 
 ## Scenario: resolving a conflict with the agent's help
 
